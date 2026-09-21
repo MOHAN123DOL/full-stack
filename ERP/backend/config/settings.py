@@ -162,37 +162,28 @@ REST_FRAMEWORK = {
 # ============================================================
 # JWT
 # ============================================================
-
+REFRESH_COOKIE_NAME = "erp_refresh_token"
+REFRESH_COOKIE_PATH = "/api/erp/"
+REFRESH_COOKIE_SECURE = not DEBUG
+REFRESH_COOKIE_HTTPONLY = True
+REFRESH_COOKIE_SAMESITE = "Lax"
 SIMPLE_JWT = {
-
-    # Short-lived access token
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=10),
-
-    # Refresh token
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 
-    # Rotate refresh token every time
     "ROTATE_REFRESH_TOKENS": True,
-
-    # Old refresh token becomes invalid
     "BLACKLIST_AFTER_ROTATION": True,
 
-    # Don't update DB on every login unless needed
     "UPDATE_LAST_LOGIN": False,
 
-    # JWT algorithm
     "ALGORITHM": "HS256",
-
-    # Use Django secret key
     "SIGNING_KEY": SECRET_KEY,
 
-    # Authorization header
     "AUTH_HEADER_TYPES": ("Bearer",),
 
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
 
-    # Small clock tolerance
     "LEEWAY": 10,
 }
 
@@ -207,7 +198,7 @@ CORS_ALLOWED_ORIGINS = [
      "http://localhost:3000",
      "http://127.0.0.1:3000",
 ]
-
+CORS_ALLOW_CREDENTIALS = True
 # Do NOT use:
 # CORS_ALLOW_ALL_ORIGINS = True
 

@@ -572,3 +572,205 @@
     transform: translateY(0);
   }
 }
+
+
+/* =========================
+   PROFILE HOVER CARD
+========================= */
+
+.erp-profile-hover-card {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+
+  width: 310px;
+
+  padding: 20px;
+
+  background: #ffffff;
+
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.15);
+
+  z-index: 1000;
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    visibility 0.2s ease;
+}
+
+
+/* Show card when hovering profile */
+
+.erp-profile-wrapper:hover .erp-profile-hover-card {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+
+/* Keep card connected to profile */
+
+.erp-profile-wrapper {
+  position: relative;
+}
+
+
+/* =========================
+   PROFILE AVATAR
+========================= */
+
+.erp-profile-card-avatar {
+  width: 70px;
+  height: 70px;
+
+  margin: 0 auto 12px;
+
+  border-radius: 50%;
+
+  overflow: hidden;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: linear-gradient(
+    145deg,
+    #e8eef5,
+    #cfd8e3
+  );
+
+  border: 2px solid #ffffff;
+
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+
+.erp-profile-card-avatar img {
+  width: 100%;
+  height: 100%;
+
+  display: block;
+
+  object-fit: cover;
+  object-position: center;
+}
+
+
+.erp-profile-card-avatar span {
+  font-size: 22px;
+  font-weight: 700;
+
+  color: #334155;
+}
+
+
+/* =========================
+   USERNAME
+========================= */
+
+.erp-profile-card-title {
+  text-align: center;
+
+  font-size: 18px;
+  font-weight: 700;
+
+  color: #172033;
+
+  margin-bottom: 4px;
+}
+
+
+/* =========================
+   ROLE
+========================= */
+
+.erp-profile-card-role {
+  text-align: center;
+
+  font-size: 13px;
+
+  color: #64748b;
+
+  margin-bottom: 18px;
+}
+
+
+/* =========================
+   DETAILS
+========================= */
+
+.erp-profile-card-details {
+  display: flex;
+  flex-direction: column;
+
+  gap: 10px;
+
+  padding-top: 14px;
+
+  border-top: 1px solid #e5e7eb;
+}
+
+
+/* =========================
+   DETAIL ROW
+========================= */
+
+.erp-profile-card-row {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 15px;
+}
+
+
+.erp-profile-card-row span {
+  font-size: 12px;
+
+  color: #64748b;
+
+  white-space: nowrap;
+}
+
+
+.erp-profile-card-row strong {
+  font-size: 12px;
+
+  color: #1e293b;
+
+  font-weight: 600;
+
+  text-align: right;
+
+  max-width: 175px;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* =========================
+   LOADING
+========================= */
+
+.erp-profile-loading {
+  padding: 30px 10px;
+
+  text-align: center;
+
+  font-size: 13px;
+
+  color: #64748b;
+}
