@@ -1,0 +1,757 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap");
+
+.inventory-page{
+    --ink:#1B2430;
+    --muted:#64748B;
+
+    /* Same background as the old design */
+    --canvas:#F3F5F8;
+
+    --surface:#FFFFFF;
+
+    --line:#E2E6ED;
+
+    --steel:#2E5C8A;
+    --steel-soft:#EAF1F8;
+
+    --amber:#C9711F;
+    --amber-soft:#FBF1E7;
+
+    min-height:100vh;
+    width:100%;
+    background:var(--canvas);
+    padding:40px;
+    font-family:"Inter",sans-serif;
+    color:var(--ink);
+}
+
+.inventory-page *,
+.inventory-page *::before,
+.inventory-page *::after{
+
+    box-sizing:border-box;
+
+    margin:0;
+
+    padding:0;
+
+}
+
+.inventory-container{
+
+    max-width:1450px;
+
+    margin:auto;
+
+}
+
+.inventory-hero{
+
+    display:grid;
+
+    grid-template-columns:1.3fr .7fr;
+
+    gap:50px;
+
+    padding:48px 55px;
+
+    border-radius:22px;
+
+    background:
+    linear-gradient(
+        rgba(34,67,101,.90),
+        rgba(34,67,101,.90)
+    );
+
+    color:white;
+
+    margin-bottom:34px;
+
+    overflow:hidden;
+
+    position:relative;
+
+}
+
+.inventory-hero-left{
+
+    display:flex;
+
+    flex-direction:column;
+
+    justify-content:center;
+
+    z-index:2;
+
+}
+
+.inventory-eyebrow{
+
+    display:inline-flex;
+
+    width:max-content;
+
+    margin-bottom:18px;
+
+    font-size:12px;
+
+    font-weight:700;
+
+    letter-spacing:.12em;
+
+    text-transform:uppercase;
+
+    color:#E8EEF5;
+
+}
+
+.inventory-title{
+
+    font-family:"Manrope",sans-serif;
+
+    font-size:48px;
+
+    font-weight:800;
+
+    line-height:1.1;
+
+    margin-bottom:18px;
+
+    color:white;
+
+}
+
+.inventory-subtitle{
+
+    max-width:520px;
+
+    font-size:17px;
+
+    line-height:1.8;
+
+    color:rgba(255,255,255,.85);
+
+    margin-bottom:34px;
+
+}
+
+
+/* ===========================
+   HERO STATS
+=========================== */
+
+.inventory-stats{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:55px;
+
+    margin-top:15px;
+
+    flex-wrap:wrap;
+
+}
+
+.inventory-stat{
+
+    display:flex;
+
+    flex-direction:column;
+
+    position:relative;
+
+}
+
+.inventory-stat h3{
+
+    font-family:"Manrope",sans-serif;
+
+    font-size:34px;
+
+    font-weight:800;
+
+    color:#FFFFFF;
+
+    line-height:1;
+
+    margin-bottom:8px;
+
+}
+
+.inventory-stat span{
+
+    font-size:14px;
+
+    color:rgba(255,255,255,.78);
+
+    letter-spacing:.04em;
+
+    font-weight:500;
+
+}
+
+.inventory-stat:not(:last-child)::after{
+
+    content:"";
+
+    position:absolute;
+
+    right:-28px;
+
+    top:6px;
+
+    width:1px;
+
+    height:42px;
+
+    background:rgba(255,255,255,.18);
+
+}
+
+/* ===========================
+   HERO RIGHT
+=========================== */
+
+.inventory-hero-right{
+
+    position:relative;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    z-index:2;
+
+}
+
+.inventory-illustration{
+
+    position:relative;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    width:100%;
+
+    height:100%;
+
+}
+
+  .inventory-illustration-box{
+
+    width:220px;
+
+    height:220px;
+
+    border-radius:28px;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    background:rgba(255,255,255,.08);
+
+    border:1px solid rgba(255,255,255,.15);
+
+    backdrop-filter:blur(4px);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.12),
+        0 20px 40px rgba(0,0,0,.15);
+
+    position:relative;
+
+    overflow:hidden;
+
+}
+
+
+.inventory-illustration-box::before{
+
+    content:"";
+
+    position:absolute;
+
+    width:180px;
+
+    height:180px;
+
+    border-radius:50%;
+
+    background:rgba(255,255,255,.06);
+
+    top:-60px;
+
+    right:-40px;
+
+}
+
+.inventory-illustration-box::after{
+
+    content:"";
+
+    position:absolute;
+
+    width:130px;
+
+    height:130px;
+
+    border-radius:50%;
+
+    background:rgba(255,255,255,.05);
+
+    bottom:-35px;
+
+    left:-35px;
+
+}
+
+.inventory-illustration-box svg{
+
+    position:relative;
+
+    z-index:2;
+
+    color:white;
+
+    opacity:.95;
+
+}
+
+.inventory-hero:hover .inventory-illustration-box{
+
+    transform:translateY(-6px);
+
+    transition:all .35s ease;
+
+}
+
+/* ===========================
+   MODULE GRID
+=========================== */
+
+.inventory-grid{
+
+    display:grid;
+
+    grid-template-columns:repeat(auto-fit,minmax(420px,1fr));
+
+    gap:32px;
+
+    align-items:stretch;
+
+}
+
+/* ===========================
+   MODULE CARD
+=========================== */
+
+.inventory-card{
+
+    position:relative;
+
+    display:flex;
+
+    flex-direction:column;
+
+    text-decoration:none;
+
+    color:inherit;
+
+    background:#FFFFFF;
+
+    border:1px solid var(--line);
+
+    border-radius:22px;
+
+    padding:34px;
+
+    overflow:hidden;
+
+    transition:
+        transform .35s ease,
+        box-shadow .35s ease,
+        border-color .35s ease;
+
+    box-shadow:
+        0 10px 30px rgba(17,24,39,.05);
+
+}
+
+.inventory-card::before{
+
+    content:"";
+
+    position:absolute;
+
+    left:0;
+
+    top:0;
+
+    width:100%;
+
+    height:5px;
+
+    transition:.35s ease;
+
+}
+
+.inventory-card--steel::before{
+
+    background:var(--steel);
+
+}
+
+.inventory-card--amber::before{
+
+    background:var(--amber);
+
+}
+
+.inventory-card:hover{
+
+    transform:translateY(-8px);
+
+    border-color:transparent;
+
+    box-shadow:
+
+        0 24px 50px rgba(31,41,55,.10);
+
+}
+
+.inventory-card:focus-visible{
+
+    outline:3px solid rgba(46,92,138,.25);
+
+    outline-offset:4px;
+
+}
+
+/* ===========================
+   CARD HEADER
+=========================== */
+
+.inventory-card-header{
+
+    display:flex;
+
+    align-items:flex-start;
+
+    gap:20px;
+
+    margin-bottom:28px;
+
+}
+
+.inventory-card-icon{
+
+    flex-shrink:0;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+}
+
+.inventory-icon{
+
+    width:68px;
+
+    height:68px;
+
+    border-radius:18px;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    transition:
+        transform .35s ease,
+        box-shadow .35s ease;
+
+}
+
+.inventory-icon--steel{
+
+    background:var(--steel-soft);
+
+    color:var(--steel);
+
+}
+
+.inventory-icon--amber{
+
+    background:var(--amber-soft);
+
+    color:var(--amber);
+
+}
+
+.inventory-card:hover .inventory-icon{
+
+    transform:scale(1.08);
+
+    box-shadow:
+
+        0 10px 24px rgba(46,92,138,.15);
+
+}
+
+.inventory-card-heading{
+
+    display:flex;
+
+    flex-direction:column;
+
+    justify-content:center;
+
+    gap:8px;
+
+    flex:1;
+
+}
+
+.inventory-code{
+
+    font-family:"JetBrains Mono",monospace;
+
+    font-size:11px;
+
+    font-weight:600;
+
+    letter-spacing:.12em;
+
+    text-transform:uppercase;
+
+    color:var(--muted);
+
+}
+
+.inventory-card-title{
+
+    font-family:"Manrope",sans-serif;
+
+    font-size:28px;
+
+    font-weight:800;
+
+    line-height:1.2;
+
+    color:var(--ink);
+
+}
+
+/* ===========================
+   CARD CONTENT
+=========================== */
+
+.inventory-card-content{
+
+    display:flex;
+
+    flex-direction:column;
+
+    flex:1;
+
+}
+
+.inventory-card-desc{
+
+    font-size:15px;
+
+    line-height:1.8;
+
+    color:var(--muted);
+
+    margin-bottom:28px;
+
+}
+
+.inventory-tags{
+
+    display:flex;
+
+    flex-wrap:wrap;
+
+    gap:10px;
+
+    margin-top:auto;
+
+}
+
+.inventory-tag{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    padding:8px 14px;
+
+    border-radius:10px;
+
+    background:#F7F9FB;
+
+    border:1px solid #E4EAF1;
+
+    color:#4B5563;
+
+    font-size:13px;
+
+    font-weight:600;
+
+    transition:
+        background .25s ease,
+        border-color .25s ease,
+        color .25s ease;
+}
+
+.inventory-card--steel:hover .inventory-tag{
+
+    background:var(--steel-soft);
+
+    border-color:#C9DDF0;
+
+    color:var(--steel);
+
+}
+
+.inventory-card--amber:hover .inventory-tag{
+
+    background:var(--amber-soft);
+
+    border-color:#F1D7B7;
+
+    color:var(--amber);
+
+}
+
+.inventory-tag:hover{
+
+    transform:translateY(-2px);
+
+    transition:all .25s ease;
+
+}
+
+
+/* ===========================
+   CARD FOOTER
+=========================== */
+
+.inventory-card-footer{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    margin-top:32px;
+
+    padding-top:24px;
+
+    border-top:1px solid var(--line);
+
+}
+
+.inventory-footer-text{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:5px;
+
+}
+
+.inventory-footer-label{
+
+    font-size:15px;
+
+    font-weight:700;
+
+    color:var(--ink);
+
+}
+
+.inventory-footer-text small{
+
+    font-size:13px;
+
+    color:var(--muted);
+
+    font-weight:500;
+
+}
+
+.inventory-footer-action{
+
+    width:48px;
+
+    height:48px;
+
+    border-radius:14px;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    transition:.3s ease;
+
+}
+
+.inventory-card--steel .inventory-footer-action{
+
+    background:var(--steel-soft);
+
+    color:var(--steel);
+
+}
+
+.inventory-card--amber .inventory-footer-action{
+
+    background:var(--amber-soft);
+
+    color:var(--amber);
+
+}
+
+.inventory-card:hover .inventory-footer-action{
+
+    transform:translateX(6px);
+
+}
+
+.inventory-arrow{
+
+    transition:transform .3s ease;
+
+}
+
+.inventory-card:hover .inventory-arrow{
+
+    transform:translateX(4px);
+
+}
+
+.inventory-footer-text small{
+    display:none;
+}

@@ -1,0 +1,917 @@
+/* ==========================================================
+   SHARED OFFICIAL DOCUMENT STYLING
+========================================================== */
+
+.doc-scene {
+  flex: 1;
+
+  background: #7d8794;
+
+  padding: 32px 16px 64px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+
+/* ==========================================================
+   TOOLBAR
+========================================================== */
+
+.doc-toolbar {
+  width: 100%;
+  max-width: 900px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 18px;
+}
+
+.doc-toolbar__left {
+  display: flex;
+  gap: 8px;
+}
+
+.doc-toolbar__right {
+  display: flex;
+  gap: 8px;
+}
+
+.doc-toolbar__title {
+  color: #fff;
+
+  font-size: 13px;
+
+  opacity: 0.85;
+}
+
+
+/* ==========================================================
+   SCREEN A4 PAGE
+========================================================== */
+
+.doc-sheet {
+  position: relative;
+
+  width: 210mm;
+  min-height: 297mm;
+
+  margin: 0 auto 24px;
+
+  background: #fff;
+
+  box-sizing: border-box;
+
+  overflow: visible;
+}
+
+
+/* ==========================================================
+   SCREEN PAGE CONTENT
+========================================================== */
+
+.doc-sheet-content {
+  box-sizing: border-box;
+
+  padding: 42mm 14mm 28mm 14mm;
+
+  overflow: visible;
+}
+
+
+/* ==========================================================
+   SCREEN PAGE HEADER / FOOTER
+========================================================== */
+
+.doc-page-header {
+  display: block;
+}
+
+.doc-page-footer {
+  display: block;
+}
+
+
+/* ==========================================================
+   COMPANY HEADER
+========================================================== */
+
+.doc-header {
+  display: flex;
+
+  align-items: center;
+
+  gap: 16px;
+
+  border-bottom: 2px solid var(--print-rule);
+
+  padding-bottom: 10px;
+
+  margin-bottom: 14px;
+}
+
+.doc-header__logo {
+  width: 58px;
+  height: 58px;
+
+  border-radius: 50%;
+
+  flex-shrink: 0;
+
+  background:
+    conic-gradient(
+      from 200deg,
+      var(--brand-orange),
+      var(--brand-blue),
+      var(--brand-orange)
+    );
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: #fff;
+
+  font-family: var(--print-display);
+
+  font-weight: 700;
+
+  font-size: 20px;
+}
+
+.doc-header__center {
+  flex: 1;
+
+  text-align: center;
+}
+
+.doc-header__company {
+  font-family: var(--print-display);
+
+  font-size: 26px;
+
+  font-weight: 700;
+
+  letter-spacing: 0.3px;
+
+  margin: 0;
+}
+
+.doc-header__meta {
+  font-size: 10.5px;
+
+  color: var(--print-muted);
+
+  margin-top: 2px;
+}
+
+.doc-header__logo--right {
+  width: 52px;
+  height: 52px;
+
+  flex-shrink: 0;
+
+  border-radius: 50%;
+
+  background: var(--brand-green);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: #fff;
+
+  font-size: 10px;
+
+  font-weight: 700;
+
+  text-align: center;
+}
+
+
+/* ==========================================================
+   DOCUMENT TITLE
+========================================================== */
+
+.doc-title {
+  text-align: center;
+
+  font-size: 15px;
+
+  font-weight: 700;
+
+  letter-spacing: 1.5px;
+
+  margin: 4px 0 16px;
+
+  text-transform: uppercase;
+}
+
+
+/* ==========================================================
+   LEGACY DOCUMENT STYLES
+========================================================== */
+
+.doc-metarow {
+  display: flex;
+
+  justify-content: space-between;
+
+  align-items: flex-start;
+
+  margin-bottom: 10px;
+
+  font-size: 12.3px;
+}
+
+.doc-metarow__block p {
+  margin: 1px 0;
+}
+
+.doc-metarow__right {
+  text-align: right;
+}
+
+.doc-block {
+  margin-bottom: 12px;
+}
+
+.doc-block p {
+  margin: 2px 0;
+}
+
+.doc-label {
+  font-weight: 700;
+}
+
+.doc-subject {
+  margin: 12px 0;
+}
+
+.doc-subject p {
+  margin: 2px 0;
+}
+
+.doc-intro {
+  margin: 10px 0 14px;
+
+  text-align: justify;
+}
+
+
+/* ==========================================================
+   LEGACY TABLE
+========================================================== */
+
+.doc-table {
+  width: 100%;
+
+  border-collapse: collapse;
+
+  margin: 10px 0 14px;
+
+  font-size: 11.5px;
+}
+
+.doc-table th,
+.doc-table td {
+  border: 1px solid var(--print-border);
+
+  padding: 5px 6px;
+
+  vertical-align: top;
+}
+
+.doc-table thead th {
+  background: #f1f1f1;
+
+  font-weight: 700;
+
+  text-align: center;
+}
+
+.doc-table td.num,
+.doc-table th.num {
+  text-align: right;
+
+  white-space: nowrap;
+}
+
+.doc-table td.center {
+  text-align: center;
+}
+
+
+/* ==========================================================
+   LEGACY SUMMARY
+========================================================== */
+
+.doc-summary {
+  width: 100%;
+
+  margin: 6px 0 16px;
+
+  border-collapse: collapse;
+}
+
+.doc-summary td {
+  border: 1px solid #000;
+
+  padding: 6px 10px;
+}
+
+.doc-summary .label {
+  width: 88%;
+
+  text-align: left;
+
+  font-weight: 600;
+}
+
+.doc-summary .value {
+  width: 12%;
+
+  text-align: right;
+
+  white-space: nowrap;
+}
+
+
+/* ==========================================================
+   LEGACY TECHNICAL / TERMS
+========================================================== */
+
+.doc-section-heading {
+  font-weight: 700;
+
+  font-size: 12.5px;
+
+  margin: 14px 0 4px;
+}
+
+.doc-numbered {
+  margin: 0 0 8px;
+
+  padding-left: 20px;
+}
+
+.doc-numbered li {
+  margin: 3px 0;
+
+  text-align: justify;
+}
+
+.doc-bulleted {
+  margin: 0 0 6px;
+
+  padding-left: 18px;
+}
+
+.doc-bulleted li {
+  margin: 2px 0;
+}
+
+
+/* ==========================================================
+   LEGACY CLOSING
+========================================================== */
+
+.doc-closing {
+  margin-top: 16px;
+}
+
+.doc-closing p {
+  margin: 2px 0;
+}
+
+.doc-signoff {
+  display: flex;
+
+  justify-content: space-between;
+
+  margin-top: 34px;
+
+  gap: 20px;
+}
+
+.doc-signoff__col {
+  flex: 1;
+
+  text-align: center;
+}
+
+.doc-signoff__line {
+  border-top: 1px solid #444;
+
+  margin-top: 46px;
+
+  padding-top: 4px;
+
+  font-size: 11px;
+
+  color: var(--print-muted);
+}
+
+.doc-seal {
+  width: 90px;
+  height: 90px;
+
+  border: 1px dashed #999;
+
+  border-radius: 50%;
+
+  margin: 0 auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 9.5px;
+
+  color: #999;
+
+  text-align: center;
+}
+
+
+/* ==========================================================
+   COMPANY FOOTER
+========================================================== */
+
+.doc-footer {
+  position: relative;
+
+  width: 100%;
+
+  border-top: 2px solid var(--print-rule);
+
+  padding-top: 6px;
+
+  text-align: center;
+
+  font-size: 10px;
+
+  color: var(--brand-blue);
+
+  box-sizing: border-box;
+}
+
+.doc-footer__line2 {
+  margin-top: 2px;
+
+  color: var(--brand-blue-dark);
+
+  font-weight: 700;
+}
+
+.doc-footer__tag {
+  margin-top: 3px;
+
+  color: var(--brand-green);
+
+  font-weight: 600;
+}
+
+
+/* ==========================================================
+   PRINT TABLE
+========================================================== */
+
+.doc-print-table {
+  display: none;
+}
+
+
+/* ==========================================================
+   SCREEN
+========================================================== */
+
+@media screen {
+
+  .doc-sheet {
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  .doc-print-table {
+    display: block;
+  }
+
+}
+
+
+/* ==========================================================
+   PRINT
+========================================================== */
+
+@media print {
+
+  /* --------------------------------------------------------
+     PHYSICAL PAGE
+  -------------------------------------------------------- */
+
+  @page {
+    size: A4;
+
+    margin: 0;
+  }
+
+
+  /* --------------------------------------------------------
+     GLOBAL RESET
+  -------------------------------------------------------- */
+
+  html,
+  body {
+    margin: 0 !important;
+
+    padding: 0 !important;
+
+    background: #fff !important;
+  }
+
+
+  /* --------------------------------------------------------
+     HIDE APPLICATION UI
+  -------------------------------------------------------- */
+
+  .doc-toolbar,
+  .no-print {
+    display: none !important;
+  }
+
+
+  /* --------------------------------------------------------
+     SCENE
+  -------------------------------------------------------- */
+
+  .doc-scene {
+    display: block !important;
+
+    width: 100%;
+
+    margin: 0 !important;
+
+    padding: 0 !important;
+
+    background: #fff !important;
+  }
+
+
+  /* --------------------------------------------------------
+     PRINT TABLE
+     
+     The table is the print pagination container.
+  -------------------------------------------------------- */
+
+  .doc-print-table {
+    display: table !important;
+
+    width: 100%;
+
+    
+
+    margin: 0;
+
+    padding: 0;
+
+    border: 0;
+
+    border-collapse: collapse;
+
+    table-layout: fixed;
+
+    background: #fff;
+  }
+
+
+  /* --------------------------------------------------------
+     PRINT HEADER
+     
+     THEAD is repeated by the browser when the table
+     continues onto another physical page.
+  -------------------------------------------------------- */
+
+  .doc-print-table thead {
+    display: table-header-group;
+  }
+
+  .doc-print-table-header {
+    display: table-cell;
+
+    width: 100%;
+
+    padding: 10mm 14mm 0;
+
+    border: 0;
+
+    vertical-align: top;
+
+    box-sizing: border-box;
+
+    background: #fff;
+  }
+
+
+  .doc-print-table-header .doc-header {
+    width: 100%;
+
+    margin: 0;
+
+    padding-bottom: 10px;
+  }
+
+
+  .doc-print-table-header .doc-title {
+    margin: 4px 0 0;
+  }
+
+
+  /* --------------------------------------------------------
+     PRINT BODY
+  -------------------------------------------------------- */
+
+  .doc-print-table tbody {
+    display: table-row-group;
+  }
+
+  .doc-print-table-body {
+    display: table-cell;
+
+    width: 100%;
+
+    padding: 0 14mm;
+
+    border: 0;
+
+    vertical-align: top;
+
+    box-sizing: border-box;
+  }
+
+
+  /* --------------------------------------------------------
+     PRINT FOOTER
+     
+     TFOOT is repeated by the browser when the table
+     continues onto another physical page.
+  -------------------------------------------------------- */
+
+  .doc-print-table tfoot {
+    display: table-footer-group;
+  }
+
+.doc-print-table-footer {
+  display: table-cell;
+
+  width: 100%;
+
+  height: 28mm;
+
+  padding: 0;
+
+  border: 0;
+
+  box-sizing: border-box;
+
+  background: transparent;
+
+  font-size: 0;
+}
+
+/* ========================================================
+   ACTUAL PRINT FOOTER
+
+   The table footer provides pagination space.
+   This fixed footer places the visible footer at the
+   physical bottom of EVERY printed page.
+======================================================== */
+
+.doc-print-footer {
+  display: block !important;
+
+  position: fixed;
+
+  left: 14mm;
+  right: 14mm;
+
+  bottom: 8mm;
+
+  width: auto;
+
+  height: 20mm;
+
+  box-sizing: border-box;
+
+  padding: 0;
+
+  margin: 0;
+
+  background: #fff;
+
+  z-index: 9999;
+}
+
+.doc-print-footer .doc-footer {
+  position: relative;
+
+  left: auto;
+  right: auto;
+  bottom: auto;
+
+  width: 100%;
+
+  margin: 0;
+
+  box-sizing: border-box;
+}
+
+
+  .doc-print-table-footer .doc-footer {
+    width: 100%;
+
+    margin: 0;
+  }
+
+
+  /* --------------------------------------------------------
+     HIDE SCREEN PAGE HEADERS / FOOTERS
+  -------------------------------------------------------- */
+
+  .doc-page-header,
+  .doc-page-footer {
+    display: none !important;
+  }
+
+
+  /* --------------------------------------------------------
+     DOCUMENT SHEETS INSIDE PRINT BODY
+     
+     They are now logical content sections rather than
+     independent physical A4 pages.
+  -------------------------------------------------------- */
+
+  .doc-sheet {
+    display: block;
+
+    position: relative;
+
+    width: 100%;
+
+    min-height: 0;
+
+    height: auto;
+
+    margin: 0;
+
+    padding: 0;
+
+    background: #fff;
+
+    box-shadow: none;
+
+    box-sizing: border-box;
+
+    overflow: visible;
+
+    page-break-after: auto;
+
+    break-after: auto;
+  }
+
+
+
+
+  /* --------------------------------------------------------
+     DO NOT USE THE OLD SCREEN PAGE PADDING
+     
+     Header/footer space is now supplied by the table's
+     THEAD/TFOOT.
+  -------------------------------------------------------- */
+
+  .doc-sheet-content {
+    width: 100%;
+
+    min-height: 0;
+
+    height: auto;
+
+    margin: 0;
+
+    padding: 0;
+
+    box-sizing: border-box;
+
+    overflow: visible;
+  }
+
+
+  /* --------------------------------------------------------
+     QUOTATION TABLE
+  -------------------------------------------------------- */
+
+  .qt-preview-table {
+    width: 100%;
+
+    break-inside: auto;
+  }
+
+  .qt-preview-table thead {
+    display: table-header-group;
+  }
+
+  .qt-preview-table tbody {
+    display: table-row-group;
+  }
+
+  .qt-preview-table tr {
+    page-break-inside: avoid;
+
+    break-inside: avoid;
+  }
+
+
+  /* --------------------------------------------------------
+     CONTENT BREAK SAFETY
+  -------------------------------------------------------- */
+
+  .qt-preview-meta,
+  .qt-preview-subject,
+  .qt-preview-intro,
+  .qt-preview-heading,
+  .qt-preview-tech-section {
+    page-break-inside: avoid;
+
+    break-inside: avoid;
+  }
+
+
+  /* --------------------------------------------------------
+     TERMS
+  -------------------------------------------------------- */
+
+  .qt-preview-terms {
+    page-break-inside: auto;
+
+    break-inside: auto;
+  }
+
+  .qt-preview-terms li {
+    page-break-inside: avoid;
+
+    break-inside: avoid;
+  }
+
+
+  /* --------------------------------------------------------
+     CLOSING
+  -------------------------------------------------------- */
+
+  .qt-preview-closing {
+    page-break-inside: avoid;
+
+    break-inside: avoid;
+  }
+
+
+  /* --------------------------------------------------------
+     SIGNATURE
+  -------------------------------------------------------- */
+
+  .qt-preview-signature {
+    page-break-inside: avoid;
+
+    break-inside: avoid;
+  }
+
+  .qt-preview-signature-details {
+    page-break-inside: avoid;
+
+    break-inside: avoid;
+  }
+
+
+  /* --------------------------------------------------------
+     TABLE COLORS
+  -------------------------------------------------------- */
+
+  .qt-preview-table th {
+    background: #f3f3f3 !important;
+
+    -webkit-print-color-adjust: exact;
+
+    print-color-adjust: exact;
+  }
+
+
+  /* --------------------------------------------------------
+     IMAGES
+  -------------------------------------------------------- */
+
+  img {
+    max-width: 100%;
+  }
+
+}

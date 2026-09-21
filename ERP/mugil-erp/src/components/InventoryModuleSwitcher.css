@@ -1,0 +1,121 @@
+/* =========================================
+   INVENTORY MODULE SWITCHER
+========================================= */
+
+.inventory-module-switcher {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 3px;
+
+  background: #eef1f5;
+
+  border: 1px solid #dfe4ea;
+
+  border-radius: 9px;
+
+  gap: 2px;
+}
+
+
+/* =========================================
+   SWITCHER OPTION
+========================================= */
+
+.inventory-switcher-option {
+  min-width: 105px;
+
+  padding: 8px 16px;
+
+  border: 1px solid transparent;
+  border-radius: 7px;
+
+  background: transparent;
+
+  color: #64748b;
+
+  font-family: "Inter", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+
+  line-height: 1;
+
+  cursor: pointer;
+
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+
+/* =========================================
+   HOVER
+========================================= */
+
+.inventory-switcher-option:hover {
+  color: #1b2430;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+
+/* =========================================
+   ACTIVE
+========================================= */
+
+.inventory-switcher-option.active {
+  background: #ffffff;
+
+  color: #1b2430;
+
+  border-color: #dfe4ea;
+
+  box-shadow:
+    0 2px 6px rgba(20, 30, 50, 0.08);
+}
+
+
+/* =========================================
+   MATERIAL ACTIVE
+========================================= */
+
+.inventory-switcher-option.material-active {
+  color: #2e5c8a;
+}
+
+
+/* =========================================
+   CONSUMABLE ACTIVE
+========================================= */
+
+.inventory-switcher-option.consumable-active {
+  color: #c9711f;
+}
+
+
+/* =========================================
+   FOCUS
+========================================= */
+
+.inventory-switcher-option:focus-visible {
+  outline: 2px solid rgba(46, 92, 138, 0.35);
+  outline-offset: 2px;
+}
+
+
+/* =========================================
+   MOBILE
+========================================= */
+
+@media (max-width: 560px) {
+
+  .inventory-module-switcher {
+    width: 100%;
+  }
+
+  .inventory-switcher-option {
+    flex: 1;
+    min-width: 0;
+  }
+}

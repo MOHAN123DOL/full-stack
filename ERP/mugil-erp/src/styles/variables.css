@@ -1,0 +1,42 @@
+:root {
+  /* ---- Brand ---- */
+  --brand-blue: #1b4b91;
+  --brand-blue-dark: #123868;
+  --brand-blue-tint: #eaf0fa;
+  --brand-orange: #e07a3f;
+  --brand-green: #2e7d32;
+
+  /* ---- ERP form surface (modern) ---- */
+  --bg-page: #eef1f5;
+  --bg-surface: #ffffff;
+  --bg-surface-muted: #f6f8fb;
+  --border-color: #dbe1ea;
+  --border-color-strong: #c3cbd8;
+
+  --text-primary: #1f2733;
+  --text-secondary: #5b6472;
+  --text-muted: #8a93a3;
+  --text-on-brand: #ffffff;
+
+  --danger: #c0392b;
+  --danger-tint: #fbeceb;
+  --success: #2e7d32;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 6px 20px rgba(15, 23, 42, 0.08);
+
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+
+  /* ---- Print / document surface (matches official letterhead) ---- */
+  --print-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --print-body: Arial, Helvetica, sans-serif;
+  --print-rule: #b98b4e;
+  --print-border: #000000;
+  --print-text: #1a1a1a;
+  --print-muted: #444444;
+}

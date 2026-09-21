@@ -1,0 +1,430 @@
+/* ============================================================================
+   Header.css — Mugil ERP top navigation bar
+   Tokens shared with the rest of the app:
+     bg #F2F3EF · surface #FFFFFF · primary #2C5F7C
+     success #2F7A4F · danger #B23A3A · warning #C98A1D
+   Fonts: Inter (body) · Barlow Semi Condensed (headings) · Roboto Mono (data)
+   ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap');
+
+.erp-header {
+  --surface: #FFFFFF;
+  --ink: #1B2430;
+  --ink-muted: #5B6472;
+  --line: #E2E5DF;
+  --primary: #2C5F7C;
+  --primary-dark: #204A61;
+  --primary-soft: #E3ECF0;
+  --danger: #B23A3A;
+  --danger-soft: #F6E4E4;
+  --font-display: 'Barlow Semi Condensed', 'Arial Narrow', sans-serif;
+  --font-body: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 64px;
+  padding: 0 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 3px rgba(27, 36, 48, 0.05);
+  font-family: var(--font-body);
+  box-sizing: border-box;
+}
+
+.erp-header * {
+  box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Logo                                                                     */
+/* ---------------------------------------------------------------------- */
+.erp-logo {
+  display: flex;
+  align-items: center;
+}
+
+.erp-logo h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  position: relative;
+  padding-left: 14px;
+}
+
+/* small precision-instrument tick mark before the wordmark */
+.erp-logo h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 22px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--primary), var(--primary-dark));
+}
+
+/* ---------------------------------------------------------------------- */
+/* User section                                                             */
+/* ---------------------------------------------------------------------- */
+.erp-user-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Profile button — soft-UI pill                                           */
+/* adapted from Uiverse.io by emmanuelh-dev                                */
+/* ---------------------------------------------------------------------- */
+.profile-btn-wrap {
+  display: flex;
+  background: var(--surface);
+  padding: 4px;
+  border-radius: 16px;
+  box-shadow:
+    5px 5px 10px rgba(27, 36, 48, 0.08),
+    -5px -5px 10px rgba(255, 255, 255, 0.85),
+    inset 0 0 0 1px var(--line);
+}
+
+.profile-btn-inner {
+  border-radius: 14px;
+  padding: 2px;
+}
+
+.profile-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background: var(--primary-soft);
+  color: var(--primary);
+  cursor: pointer;
+  box-shadow:
+    2px 2px 5px rgba(27, 36, 48, 0.10),
+    -2px -2px 5px rgba(255, 255, 255, 0.85);
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.profile-btn-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.profile-btn:hover {
+  color: var(--primary-dark);
+  border-color: var(--primary);
+}
+
+.profile-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.profile-btn:active {
+  box-shadow:
+    inset 2px 2px 6px rgba(27, 36, 48, 0.18),
+    inset -2px -2px 6px rgba(255, 255, 255, 0.7);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Sign-out button — neubrutalist press effect                             */
+/* adapted from Uiverse.io by arthur_6104                                  */
+/* ---------------------------------------------------------------------- */
+.signout-box-button {
+  cursor: pointer;
+  border: 3px solid var(--ink);
+  background-color: var(--danger-soft);
+  border-radius: 10px;
+  padding: 0;
+  padding-bottom: 8px;
+  margin-left: 4px;
+  transition: 0.1s ease-in-out;
+  user-select: none;
+}
+
+.signout-box-button-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--surface);
+  border: 3px solid #fff;
+  border-radius: 7px;
+  padding: 7px 16px;
+}
+
+.signout-box-button-inner span {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--danger);
+}
+
+.signout-box-button:hover {
+  background-color: var(--danger);
+}
+
+.signout-box-button:hover .signout-box-button-inner {
+  border-color: var(--danger-soft);
+}
+
+.signout-box-button:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 2px;
+}
+
+.signout-box-button:active {
+  padding-bottom: 0;
+  margin-bottom: 8px;
+  transform: translateY(8px);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Responsive                                                                */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .erp-header {
+    height: 56px;
+    padding: 0 16px;
+  }
+
+  .erp-logo h2 {
+    font-size: 18px;
+  }
+
+  .user-name {
+    display: none;
+  }
+
+  .signout-box-button-inner {
+    padding: 6px 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .erp-header {
+    padding: 0 12px;
+    gap: 10px;
+  }
+
+  .profile-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .profile-btn-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .signout-box-button-inner span {
+    display: none;
+  }
+
+  .signout-box-button-inner::after {
+    content: "⎋";
+    font-size: 14px;
+    color: var(--danger);
+  }
+}
+/* ---------------------------------------------------------------------- */
+/* Profile hover card                                                      */
+/* ---------------------------------------------------------------------- */
+
+.profile-hover-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/*
+ * Invisible bridge between the profile button and popup.
+ * This prevents the popup from disappearing while the mouse
+ * moves from the icon to the card.
+ */
+.profile-hover-container::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: 230px;
+  height: 14px;
+  pointer-events: none;
+}
+
+/* Popup card */
+.profile-hover-card {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+
+  width: 230px;
+  padding: 20px;
+
+  background: #5f0070;
+  border-radius: 20px;
+
+  box-shadow:
+    5px 5px 30px rgba(206, 22, 22, 0.35),
+    -5px -5px 30px rgba(41, 4, 4, 0.15);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.96);
+  transform-origin: top right;
+
+  pointer-events: none;
+
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    visibility 0.18s ease;
+
+  z-index: 100;
+}
+
+/* Small arrow */
+.profile-hover-card::before {
+  content: "";
+  position: absolute;
+
+  top: -7px;
+  right: 18px;
+
+  width: 14px;
+  height: 14px;
+
+  background: #211978;
+
+  transform: rotate(45deg);
+}
+
+/* Show card on hover */
+.profile-hover-container:hover .profile-hover-card,
+.profile-hover-container:focus-within .profile-hover-card {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Avatar */
+.profile-card-avatar {
+  width: 78px;
+  height: 78px;
+
+  border-radius: 50%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: #242424;
+
+  color: #ffffff;
+
+  box-shadow:
+    3px 3px 12px rgba(0, 0, 0, 0.6),
+    -3px -3px 12px rgba(65, 65, 65, 0.35);
+
+  margin-bottom: 14px;
+}
+
+.profile-card-avatar svg {
+  width: 42px;
+  height: 42px;
+}
+
+/* Username */
+.profile-card-name {
+  max-width: 190px;
+
+  color: #ffffff;
+
+  font-family: var(--font-body);
+
+  font-size: 17px;
+  font-weight: 700;
+
+  text-align: center;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Role */
+.profile-card-role {
+  margin-top: 4px;
+
+  color: #a8a8a8;
+
+  font-family: var(--font-body);
+
+  font-size: 12px;
+  font-weight: 500;
+
+  text-align: center;
+}
+
+/* View profile button */
+.profile-card-button {
+  width: 100%;
+
+  margin-top: 18px;
+  padding: 9px 14px;
+
+  border: 1px solid #7601fc;
+  border-radius: 10px;
+
+  background: #0f033a;
+  color: #ffffff;
+
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.profile-card-button:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.profile-card-button:active {
+  transform: translateY(1px);
+}

@@ -1,0 +1,1108 @@
+/* =========================================================
+   PURCHASE ORDER
+========================================================= */
+
+.po-page {
+  min-height: 100vh;
+  background: #f4f7fb;
+  padding: 32px;
+}
+
+.po-container {
+  max-width: 1500px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* =========================================================
+   HERO
+========================================================= */
+
+.po-hero {
+  background: linear-gradient(135deg, #0f172a, #1e3a8a);
+  border-radius: 24px;
+  padding: 30px 34px;
+  color: #fff;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, .18);
+  position: relative;
+  overflow: hidden;
+}
+
+.po-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 25%, rgba(255,255,255,.12), transparent 32%),
+    radial-gradient(circle at 80% 70%, rgba(255,255,255,.08), transparent 28%);
+  pointer-events: none;
+}
+
+.po-hero>*{
+  position:relative;
+  z-index:1;
+}
+
+.po-hero__top{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:20px;
+  margin-bottom:30px;
+}
+
+.po-hero__content{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:32px;
+  flex-wrap:wrap;
+}
+
+.po-hero__heading h1{
+  margin:0;
+  font-size:2rem;
+  font-weight:700;
+}
+
+.po-hero__heading p{
+  margin-top:10px;
+  color:rgba(255,255,255,.82);
+  max-width:650px;
+  line-height:1.6;
+}
+
+/* =========================================================
+   STATUS CARDS
+========================================================= */
+
+.po-status{
+  display:flex;
+  gap:16px;
+  flex-wrap:wrap;
+}
+
+.po-status__card{
+  min-width:155px;
+  background:rgba(255,255,255,.14);
+  backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.15);
+  border-radius:16px;
+  padding:16px 18px;
+}
+
+.po-status__label{
+  display:block;
+  font-size:.72rem;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:rgba(255,255,255,.7);
+  margin-bottom:8px;
+}
+
+.po-status__card strong{
+  font-size:1.1rem;
+  font-weight:700;
+}
+
+/* =========================================================
+   BUTTONS
+========================================================= */
+
+.po-btn{
+  border:none;
+  cursor:pointer;
+  border-radius:12px;
+  font-size:.92rem;
+  font-weight:600;
+  transition:.25s;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:12px 22px;
+}
+
+.po-btn:hover{
+  transform:translateY(-2px);
+}
+
+.po-btn--primary{
+  background:#2563eb;
+  color:#fff;
+}
+
+.po-btn--primary:hover{
+  background:#1d4ed8;
+}
+
+.po-btn--secondary{
+  background:#ffffff;
+  color:#0f172a;
+}
+
+.po-btn--secondary:hover{
+  background:#f1f5f9;
+}
+
+.po-btn--ghost{
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  border:1px solid rgba(255,255,255,.2);
+}
+
+.po-btn--ghost:hover{
+  background:rgba(255,255,255,.2);
+}
+
+.po-btn--sm{
+  padding:10px 18px;
+  font-size:.82rem;
+}
+
+/* =========================================================
+   BACK BUTTON
+========================================================= */
+
+.po-back-btn{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border:none;
+  cursor:pointer;
+  background:rgba(255,255,255,.14);
+  color:#fff;
+  border-radius:12px;
+  padding:12px 18px;
+  font-weight:600;
+  transition:.25s;
+}
+
+.po-back-btn:hover{
+  background:rgba(255,255,255,.22);
+}
+
+/* =========================================================
+   VALIDATION
+========================================================= */
+
+.po-validation{
+  background:#fff7ed;
+  border-left:5px solid #f97316;
+  border-radius:14px;
+  padding:18px 22px;
+  box-shadow:0 8px 20px rgba(0,0,0,.05);
+}
+
+.po-validation__title{
+  color:#c2410c;
+  font-weight:700;
+  margin-bottom:6px;
+}
+
+.po-validation__text{
+  color:#7c2d12;
+  line-height:1.5;
+}
+
+/* =========================================================
+   CARDS
+========================================================= */
+
+.po-card{
+  background:#fff;
+  border-radius:20px;
+  padding:28px;
+  box-shadow:0 10px 30px rgba(15,23,42,.06);
+}
+
+.po-card__header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:20px;
+  margin-bottom:24px;
+}
+
+.po-card__heading{
+  flex:1;
+}
+
+.po-card__heading h3{
+  margin:0;
+  font-size:1.2rem;
+  color:#0f172a;
+}
+
+.po-card__hint{
+  display:block;
+  margin-top:5px;
+  color:#64748b;
+  font-size:.86rem;
+}
+
+.po-card__step{
+  width:46px;
+  height:46px;
+  border-radius:50%;
+  background:#2563eb;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+  font-size:1rem;
+  flex-shrink:0;
+}
+
+.po-card__body{
+  display:flex;
+  flex-direction:column;
+  gap:20px;
+}
+
+.po-card__body--table{
+  overflow:auto;
+}
+
+/* =========================================================
+   FORM GRID
+========================================================= */
+
+.po-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:22px;
+}
+
+.po-grid--compact{
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+
+.po-section{
+  display:flex;
+  flex-direction:column;
+  gap:24px;
+}
+
+/* =========================================================
+   FORM FIELDS
+========================================================= */
+
+.po-field{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.po-field--wide{
+  grid-column:1 / -1;
+}
+
+.po-field__label{
+  font-size:.9rem;
+  font-weight:600;
+  color:#334155;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.po-required{
+  color:#ef4444;
+  font-weight:700;
+}
+
+/* =========================================================
+   INPUTS
+========================================================= */
+
+.po-input,
+.po-textarea,
+.po-field select{
+  width:100%;
+  border:1px solid #dbe4ef;
+  border-radius:12px;
+  background:#fff;
+  color:#0f172a;
+  font-size:.95rem;
+  padding:13px 16px;
+  transition:.25s;
+  outline:none;
+}
+
+.po-input::placeholder,
+.po-textarea::placeholder{
+  color:#94a3b8;
+}
+
+.po-input:hover,
+.po-textarea:hover,
+.po-field select:hover{
+  border-color:#94a3b8;
+}
+
+.po-input:focus,
+.po-textarea:focus,
+.po-field select:focus{
+  border-color:#2563eb;
+  box-shadow:0 0 0 4px rgba(37,99,235,.12);
+}
+
+.po-input--error{
+  border-color:#ef4444 !important;
+  box-shadow:0 0 0 4px rgba(239,68,68,.12);
+}
+
+/* =========================================================
+   TEXTAREA
+========================================================= */
+
+.po-textarea{
+  resize:vertical;
+  min-height:140px;
+  line-height:1.65;
+}
+
+.po-textarea--large{
+  min-height:220px;
+}
+
+/* =========================================================
+   TABLE
+========================================================= */
+
+.po-card__body--table{
+  border:1px solid #e2e8f0;
+  border-radius:16px;
+  overflow:auto;
+  background:#fff;
+}
+
+.po-card__body--table table{
+  width:100%;
+  border-collapse:collapse;
+}
+
+.po-card__body--table th{
+  background:#f8fafc;
+  color:#334155;
+  font-size:.85rem;
+  font-weight:700;
+  padding:14px;
+  border-bottom:1px solid #e2e8f0;
+  white-space:nowrap;
+}
+
+.po-card__body--table td{
+  padding:12px;
+  border-bottom:1px solid #edf2f7;
+}
+
+.po-card__body--table tr:last-child td{
+  border-bottom:none;
+}
+
+.po-card__body--table input,
+.po-card__body--table select,
+.po-card__body--table textarea{
+  width:100%;
+  border:1px solid #dbe4ef;
+  border-radius:10px;
+  padding:10px 12px;
+  font-size:.9rem;
+  background:#fff;
+}
+
+.po-card__body--table input:focus,
+.po-card__body--table select:focus,
+.po-card__body--table textarea:focus{
+  outline:none;
+  border-color:#2563eb;
+  box-shadow:0 0 0 3px rgba(37,99,235,.12);
+}
+
+/* =========================================================
+   VENDOR / TERMS SECTIONS
+========================================================= */
+
+.po-section .card,
+.po-section .vendor-card,
+.po-section .terms-card{
+  background:#fff;
+  border-radius:18px;
+  box-shadow:0 8px 24px rgba(15,23,42,.06);
+}
+
+.po-section h2,
+.po-section h3{
+  color:#0f172a;
+}
+
+/* =========================================================
+   CARD ANIMATION
+========================================================= */
+
+.po-card{
+  transition:.25s;
+}
+
+.po-card:hover{
+  transform:translateY(-2px);
+  box-shadow:0 18px 40px rgba(15,23,42,.08);
+}
+
+/* =========================================================
+   SCROLLBAR
+========================================================= */
+
+.po-card__body--table::-webkit-scrollbar,
+.po-modal__body::-webkit-scrollbar{
+  width:8px;
+  height:8px;
+}
+
+.po-card__body--table::-webkit-scrollbar-thumb,
+.po-modal__body::-webkit-scrollbar-thumb{
+  background:#cbd5e1;
+  border-radius:999px;
+}
+
+.po-card__body--table::-webkit-scrollbar-track,
+.po-modal__body::-webkit-scrollbar-track{
+  background:#f8fafc;
+}
+
+/* =========================================================
+   FOOTER ACTION BAR
+========================================================= */
+
+.po-footerbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:20px;
+  padding:24px 28px;
+  background:#ffffff;
+  border-radius:20px;
+  box-shadow:0 10px 30px rgba(15,23,42,.06);
+}
+
+.po-footerbar__status{
+  color:#64748b;
+  font-size:.92rem;
+  font-weight:500;
+}
+
+.po-footerbar__actions{
+  display:flex;
+  gap:14px;
+  flex-wrap:wrap;
+}
+
+/* =========================================================
+   MODAL
+========================================================= */
+
+.po-modal{
+  position:fixed;
+  inset:0;
+  background:rgba(15,23,42,.55);
+  backdrop-filter:blur(6px);
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  padding:30px;
+  z-index:1000;
+}
+
+.po-modal__panel{
+  width:100%;
+  max-width:850px;
+  max-height:90vh;
+  background:#fff;
+  border-radius:22px;
+  overflow:hidden;
+  box-shadow:0 25px 60px rgba(0,0,0,.28);
+  animation:poModal .25s ease;
+}
+
+@keyframes poModal{
+  from{
+    opacity:0;
+    transform:translateY(18px) scale(.97);
+  }
+  to{
+    opacity:1;
+    transform:none;
+  }
+}
+
+.po-modal__header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:22px 28px;
+  border-bottom:1px solid #e2e8f0;
+}
+
+.po-modal__header h3{
+  margin:0;
+  font-size:1.2rem;
+  color:#0f172a;
+}
+
+.po-modal__body{
+  padding:26px 28px;
+  overflow:auto;
+  max-height:calc(90vh - 90px);
+}
+
+/* =========================================================
+   COLUMN MANAGER
+========================================================= */
+
+.po-column-list{
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.po-column-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:20px;
+  padding:14px 18px;
+  border:1px solid #e2e8f0;
+  border-radius:14px;
+  transition:.25s;
+}
+
+.po-column-row:hover{
+  border-color:#2563eb;
+  background:#f8fbff;
+}
+
+.po-column-row--hidden{
+  opacity:.45;
+}
+
+.po-column-row__left{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-weight:600;
+  color:#334155;
+}
+
+.po-column-row__actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.po-column-badge{
+  padding:4px 10px;
+  border-radius:999px;
+  background:#dbeafe;
+  color:#1d4ed8;
+  font-size:.72rem;
+  text-transform:uppercase;
+  font-weight:700;
+}
+
+.po-column-add{
+  margin-top:28px;
+  padding-top:24px;
+  border-top:1px solid #e2e8f0;
+}
+
+.po-column-add h4{
+  margin:0 0 18px;
+  color:#0f172a;
+}
+
+/* =========================================================
+   ICON BUTTONS
+========================================================= */
+
+.po-icon-btn{
+  width:38px;
+  height:38px;
+  border:none;
+  border-radius:10px;
+  background:#f1f5f9;
+  cursor:pointer;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  transition:.25s;
+  color:#334155;
+}
+
+.po-icon-btn:hover:not(:disabled){
+  background:#2563eb;
+  color:#fff;
+}
+
+.po-icon-btn:disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+
+.po-icon-btn--danger:hover:not(:disabled){
+  background:#ef4444;
+  color:#fff;
+}
+
+/* =========================================================
+   TABLE POLISH
+========================================================= */
+
+.po-card table tr:hover td{
+  background:#fafcff;
+}
+
+.po-card table th:first-child{
+  border-top-left-radius:12px;
+}
+
+.po-card table th:last-child{
+  border-top-right-radius:12px;
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media (max-width:1200px){
+
+  .po-hero__content{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .po-status{
+    width:100%;
+  }
+
+}
+
+@media (max-width:992px){
+
+  .po-page{
+    padding:20px;
+  }
+
+  .po-card{
+    padding:22px;
+  }
+
+  .po-footerbar{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .po-footerbar__actions{
+    width:100%;
+  }
+
+}
+
+@media (max-width:768px){
+
+  .po-page{
+    padding:14px;
+  }
+
+  .po-hero{
+    padding:24px;
+  }
+
+  .po-hero__top{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .po-hero__actions{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:12px;
+    width:100%;
+  }
+
+  .po-status{
+    display:grid;
+    grid-template-columns:1fr;
+    width:100%;
+  }
+
+  .po-card__header{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .po-grid{
+    grid-template-columns:1fr;
+  }
+
+  .po-field--wide{
+    grid-column:auto;
+  }
+
+  .po-modal{
+    padding:12px;
+  }
+
+  .po-modal__panel{
+    max-height:95vh;
+  }
+
+  .po-column-row{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .po-column-row__actions{
+    width:100%;
+  }
+
+}
+
+@media (max-width:480px){
+
+  .po-btn,
+  .po-back-btn{
+    width:100%;
+    justify-content:center;
+  }
+
+  .po-footerbar__actions{
+    display:grid;
+    grid-template-columns:1fr;
+  }
+
+  .po-icon-btn{
+    width:36px;
+    height:36px;
+  }
+
+}
+
+/* =========================================================
+   VENDOR DETAILS OVERRIDE
+========================================================= */
+
+.po-section .form-card{
+    background:#ffffff;
+    border-radius:20px;
+    padding:28px;
+    box-shadow:0 10px 30px rgba(15,23,42,.06);
+    border:none;
+}
+
+.po-section .form-card__title{
+    margin:0 0 24px;
+    font-size:1.2rem;
+    font-weight:700;
+    color:#0f172a;
+}
+
+.po-section .vendor-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+    gap:22px;
+}
+
+.po-section .field{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+
+.po-section .field--wide{
+    grid-column:1 / -1;
+}
+
+.po-section .field__label{
+    font-size:.9rem;
+    font-weight:600;
+    color:#334155;
+}
+
+.po-section .field__required{
+    color:#ef4444;
+    margin-left:4px;
+}
+
+.po-section .field__input{
+    width:100%;
+    padding:13px 16px;
+    border:1px solid #dbe4ef;
+    border-radius:12px;
+    background:#ffffff;
+    font-size:.95rem;
+    transition:.25s;
+    outline:none;
+}
+
+.po-section .field__input::placeholder{
+    color:#94a3b8;
+}
+
+.po-section .field__input:hover{
+    border-color:#94a3b8;
+}
+
+.po-section .field__input:focus{
+    border-color:#2563eb;
+    box-shadow:0 0 0 4px rgba(37,99,235,.12);
+}
+
+.po-section .form-card:hover{
+    transform:translateY(-2px);
+    box-shadow:0 18px 40px rgba(15,23,42,.08);
+    transition:.25s;
+}
+
+@media (max-width:768px){
+
+    .po-section .form-card{
+        padding:20px;
+    }
+
+    .po-section .vendor-grid{
+        grid-template-columns:1fr;
+    }
+
+    .po-section .field--wide{
+        grid-column:auto;
+    }
+
+}
+
+/* =========================================================
+   TERMS EDITOR
+========================================================= */
+
+.po-card .terms-list{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+}
+
+.po-card .terms-list__item{
+    display:grid;
+    grid-template-columns:40px 1fr auto auto;
+    gap:14px;
+    align-items:center;
+    padding:16px;
+    border:1px solid #e2e8f0;
+    border-radius:14px;
+    background:#fff;
+    transition:.25s;
+}
+
+.po-card .terms-list__item:hover{
+    border-color:#2563eb;
+    background:#f8fbff;
+}
+
+.po-card .terms-list__index{
+    width:36px;
+    height:36px;
+    border-radius:50%;
+    background:#2563eb;
+    color:#fff;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:700;
+    font-size:.9rem;
+}
+
+.po-card .terms-list .field__input{
+    width:100%;
+    border:1px solid #dbe4ef;
+    border-radius:12px;
+    padding:12px 16px;
+    font-size:.95rem;
+    transition:.25s;
+    background:#fff;
+}
+
+.po-card .terms-list .field__input:focus{
+    outline:none;
+    border-color:#2563eb;
+    box-shadow:0 0 0 4px rgba(37,99,235,.12);
+}
+
+/* =========================================================
+   REORDER BUTTONS
+========================================================= */
+
+.po-card .terms-list__reorder{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+}
+
+.po-card .terms-list__reorder button{
+    width:36px;
+    height:36px;
+    border:none;
+    border-radius:10px;
+    background:#f1f5f9;
+    color:#334155;
+    cursor:pointer;
+    transition:.25s;
+    font-size:.8rem;
+}
+
+.po-card .terms-list__reorder button:hover:not(:disabled){
+    background:#2563eb;
+    color:#fff;
+}
+
+.po-card .terms-list__reorder button:disabled{
+    opacity:.35;
+    cursor:not-allowed;
+}
+
+/* =========================================================
+   DELETE BUTTON
+========================================================= */
+
+.po-card .icon-btn{
+    width:40px;
+    height:40px;
+    border:none;
+    border-radius:10px;
+    background:#f1f5f9;
+    cursor:pointer;
+    transition:.25s;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.po-card .icon-btn:hover:not(:disabled){
+    background:#2563eb;
+    color:#fff;
+}
+
+.po-card .icon-btn--danger:hover:not(:disabled){
+    background:#ef4444;
+    color:#fff;
+}
+
+.po-card .icon-btn:disabled{
+    opacity:.4;
+    cursor:not-allowed;
+}
+
+/* =========================================================
+   ADD TERM BUTTON
+========================================================= */
+
+.po-card .terms-list__add{
+    margin-top:10px;
+    align-self:flex-start;
+    border:none;
+    border-radius:12px;
+    padding:12px 22px;
+    background:#2563eb;
+    color:#fff;
+    font-weight:600;
+    cursor:pointer;
+    transition:.25s;
+}
+
+.po-card .terms-list__add:hover{
+    background:#1d4ed8;
+    transform:translateY(-2px);
+}
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (max-width:768px){
+
+    .po-card .terms-list__item{
+        grid-template-columns:1fr;
+        gap:14px;
+    }
+
+    .po-card .terms-list__index{
+        width:34px;
+        height:34px;
+    }
+
+    .po-card .terms-list__reorder{
+        flex-direction:row;
+    }
+
+    .po-card .terms-list__add{
+        width:100%;
+    }
+
+}
+
+.po-amount-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.po-amount-toggle input {
+  margin: 0;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* =========================================================
+   CUSTOMER DETAILS - PURCHASE ORDER
+   ========================================================= */
+
+.po-card > .form-card {
+  margin: 0;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.po-card > .form-card__title {
+  display: none;
+}
+
+.po-card .vendor-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.po-card .field {
+  min-width: 0;
+}
+
+.po-card .field__input {
+  width: 100%;
+  box-sizing: border-box;
+}

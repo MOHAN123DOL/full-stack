@@ -1,0 +1,388 @@
+/* ------------------------------------------------------------------
+   ProformaInvoiceForm.css
+   Complete, polished styles for the Proforma Invoice form.
+   To be used with the React component above.
+   Place this file in the same folder as your component and import it.
+   ------------------------------------------------------------------ */
+
+/* ---------- Reset & base ---------- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: #f4f7fc;
+  color: #0b1e33;
+  padding: 24px;
+  line-height: 1.5;
+}
+
+/* ---------- page container ---------- */
+.form-page {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* ---------- cards ---------- */
+.form-card {
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 8px 30px rgba(0, 20, 50, 0.06);
+  padding: 28px 32px;
+  transition: box-shadow 0.2s ease;
+  border: 1px solid #e9edf4;
+}
+
+.form-card:hover {
+  box-shadow: 0 12px 40px rgba(0, 20, 50, 0.08);
+}
+
+.form-card__title {
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #0b1e33;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #eef2f8;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.form-card__title::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 26px;
+  background: #2a6df4;
+  border-radius: 8px;
+}
+
+/* ---------- field grid ---------- */
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px 24px;
+  align-items: start;
+}
+
+.field-grid .field--wide {
+  grid-column: 1 / -1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field__label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #4f6a8a;
+}
+
+.field__input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: #fafcff;
+  border: 1.5px solid #dce3ed;
+  border-radius: 12px;
+  transition: border 0.15s ease, box-shadow 0.15s ease;
+  color: #0b1e33;
+}
+
+.field__input:focus {
+  outline: none;
+  border-color: #2a6df4;
+  box-shadow: 0 0 0 4px rgba(42, 109, 244, 0.12);
+  background: #ffffff;
+}
+
+.field__input::placeholder {
+  color: #9aafc9;
+}
+
+.field__input[readonly] {
+  background: #f0f4fa;
+  color: #1f3a5f;
+  font-weight: 500;
+}
+
+textarea.field__input {
+  resize: vertical;
+  min-height: 44px;
+}
+
+select.field__input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%234f6a8a' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+/* ---------- items table ---------- */
+.items-table {
+  overflow-x: auto;
+  margin: 4px 0 20px 0;
+  border-radius: 16px;
+  border: 1px solid #e9edf4;
+}
+
+.items-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  min-width: 780px;
+}
+
+.items-table th {
+  background: #f2f6fd;
+  text-align: left;
+  padding: 14px 10px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #2f4b70;
+  border-bottom: 2px solid #dce3ed;
+}
+
+.items-table td {
+  padding: 8px 6px;
+  vertical-align: middle;
+  border-bottom: 1px solid #eef2f8;
+}
+
+.items-table tr:last-child td {
+  border-bottom: none;
+}
+
+.items-table .field__input {
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  background: #ffffff;
+  border-color: #dce3ed;
+  min-width: 0;
+  width: 100%;
+}
+
+.items-table .field__input:focus {
+  border-color: #2a6df4;
+  box-shadow: 0 0 0 3px rgba(42, 109, 244, 0.1);
+}
+
+.items-table td:first-child {
+  font-weight: 600;
+  color: #1f3a5f;
+  text-align: center;
+  width: 44px;
+}
+
+.items-table td:last-child {
+  width: 140px;
+  min-width: 120px;
+}
+
+.items-table .buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 8px 18px;
+  border-radius: 40px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  text-decoration: none;
+  white-space: nowrap;
+  background: #eef2f8;
+  color: #1f3a5f;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn--primary {
+  background: #0b1e33;
+  color: white;
+  box-shadow: 0 4px 10px rgba(11, 30, 51, 0.15);
+}
+
+.btn--primary:hover {
+  background: #142f4a;
+  box-shadow: 0 6px 16px rgba(11, 30, 51, 0.2);
+}
+
+.btn--secondary {
+  background: #eef2f8;
+  color: #1f3a5f;
+}
+
+.btn--secondary:hover {
+  background: #e2e8f2;
+}
+
+.btn--ghost {
+  background: transparent;
+  color: #2a6df4;
+  padding: 4px 12px;
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+.btn--ghost:hover {
+  background: #e9f0fe;
+}
+
+.btn--danger {
+  background: #fef0f0;
+  color: #c73b3b;
+  padding: 4px 12px;
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: #fde2e2;
+}
+
+.btn--danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------- action bar (sticky) ---------- */
+.sticky-actionbar {
+  position: sticky;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 18px 32px;
+  border-radius: 40px;
+  box-shadow: 0 -4px 24px rgba(0, 20, 40, 0.06);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #e9edf4;
+  margin-top: 12px;
+}
+
+.sticky-actionbar .buttons {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.save-status {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #1f8b4c;
+  background: #e3f5eb;
+  padding: 4px 14px;
+  border-radius: 40px;
+  animation: fadeStatus 2s ease;
+}
+
+@keyframes fadeStatus {
+  0% { opacity: 0; transform: translateY(4px); }
+  15% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ---------- summary panel (tax) ---------- */
+.summary-panel {
+  background: #fafcff;
+  border-radius: 16px;
+  padding: 16px 8px 8px 8px;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 768px) {
+  body {
+    padding: 12px;
+  }
+
+  .form-card {
+    padding: 20px 16px;
+  }
+
+  .field-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .field-grid .field--wide {
+    grid-column: 1;
+  }
+
+  .items-table table {
+    min-width: 600px;
+  }
+
+  .sticky-actionbar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 18px;
+    border-radius: 28px;
+  }
+
+  .sticky-actionbar .buttons {
+    justify-content: center;
+  }
+
+  .btn {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+  }
+
+  .items-table td:last-child {
+    width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .form-card__title {
+    font-size: 1.1rem;
+  }
+
+  .items-table .buttons {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .btn--ghost,
+  .btn--danger {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+}

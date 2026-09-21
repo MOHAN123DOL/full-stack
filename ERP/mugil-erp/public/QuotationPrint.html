@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Quotation — Print Preview</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!--
+    Completely standalone document. It does not import React, does not
+    import anything from the existing quotation form/preview, and carries
+    no application state of its own — it only reads the data that was
+    handed to it (see QuotationPrint.js) and renders it.
+  -->
+  <link rel="stylesheet" href="./QuotationPrint.css" />
+</head>
+<body>
+  <!--
+    QuotationPrint.js looks for this exact id to know it is running inside
+    the print page (as opposed to being loaded by the host React app just
+    to expose window.generateQuotationPrint). Everything below this line
+    is built dynamically from measured content — there is no static markup
+    to keep in sync with the data.
+  -->
+  <div id="qp-print-app-root"></div>
+
+  <script src="./QuotationPrint.js"></script>
+</body>
+</html>

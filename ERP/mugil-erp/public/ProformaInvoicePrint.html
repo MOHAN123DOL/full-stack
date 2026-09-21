@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Proforma Invoice — Print Preview</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!--
+    Completely standalone document, cloned from TaxInvoicePrint.html using
+    the exact same pattern. It does not import React and does not import
+    anything from the existing Proforma Invoice form/preview — it only
+    reads the data handed to it (see ProformaInvoicePrint.js) and renders
+    it. Shares the same visual styling as the Tax Invoice print page
+    (same CSS class names, same page geometry) via ProformaInvoicePrint.css,
+    which is a copy of TaxInvoicePrint.css.
+  -->
+  <link rel="stylesheet" href="./ProformaInvoicePrint.css" />
+</head>
+<body>
+  <!--
+    ProformaInvoicePrint.js looks for this exact id to know it is running
+    inside the print page (as opposed to being loaded by the host React
+    app just to expose window.generateProformaInvoicePrint). Everything
+    below this line is built dynamically from measured content.
+  -->
+  <div id="pip-print-app-root"></div>
+
+  <script src="./ProformaInvoicePrint.js"></script>
+</body>
+</html>

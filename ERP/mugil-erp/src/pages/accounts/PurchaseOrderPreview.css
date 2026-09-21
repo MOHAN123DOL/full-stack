@@ -1,0 +1,672 @@
+/* ==========================================================================
+   PURCHASE ORDER PREVIEW
+   Client reference layout
+   Completely isolated from quotation / shared document CSS
+   ========================================================================== */
+
+
+/* ==========================================================================
+   PREVIEW SCREEN
+   ========================================================================== */
+
+.purchase-order-preview {
+  width: 100%;
+  min-height: 100vh;
+
+  margin: 0;
+  padding: 28px 16px 60px;
+
+  box-sizing: border-box;
+
+  background: #0b1020;
+
+  font-family: "Times New Roman", Times, serif;
+  color: #000;
+}
+
+
+/* ==========================================================================
+   PREVIEW TOOLBAR
+   ========================================================================== */
+
+.purchase-order-preview__toolbar {
+  width: 794px;
+  max-width: 100%;
+
+  margin: 0 auto 16px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+}
+
+.purchase-order-preview__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.purchase-order-preview__back-button,
+.purchase-order-preview__action-button {
+  appearance: none;
+
+  padding: 7px 12px;
+
+  border: 1px solid #c9c9c9;
+  border-radius: 3px;
+
+  background: #ffffff;
+  color: #111111;
+
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+
+  line-height: 1.2;
+
+  cursor: pointer;
+}
+
+.purchase-order-preview__back-button:hover,
+.purchase-order-preview__action-button:hover {
+  background: #f4f4f4;
+}
+
+
+/* ==========================================================================
+   A4 DOCUMENT
+   ========================================================================== */
+
+.purchase-order-preview__document {
+  width: 794px;
+  min-height: 1123px;
+
+  margin: 0 auto;
+
+  padding: 26px 42px 24px;
+
+  box-sizing: border-box;
+
+  background: #ffffff;
+
+  border: 1px solid #d0d0d0;
+
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.35;
+
+  color: #000000;
+}
+
+
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
+.purchase-order-preview__header {
+  width: 100%;
+
+  display: grid;
+
+  grid-template-columns: 92px minmax(0, 1fr) 190px;
+
+  column-gap: 16px;
+
+  align-items: start;
+
+  box-sizing: border-box;
+}
+
+
+/* ==========================================================================
+   COMPANY / HEADER INFORMATION
+   ========================================================================== */
+
+.purchase-order-preview__company {
+  min-width: 0;
+
+  text-align: center;
+}
+
+.purchase-order-preview__company-name {
+  margin: 0;
+
+  font-size: 24px;
+  font-weight: 700;
+
+  line-height: 1.12;
+
+  white-space: normal;
+}
+
+.purchase-order-preview__company-details {
+  margin-top: 7px;
+
+  font-size: 10px;
+  line-height: 1.3;
+
+  text-align: center;
+}
+
+
+/* ==========================================================================
+   DOCUMENT TITLE
+   ========================================================================== */
+
+.purchase-order-preview__title {
+  padding-top: 5px;
+
+  text-align: center;
+
+  font-size: 17px;
+  font-weight: 700;
+
+  line-height: 1.25;
+
+  letter-spacing: 0.4px;
+}
+
+
+/* ==========================================================================
+   HEADER META
+   ========================================================================== */
+
+.purchase-order-preview__header-meta {
+  display: grid;
+
+  grid-template-columns: minmax(0, 1fr) 112px;
+
+  column-gap: 12px;
+
+  min-width: 0;
+
+  font-size: 11px;
+  line-height: 1.28;
+}
+
+.purchase-order-preview__header-meta > div:first-child {
+  display: flex;
+  flex-direction: column;
+
+  min-width: 0;
+}
+
+.purchase-order-preview__header-meta > div:first-child span,
+.purchase-order-preview__header-meta > div:first-child strong {
+  display: block;
+
+  margin: 0;
+
+  overflow-wrap: anywhere;
+}
+
+.purchase-order-preview__header-meta > div:first-child strong {
+  font-weight: 700;
+}
+
+.purchase-order-preview__document-meta {
+  min-width: 0;
+
+  text-align: left;
+}
+
+.purchase-order-preview__document-meta p {
+  margin: 0 0 4px;
+
+  white-space: nowrap;
+}
+
+.purchase-order-preview__document-meta strong {
+  font-weight: 700;
+}
+
+
+/* ==========================================================================
+   HEADER DIVIDER
+   ========================================================================== */
+
+.purchase-order-preview__header-divider {
+  width: 100%;
+
+  margin: 15px 0 26px;
+
+  border-top: 1px solid #9d7a32;
+}
+
+
+/* ==========================================================================
+   SUBJECT
+   ========================================================================== */
+
+.purchase-order-preview__subject {
+  width: 100%;
+
+  display: flex;
+  align-items: flex-start;
+
+  margin-bottom: 18px;
+
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.purchase-order-preview__label {
+  flex: 0 0 auto;
+
+  margin-right: 7px;
+
+  font-weight: 700;
+}
+
+.purchase-order-preview__subject-value {
+  flex: 1;
+
+  min-width: 0;
+
+  overflow-wrap: anywhere;
+}
+
+
+/* ==========================================================================
+   INTRODUCTION
+   ========================================================================== */
+
+.purchase-order-preview__introduction {
+  width: 100%;
+
+  margin-bottom: 19px;
+
+  font-size: 13px;
+  line-height: 1.48;
+}
+
+.purchase-order-preview__introduction p {
+  margin: 0 0 10px;
+}
+
+.purchase-order-preview__introduction p:last-child {
+  margin-bottom: 0;
+}
+
+.purchase-order-preview__introduction strong {
+  font-weight: 700;
+}
+
+
+/* ==========================================================================
+   ORDER SECTION
+   ========================================================================== */
+
+.purchase-order-preview__order-section {
+  width: 100%;
+
+  margin-bottom: 20px;
+}
+
+.purchase-order-preview__section-title {
+  margin: 0 0 7px;
+
+  font-size: 13px;
+  font-weight: 700;
+
+  line-height: 1.25;
+}
+
+
+/* ==========================================================================
+   ORDER TABLE
+   ========================================================================== */
+
+.purchase-order-preview__table-wrapper {
+  width: 100%;
+
+  margin: 0;
+
+  overflow: visible;
+}
+
+.purchase-order-preview__table {
+  width: 100%;
+
+  border-collapse: collapse;
+  border-spacing: 0;
+
+  table-layout: fixed;
+
+  border: 1px solid #000000;
+
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11px;
+
+  color: #000000;
+}
+
+.purchase-order-preview__table th,
+.purchase-order-preview__table td {
+  box-sizing: border-box;
+
+  border: 1px solid #000000;
+}
+
+.purchase-order-preview__table th {
+  padding: 6px 5px;
+
+  background: #ffffff;
+
+  font-size: 10.5px;
+  font-weight: 700;
+
+  line-height: 1.2;
+
+  text-align: center;
+  vertical-align: middle;
+}
+
+.purchase-order-preview__table td {
+  padding: 7px 6px;
+
+  background: #ffffff;
+
+  font-size: 11px;
+
+  line-height: 1.35;
+
+  vertical-align: top;
+
+  overflow-wrap: anywhere;
+}
+
+.purchase-order-preview__table tbody tr {
+  page-break-inside: avoid;
+}
+
+
+/* ==========================================================================
+   TABLE COLUMN ALIGNMENT
+   ========================================================================== */
+
+.purchase-order-preview__cell--center {
+  text-align: center;
+  vertical-align: middle !important;
+}
+
+.purchase-order-preview__cell--right {
+  text-align: right;
+  vertical-align: middle !important;
+
+  white-space: nowrap;
+}
+
+
+/* ==========================================================================
+   EMPTY TABLE
+   ========================================================================== */
+
+.purchase-order-preview__empty-cell {
+  padding: 18px 8px !important;
+
+  text-align: center;
+
+  color: #666666;
+
+  font-style: italic;
+}
+
+
+/* ==========================================================================
+   AMOUNT SUMMARY
+   ========================================================================== */
+
+.purchase-order-preview__summary-section {
+  width: 100%;
+
+  display: grid;
+
+  grid-template-columns: 108px minmax(0, 1fr);
+
+  column-gap: 14px;
+
+  margin-top: 18px;
+  margin-bottom: 28px;
+
+  font-size: 13px;
+}
+
+.purchase-order-preview__summary-label {
+  font-weight: 700;
+
+  line-height: 1.3;
+}
+
+.purchase-order-preview__summary-list {
+  margin: 0;
+
+  padding-left: 18px;
+}
+
+.purchase-order-preview__summary-list li {
+  margin: 0 0 5px;
+
+  padding-left: 2px;
+
+  line-height: 1.35;
+}
+
+.purchase-order-preview__summary-list li:last-child {
+  margin-bottom: 0;
+}
+
+.purchase-order-preview__summary-list strong {
+  font-weight: 700;
+}
+
+
+/* ==========================================================================
+   CLOSING
+   ========================================================================== */
+
+.purchase-order-preview__closing {
+  width: 100%;
+
+  margin-top: 19px;
+
+  font-size: 13px;
+
+  line-height: 1.45;
+}
+
+.purchase-order-preview__closing p {
+  margin: 0 0 10px;
+}
+
+.purchase-order-preview__closing p:last-child {
+  margin-bottom: 0;
+}
+
+
+/* ==========================================================================
+   SIGNATURE
+   ========================================================================== */
+
+.purchase-order-preview__signature {
+  width: 220px;
+
+  margin-top: 34px;
+  margin-left: auto;
+
+  font-size: 13px;
+
+  line-height: 1.4;
+}
+
+.purchase-order-preview__signature-space {
+  height: 48px;
+}
+
+.purchase-order-preview__signature strong {
+  display: block;
+
+  font-weight: 700;
+}
+
+.purchase-order-preview__signature > div:not(
+  .purchase-order-preview__signature-space
+) {
+  margin-top: 2px;
+}
+
+
+/* ==========================================================================
+   PRINT
+   ========================================================================== */
+
+@media print {
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+
+    background: #ffffff !important;
+  }
+
+  .purchase-order-preview {
+    width: 100%;
+    min-height: 0;
+
+    margin: 0;
+    padding: 0;
+
+    background: #ffffff;
+  }
+
+  .purchase-order-preview__toolbar {
+    display: none !important;
+  }
+
+  .purchase-order-preview__document {
+    width: 210mm;
+    min-height: 297mm;
+
+    margin: 0;
+
+    padding: 9mm 12mm 12mm;
+
+    box-sizing: border-box;
+
+    border: none;
+    box-shadow: none;
+
+    background: #ffffff;
+
+    font-size: 13px;
+  }
+
+  .purchase-order-preview__header-divider {
+    margin-top: 4mm;
+    margin-bottom: 7mm;
+  }
+
+  .purchase-order-preview__table-wrapper {
+    overflow: visible;
+  }
+
+  .purchase-order-preview__table {
+    width: 100%;
+  }
+
+  .purchase-order-preview__table thead {
+    display: table-header-group;
+  }
+
+  .purchase-order-preview__table tr,
+  .purchase-order-preview__table th,
+  .purchase-order-preview__table td {
+    page-break-inside: avoid;
+  }
+
+  .purchase-order-preview__order-section,
+  .purchase-order-preview__summary-section,
+  .purchase-order-preview__closing,
+  .purchase-order-preview__signature {
+    page-break-inside: avoid;
+  }
+}
+
+
+/* ==========================================================================
+   SCREEN RESPONSIVE
+   ========================================================================== */
+
+@media screen and (max-width: 850px) {
+
+  .purchase-order-preview {
+    padding: 18px 10px 40px;
+  }
+
+  .purchase-order-preview__toolbar,
+  .purchase-order-preview__document {
+    width: 100%;
+  }
+
+  .purchase-order-preview__document {
+    padding: 28px 30px 36px;
+  }
+}
+
+
+@media screen and (max-width: 650px) {
+
+  .purchase-order-preview__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .purchase-order-preview__actions {
+    width: 100%;
+  }
+
+  .purchase-order-preview__back-button,
+  .purchase-order-preview__action-button {
+    flex: 1;
+  }
+
+  .purchase-order-preview__header {
+    grid-template-columns: 1fr;
+
+    row-gap: 14px;
+  }
+
+  .purchase-order-preview__title {
+    order: -1;
+  }
+
+  .purchase-order-preview__header-meta {
+    grid-template-columns: 1fr;
+
+    row-gap: 10px;
+  }
+
+  .purchase-order-preview__document-meta {
+    text-align: left;
+  }
+
+  .purchase-order-preview__summary-section {
+    grid-template-columns: 1fr;
+
+    row-gap: 7px;
+  }
+
+  .purchase-order-preview__signature {
+    margin-left: 0;
+  }
+}

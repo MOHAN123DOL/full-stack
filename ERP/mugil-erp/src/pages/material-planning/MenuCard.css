@@ -1,0 +1,324 @@
+/* =====================================================================
+   MenuCard.css - Updated with blue/indigo color scheme
+   All main styling comes from Consumable.css with color overrides
+===================================================================== */
+
+/* Color override for Material Management page */
+.consumable-page.material-page {
+  --accent: #1d4ed8;
+  --accent-dark: #1739ac;
+  --accent-deep: #0f2b7a;
+  --accent-soft: #e7edfd;
+  --accent-light: #3b82f6;
+  --accent-gradient: linear-gradient(180deg, #1739ac 0%, #1d4ed8 52%, #0f2b7a 100%);
+}
+
+/* Apply to the page when material-page class is added */
+.material-page .consumable-sidebar {
+  background: linear-gradient(180deg, #1739ac 0%, #1d4ed8 52%, #0f2b7a 100%) !important;
+}
+
+.material-page .consumable-sidebar-item-active {
+  background: rgba(23, 57, 172, 0.26) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.82) !important;
+}
+
+.material-page .consumable-sidebar-footer {
+  background: rgba(23, 57, 172, 0.22) !important;
+}
+
+.material-page .consumable-featured::before {
+  background: #1d4ed8 !important;
+}
+
+.material-page .consumable-featured:hover {
+  border-color: #b3c9f7 !important;
+}
+
+.material-page .consumable-featured-icon {
+  background: #e7edfd !important;
+  border-color: #b3c9f7 !important;
+  color: #1d4ed8 !important;
+}
+
+.material-page .consumable-featured:hover .consumable-featured-icon {
+  background: #d0dffb !important;
+}
+
+.material-page .consumable-card::before {
+  background: #1d4ed8 !important;
+}
+
+.material-page .consumable-card:hover {
+  border-color: #b3c9f7 !important;
+}
+
+.material-page .consumable-icon {
+  background: #e7edfd !important;
+  border-color: #b3c9f7 !important;
+  color: #1d4ed8 !important;
+}
+
+.material-page .consumable-card:hover .consumable-icon {
+  background: #d0dffb !important;
+}
+
+.material-page .consumable-eyebrow {
+  border-color: #b3c9f7 !important;
+  background: #e7edfd !important;
+  color: #1d4ed8 !important;
+}
+
+.material-page .consumable-back-link:hover {
+  color: #1d4ed8 !important;
+}
+
+/* Ensure the consumable-page works with menu content */
+.consumable-page {
+  --ink: #1b2430;
+  --muted: #64748b;
+  --canvas: #f3f5f8;
+  --surface: #ffffff;
+  --line: #e2e6ed;
+
+  min-height: 100vh;
+  width: 100%;
+  background: var(--canvas);
+  padding: 16px 12px 32px;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+}
+
+/* Override any conflicting styles from old MenuCard.css */
+.menu-page,
+.menu-shell,
+.menu-grid,
+.menu-card,
+.menu-card-header,
+.menu-card-body,
+.menu-card-title,
+.menu-card-desc,
+.menu-card-supporting,
+.menu-card-btn,
+.menu-card-icon-badge,
+.menu-eyebrow,
+.menu-title,
+.menu-subtitle {
+  all: unset;
+  display: revert;
+}
+
+/* Page shell content override */
+.page-shell-content {
+  padding: 0;
+  width: 100%;
+}
+
+/* Hide old topbar elements if they exist */
+.topbar,
+.topbar-left,
+.topbar-right,
+.topbar-breadcrumb,
+.topbar-page-name,
+.topbar-icon-btn,
+.topbar-profile-wrap,
+.topbar-profile,
+.topbar-avatar,
+.topbar-profile-name,
+.topbar-profile-menu,
+.topbar-profile-role {
+  display: none;
+}
+
+/* Ensure sidebar navigation works */
+.consumable-sidebar-nav {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 3px 12px 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+}
+
+.consumable-sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.consumable-sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.consumable-sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+}
+
+/* Responsive overrides - keep in sync with Consumable.css */
+@media (max-width: 1200px) {
+  .consumable-layout {
+    grid-template-columns: 230px minmax(0, 1fr);
+  }
+  .consumable-main {
+    padding: 22px 24px 32px;
+  }
+  .consumable-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 850px) {
+  .consumable-page {
+    padding: 12px;
+  }
+  .consumable-layout {
+    min-height: auto;
+    display: block;
+    border-radius: 18px;
+  }
+  .consumable-sidebar {
+    width: 100%;
+    padding: 18px;
+  }
+  .consumable-sidebar-brand {
+    padding: 0 0 16px;
+    margin-bottom: 12px;
+  }
+  .consumable-sidebar-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 0;
+  }
+  .consumable-sidebar-item {
+    min-height: 50px;
+  }
+  .consumable-sidebar-footer {
+    margin-top: 12px;
+  }
+  .consumable-main {
+    padding: 24px;
+  }
+}
+
+@media (max-width: 560px) {
+  .consumable-page {
+    padding: 8px;
+  }
+  .consumable-layout {
+    border-radius: 14px;
+  }
+  .consumable-sidebar {
+    padding: 16px 14px;
+  }
+  .consumable-sidebar-brand-icon {
+    width: 38px;
+    height: 38px;
+  }
+  .consumable-sidebar-title {
+    font-size: 17px;
+  }
+  .consumable-sidebar-nav {
+    grid-template-columns: 1fr;
+  }
+  .consumable-sidebar-item {
+    min-height: 48px;
+  }
+  .consumable-sidebar-footer {
+    padding: 13px;
+  }
+  .consumable-main {
+    padding: 20px 16px 24px;
+  }
+  .consumable-title {
+    font-size: 27px;
+  }
+  .consumable-featured {
+    padding: 18px;
+  }
+  .consumable-featured-header {
+    align-items: flex-start;
+  }
+  .consumable-featured-icon {
+    width: 44px;
+    height: 44px;
+  }
+  .consumable-featured-title {
+    font-size: 18px;
+  }
+  .consumable-grid {
+    grid-template-columns: 1fr;
+  }
+  .consumable-card {
+    min-height: 140px;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .consumable-back-link,
+  .consumable-back-link svg,
+  .consumable-sidebar-item,
+  .consumable-sidebar-item-icon,
+  .consumable-featured,
+  .consumable-featured-icon,
+  .consumable-card,
+  .consumable-card::before,
+  .consumable-icon {
+    transition: none !important;
+  }
+}
+
+/* Ensure interactive elements are clickable */
+.consumable-sidebar-item,
+.consumable-card,
+.consumable-featured {
+  cursor: pointer;
+}
+
+.consumable-featured:hover {
+  transform: translateY(-2px);
+}
+
+.consumable-featured:active {
+  transform: translateY(0);
+}
+
+.consumable-back-link {
+  position: relative;
+  z-index: 9999;
+  pointer-events: auto;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.consumable-back-link:hover {
+  color: var(--accent);
+  transform: none !important;
+}
+
+.consumable-back-link svg {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.consumable-back-link:hover svg {
+  transform: none !important;
+}
+
+.consumable-header,
+.consumable-featured {
+  position: relative;
+}

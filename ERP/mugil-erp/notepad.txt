@@ -1,0 +1,208 @@
+header icon 
+<!-- From Uiverse.io by emmanuelh-dev --> 
+<div
+  class="flex bg-white w-fit px-1.25 py-1.25 shadow-box-up rounded-2xl dark:bg-box-dark dark:shadow-box-dark-out"
+>
+  <div
+    class="dark:shadow-buttons-box-dark rounded-2xl w-full px-1.5 py-1.5 md:px-3 md:py-3"
+  >
+    <button
+      title="Go to the home page"
+      class="text-light-blue-light hover:text-black dark:text-gray-400 border-2 inline-flex items-center mr-4 last-of-type:mr-0 p-2.5 border-transparent bg-light-secondary shadow-button-flat-nopressed hover:border-2 hover:shadow-button-flat-pressed focus:opacity-100 focus:outline-none active:border-2 active:shadow-button-flat-pressed font-medium rounded-full text-sm text-center dark:bg-button-curved-default-dark dark:shadow-button-curved-default-dark dark:hover:bg-button-curved-pressed-dark dark:hover:shadow-button-curved-pressed-dark dark:active:bg-button-curved-pressed-dark dark:active:shadow-button-curved-pressed-dark dark:focus:bg-button-curved-pressed-dark dark:focus:shadow-button-curved-pressed-dark dark:border-0"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="w-5 h-5"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+      >
+        <path
+          d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"
+        ></path>
+      </svg>
+    </button>
+    <button
+      title="Go to post list page"
+      class="text-light-blue-light hover:text-black dark:text-gray-400 border-2 inline-flex items-center mr-4 last-of-type:mr-0 p-2.5 border-transparent bg-light-secondary shadow-button-flat-nopressed hover:border-2 hover:shadow-button-flat-pressed focus:opacity-100 focus:outline-none active:border-2 active:shadow-button-flat-pressed font-medium rounded-full text-sm text-center dark:bg-button-curved-default-dark dark:shadow-button-curved-default-dark dark:hover:bg-button-curved-pressed-dark dark:hover:shadow-button-curved-pressed-dark dark:active:bg-button-curved-pressed-dark dark:active:shadow-button-curved-pressed-dark dark:focus:bg-button-curved-pressed-dark dark:focus:shadow-button-curved-pressed-dark dark:border-0"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="w-5 h-5"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+      >
+        <path
+          d="M5 3a1 1 0 000 2c5.523 0 10 4.477 10 10a1 1 0 102 0C17 8.373 11.627 3 5 3z"
+        ></path>
+        <path
+          d="M4 9a1 1 0 011-1 7 7 0 017 7 1 1 0 11-2 0 5 5 0 00-5-5 1 1 0 01-1-1zM3 15a2 2 0 114 0 2 2 0 01-4 0z"
+        ></path>
+      </svg>
+    </button>
+    <button
+      title="Go to about me page"
+      class="text-light-blue-light hover:text-black dark:text-gray-400 border-2 inline-flex items-center mr-4 last-of-type:mr-0 p-2.5 border-transparent bg-light-secondary shadow-button-flat-nopressed hover:border-2 hover:shadow-button-flat-pressed focus:opacity-100 focus:outline-none active:border-2 active:shadow-button-flat-pressed font-medium rounded-full text-sm text-center dark:bg-button-curved-default-dark dark:shadow-button-curved-default-dark dark:hover:bg-button-curved-pressed-dark dark:hover:shadow-button-curved-pressed-dark dark:active:bg-button-curved-pressed-dark dark:active:shadow-button-curved-pressed-dark dark:focus:bg-button-curved-pressed-dark dark:focus:shadow-button-curved-pressed-dark dark:border-0"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="w-5 h-5"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+      >
+        <path
+          fill-rule="evenodd"
+          d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
+          clip-rule="evenodd"
+        ></path>
+      </svg>
+    </button>
+  </div>
+</div>
+
+
+
+
+
+profile hover
+html
+<!-- From Uiverse.io by mrhyddenn --> 
+<div class="card">
+    <div class="card_load"></div>
+    <div class="card_load_extreme_title"></div>
+    <div class="card_load_extreme_descripion"></div>
+</div>
+
+
+
+css
+/* From Uiverse.io by mrhyddenn */ 
+.card {
+  width: 190px;
+  height: 90px;
+  background: #ffff;
+  box-shadow: 0 1px 25px rgba(0,0,0,0.2);
+  position: absolute;
+  transform: translate(-50%, -50%);
+  top: 50%;
+  left: 50%;
+  padding: 12px 10px;
+}
+
+.card_load {
+  width: 70px;
+  height: 70px;
+  position: relative;
+  float: left;
+  background: linear-gradient(120deg, #e5e5e5 30%, #f0f0f0 38%, #f0f0f0 
+  40%, #e5e5e5 48%);
+  border-radius: 50%;
+  background-size: 200% 100%;
+  background-position: 100% 0;
+  animation: load89234 2s infinite;
+}
+
+.card_load_extreme_title {
+  width: 90px;
+  height: 10px;
+  position: relative;
+  float: right;
+  border-radius: 5px;
+  background: linear-gradient(120deg, #e5e5e5 30%, #f0f0f0 38%, #f0f0f0 
+  40%, #e5e5e5 48%);
+  background-size: 200% 100%;
+  background-position: 100% 0;
+  animation: load89234 2s infinite;
+}
+
+.card_load_extreme_descripion {
+  width: 90px;
+  height: 47px;
+  position: relative;
+  float: right;
+  border-radius: 5px;
+  background: linear-gradient(120deg, #e5e5e5 30%, #f0f0f0 38%, #f0f0f0 
+  40%, #e5e5e5 48%);
+  margin-top: 10px;
+  background-size: 200% 100%;
+  background-position: 100% 0;
+  animation: load89234 2s infinite;
+}
+
+@keyframes load89234 {
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+
+log out 
+<!-- From Uiverse.io by e-coders --> 
+
+<button><span class="text">Hover me</span><span>Thanks!</span></button>
+
+
+
+
+
+/* From Uiverse.io by e-coders */ 
+button {
+ position: relative;
+ overflow: hidden;
+ border: 1px solid #18181a;
+ color: #18181a;
+ display: inline-block;
+ font-size: 15px;
+ line-height: 15px;
+ padding: 18px 18px 17px;
+ text-decoration: none;
+ cursor: pointer;
+ background: #fff;
+ user-select: none;
+ -webkit-user-select: none;
+ touch-action: manipulation;
+}
+
+button span:first-child {
+ position: relative;
+ transition: color 600ms cubic-bezier(0.48, 0, 0.12, 1);
+ z-index: 10;
+}
+
+button span:last-child {
+ color: white;
+ display: block;
+ position: absolute;
+ bottom: 0;
+ transition: all 500ms cubic-bezier(0.48, 0, 0.12, 1);
+ z-index: 100;
+ opacity: 0;
+ top: 50%;
+ left: 50%;
+ transform: translateY(225%) translateX(-50%);
+ height: 14px;
+ line-height: 13px;
+}
+
+button:after {
+ content: "";
+ position: absolute;
+ bottom: -50%;
+ left: 0;
+ width: 100%;
+ height: 100%;
+ background-color: black;
+ transform-origin: bottom center;
+ transition: transform 600ms cubic-bezier(0.48, 0, 0.12, 1);
+ transform: skewY(9.3deg) scaleY(0);
+ z-index: 50;
+}
+
+button:hover:after {
+ transform-origin: bottom center;
+ transform: skewY(9.3deg) scaleY(2);
+}
+
+button:hover span:last-child {
+ transform: translateX(-50%) translateY(-50%);
+ opacity: 1;
+ transition: all 900ms cubic-bezier(0.48, 0, 0.12, 1

@@ -1,0 +1,488 @@
+/* ==========================================================================
+   SALARY PAGE — FULL‑WIDTH Premium Styles
+   Matches the HR Attendance design language.
+   ========================================================================== */
+
+/* ----- global reset for full‑width ----- */
+body {
+  margin: 0;
+  background: #f6f8fc; /* matches --sal-bg */
+}
+
+.sal-page {
+  --sal-accent: #0f766e;
+  --sal-accent-light: #14b8a6;
+  --sal-accent-dark: #0b5c56;
+  --sal-accent-glow: rgba(15, 118, 110, 0.15);
+  --sal-danger: #dc2626;
+  --sal-danger-light: #fef2f2;
+  --sal-warning: #d97706;
+  --sal-warning-light: #fffbeb;
+  --sal-success: #16a34a;
+  --sal-success-light: #f0fdf4;
+  --sal-border: #e9edf4;
+  --sal-border-light: #f1f4f9;
+  --sal-bg: #f6f8fc;
+  --sal-bg-white: #ffffff;
+  --sal-text: #0f172a;
+  --sal-text-muted: #64748b;
+  --sal-text-light: #94a3b8;
+  --sal-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --sal-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --sal-shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.10);
+  --sal-radius: 12px;
+  --sal-radius-sm: 8px;
+  --sal-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ─── FULL WIDTH ─── */
+  width: 100%;
+  max-width: 100% !important;   /* override any max-width */
+  margin: 0;                    /* remove auto centering */
+  padding: 28px 24px 60px;
+  box-sizing: border-box;
+  color: var(--sal-text);
+  background: var(--sal-bg);
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* ==========================================================================
+   PAGE HEADER — with Back Button
+   ========================================================================== */
+
+.sal-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--sal-border);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sal-page-header-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sal-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 8px 10px;
+  border: 1.5px solid var(--sal-border);
+  background: var(--sal-bg-white);
+  border-radius: var(--sal-radius-sm);
+  color: var(--sal-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--sal-transition);
+  flex-shrink: 0;
+  font-family: inherit;
+  margin-top: 2px;
+}
+
+.sal-back-btn svg {
+  flex-shrink: 0;
+  transition: transform var(--sal-transition);
+}
+
+.sal-back-btn:hover {
+  border-color: var(--sal-accent);
+  color: var(--sal-accent-dark);
+  background: var(--sal-accent-glow);
+  transform: translateX(-2px);
+}
+
+.sal-back-btn:hover svg {
+  transform: translateX(-2px);
+}
+
+.sal-back-btn:active {
+  transform: translateX(0) scale(0.97);
+}
+
+.sal-back-btn:focus-visible {
+  outline: 2px solid var(--sal-accent);
+  outline-offset: 2px;
+}
+
+.sal-page-header-left h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--sal-text), var(--sal-accent-dark));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.sal-page-header-left p {
+  margin: 0;
+  color: var(--sal-text-muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.sal-page-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.sal-header-badge {
+  background: var(--sal-accent-glow);
+  color: var(--sal-accent-dark);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(15, 118, 110, 0.15);
+}
+
+/* ==========================================================================
+   TOOLBAR
+   ========================================================================== */
+
+.sal-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: var(--sal-bg-white);
+  border: 1px solid var(--sal-border);
+  border-radius: var(--sal-radius);
+  padding: 16px 20px;
+  box-shadow: var(--sal-shadow-sm);
+  transition: box-shadow var(--sal-transition);
+  margin-bottom: 24px;
+}
+
+.sal-toolbar:focus-within {
+  box-shadow: 0 0 0 3px var(--sal-accent-glow), var(--sal-shadow);
+}
+
+/* ==========================================================================
+   FORM FIELDS
+   ========================================================================== */
+
+.sal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  min-width: 0;
+  flex: 1 1 180px;
+}
+
+.sal-field-label {
+  font-weight: 600;
+  color: var(--sal-text);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.sal-input,
+.sal-select {
+  border: 1.5px solid var(--sal-border);
+  border-radius: var(--sal-radius-sm);
+  padding: 9px 12px;
+  font-size: 13.5px;
+  background: var(--sal-bg-white);
+  color: var(--sal-text);
+  transition: all var(--sal-transition);
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+}
+
+.sal-input:hover,
+.sal-select:hover {
+  border-color: #cbd5e1;
+}
+
+.sal-input:focus,
+.sal-select:focus {
+  outline: none;
+  border-color: var(--sal-accent);
+  box-shadow: 0 0 0 3px var(--sal-accent-glow);
+}
+
+.sal-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+.sal-hint {
+  font-size: 11px;
+  color: var(--sal-text-light);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* ==========================================================================
+   MAIN CARD
+   ========================================================================== */
+
+.sal-card {
+  background: var(--sal-bg-white);
+  border: 1px solid var(--sal-border);
+  border-radius: var(--sal-radius);
+  padding: 24px;
+  box-shadow: var(--sal-shadow-sm);
+}
+
+.sal-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--sal-border-light);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sal-card-head h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.sal-card-head .sal-hint {
+  font-size: 13px;
+  color: var(--sal-text-muted);
+}
+
+.sal-type-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+}
+
+.sal-type-hourly {
+  background: #e0e7ff;
+  color: #3730a3;
+  border-color: #c7d2fe;
+}
+
+.sal-type-monthly {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+/* ==========================================================================
+   SECTIONS
+   ========================================================================== */
+
+.sal-section {
+  margin-bottom: 28px;
+}
+
+.sal-section h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--sal-text);
+}
+
+.sal-attendance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  background: var(--sal-bg);
+  border-radius: var(--sal-radius-sm);
+  padding: 16px;
+  margin-bottom: 8px;
+}
+
+.sal-attendance-grid > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.sal-mini-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sal-text-muted);
+  font-weight: 600;
+}
+
+.sal-mini-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--sal-text);
+}
+
+.sal-components-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+/* ==========================================================================
+   TOTALS
+   ========================================================================== */
+
+.sal-totals {
+  background: var(--sal-bg);
+  border-radius: var(--sal-radius-sm);
+  padding: 20px 24px;
+  border: 1px solid var(--sal-border);
+}
+
+.sal-totals-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 14px;
+  color: var(--sal-text);
+  border-bottom: 1px solid var(--sal-border-light);
+}
+
+.sal-totals-row:last-child {
+  border-bottom: none;
+}
+
+.sal-totals-sub {
+  font-weight: 600;
+  color: var(--sal-accent-dark);
+}
+
+.sal-totals-net {
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--sal-text);
+  border-top: 2px solid var(--sal-accent);
+  margin-top: 4px;
+  padding-top: 12px;
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .sal-page {
+    padding: 16px 12px 40px;
+  }
+
+  .sal-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .sal-page-header-left {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .sal-back-btn {
+    align-self: flex-start;
+    padding: 6px 12px 6px 8px;
+    font-size: 12px;
+  }
+
+  .sal-back-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .sal-page-header-left h1 {
+    font-size: 20px;
+  }
+
+  .sal-page-header-actions {
+    align-self: flex-start;
+  }
+
+  .sal-toolbar {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .sal-field {
+    flex: 1 1 100%;
+    min-width: 100%;
+  }
+
+  .sal-card {
+    padding: 16px;
+  }
+
+  .sal-attendance-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sal-components-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sal-totals {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sal-attendance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sal-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .sal-totals-row {
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+}
+
+/* ==========================================================================
+   SCROLLBAR STYLING
+   ========================================================================== */
+
+.sal-card::-webkit-scrollbar,
+.sal-toolbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.sal-card::-webkit-scrollbar-track,
+.sal-toolbar::-webkit-scrollbar-track {
+  background: var(--sal-bg);
+}
+
+.sal-card::-webkit-scrollbar-thumb,
+.sal-toolbar::-webkit-scrollbar-thumb {
+  background: var(--sal-border);
+  border-radius: 999px;
+}
+
+.sal-card::-webkit-scrollbar-thumb:hover,
+.sal-toolbar::-webkit-scrollbar-thumb:hover {
+  background: var(--sal-text-light);
+}

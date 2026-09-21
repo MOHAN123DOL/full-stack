@@ -1,0 +1,574 @@
+
+/* =========================
+   MAIN HEADER
+========================= */
+
+.erp-header {
+  position: relative;
+  z-index: 1000;
+
+  width: 100%;
+  height: 76px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 0 30px;
+
+  background: #2c2c2c;
+  color: #ffffff;
+
+  border-bottom: 1px solid #454545;
+  box-sizing: border-box;
+}
+
+
+/* =========================
+   BRAND
+========================= */
+
+.erp-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.erp-brand-line {
+  width: 4px;
+  height: 32px;
+
+  background: #d4af37;
+  border-radius: 4px;
+}
+
+.erp-brand-name {
+  color: #ffffff;
+
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+
+/* =========================
+   USER AREA
+========================= */
+
+.erp-user-area {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+
+  height: 100%;
+}
+
+
+/* =========================
+   USER INFORMATION
+========================= */
+
+.erp-user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.erp-avatar {
+  width: 38px;
+  height: 38px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: #ffffff;
+  background: #414141;
+
+  border: 1px solid #686868;
+  border-radius: 50%;
+}
+
+.erp-avatar svg {
+  width: 22px;
+  height: 22px;
+}
+
+.erp-user-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.erp-username {
+  color: #ffffff;
+
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.erp-user-role {
+  color: #bdbdbd;
+
+  font-size: 11px;
+  font-weight: 400;
+}
+
+
+/* =========================
+   DIVIDER
+========================= */
+
+.erp-action-divider {
+  width: 1px;
+  height: 28px;
+
+  background: #5b5b5b;
+}
+
+
+/* =========================
+   HEADER ACTION BUTTONS
+========================= */
+
+.erp-header-action {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+
+  min-width: 42px;
+  height: 38px;
+
+  padding: 0 10px;
+
+  color: #e9e9e9;
+  background: transparent;
+
+  border: 1px solid transparent;
+  border-radius: 8px;
+
+  font-size: 12px;
+  font-weight: 500;
+
+  cursor: pointer;
+
+  transition:
+    color 0.25s ease,
+    background 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.erp-header-action svg {
+  width: 19px;
+  height: 19px;
+
+  flex-shrink: 0;
+}
+
+.erp-header-action:hover {
+  color: #ffffff;
+  background: #414141;
+  border-color: #626262;
+}
+
+.erp-header-action:active {
+  transform: scale(0.97);
+}
+
+
+/* =========================
+   PROFILE HOVER CARD
+========================= */
+
+.erp-profile-wrapper {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+}
+
+.erp-profile-hover-card {
+  position: absolute;
+
+  top: calc(100% + 15px);
+  right: -35px;
+
+  width: 220px;
+  min-height: 115px;
+
+  padding: 18px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+
+  background: #383838;
+  border: 1px solid #5a5a5a;
+  border-radius: 12px;
+
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+
+  pointer-events: none;
+
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s ease,
+    transform 0.25s ease;
+}
+
+.erp-profile-wrapper:hover .erp-profile-hover-card {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+
+/* Profile Card Decorative Loader */
+
+.erp-profile-card-loader {
+  width: 42px;
+  height: 42px;
+
+  margin-bottom: 4px;
+
+  background: #4c4c4c;
+  border: 1px solid #707070;
+  border-radius: 50%;
+
+  position: relative;
+}
+
+.erp-profile-card-loader::before {
+  content: "";
+
+  position: absolute;
+
+  top: 8px;
+  left: 13px;
+
+  width: 14px;
+  height: 14px;
+
+  border: 2px solid #d4af37;
+  border-radius: 50%;
+}
+
+.erp-profile-card-loader::after {
+  content: "";
+
+  position: absolute;
+
+  bottom: 7px;
+  left: 9px;
+
+  width: 22px;
+  height: 11px;
+
+  border: 2px solid #d4af37;
+  border-bottom: 0;
+
+  border-radius: 14px 14px 0 0;
+}
+
+.erp-profile-card-title {
+  color: #ffffff;
+
+  font-size: 14px;
+  font-weight: 600;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erp-profile-card-description {
+  color: #bdbdbd;
+
+  font-size: 12px;
+}
+
+
+/* =========================
+   SIGN OUT HOVER EFFECT
+========================= */
+
+.erp-signout-action {
+  overflow: hidden;
+
+  min-width: 100px;
+}
+
+.erp-signout-text,
+.erp-signout-hover-text {
+  display: inline-block;
+
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
+}
+
+.erp-signout-hover-text {
+  position: absolute;
+
+  margin-left: 8px;
+
+  opacity: 0;
+  transform: translateY(18px);
+
+  color: #d4af37;
+}
+
+.erp-signout-action:hover .erp-signout-text {
+  opacity: 0;
+  transform: translateY(-18px);
+}
+
+.erp-signout-action:hover .erp-signout-hover-text {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+
+/* =========================
+   RESPONSIVE DESIGN
+========================= */
+
+@media (max-width: 768px) {
+  .erp-header {
+    height: 68px;
+    padding: 0 16px;
+  }
+
+  .erp-brand-name {
+    font-size: 15px;
+  }
+
+  .erp-user-text {
+    display: none;
+  }
+
+  .erp-user-area {
+    gap: 10px;
+  }
+
+  .erp-header-action {
+    min-width: 38px;
+    padding: 0 8px;
+  }
+
+  .erp-header-action span {
+    display: none;
+  }
+
+  .erp-profile-hover-card {
+    right: -20px;
+  }
+
+  .erp-signout-action {
+    min-width: 42px;
+  }
+}
+
+@media (max-width: 480px) {
+  .erp-brand-line {
+    height: 26px;
+  }
+
+  .erp-brand-name {
+    font-size: 13px;
+  }
+
+  .erp-avatar {
+    width: 34px;
+    height: 34px;
+  }
+
+  .erp-action-divider {
+    height: 24px;
+  }
+}
+
+/* Hide username and avatar from the header */
+.erp-user-info {
+  display: none;
+}
+
+
+/* =========================
+   CUSTOM PAGE NAVIGATION
+========================= */
+
+.erp-custom-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.erp-custom-nav-button {
+  padding: 8px 12px;
+
+  color: #cfcfcf;
+  background: transparent;
+
+  border: 1px solid transparent;
+  border-radius: 7px;
+
+  font-size: 12px;
+  font-weight: 500;
+
+  cursor: pointer;
+
+  transition:
+    color 0.25s ease,
+    background 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.erp-custom-nav-button:hover {
+  color: #ffffff;
+  background: #414141;
+  border-color: #5c5c5c;
+}
+
+.erp-custom-nav-button-active {
+  color: #ffffff;
+  background: #454545;
+  border-color: #d4af37;
+}
+
+
+/* =========================
+   HIDE USER INFORMATION
+========================= */
+
+.erp-user-info {
+  display: none;
+}
+
+
+/* =========================
+   SIGN OUT HOVER SPACING
+========================= */
+
+.erp-signout-hover-text {
+  position: absolute;
+
+  margin-left: 4px;
+
+  opacity: 0;
+  transform: translateY(18px);
+
+  color: #d4af37;
+}
+
+
+/* =========================================
+   SUPPORT DROPDOWN
+========================================= */
+
+.erp-support-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.erp-support-action {
+  position: relative;
+  cursor: pointer;
+}
+
+.erp-support-action-active {
+  color: #d4af37;
+}
+
+
+/* SUPPORT DROPDOWN CARD */
+
+.erp-support-dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+
+  width: 175px;
+  padding: 8px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  background: #ffffff;
+  border: 1px solid #dedede;
+  border-radius: 10px;
+
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+
+  z-index: 1000;
+
+  animation: erp-support-dropdown-show 0.18s ease-out;
+}
+
+
+/* DROPDOWN OPTIONS */
+
+.erp-support-dropdown-option {
+  width: 100%;
+  min-height: 38px;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 9px 12px;
+
+  border: none;
+  border-radius: 7px;
+
+  background: transparent;
+  color: #2c2c2c;
+
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+
+  text-align: left;
+  cursor: pointer;
+
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.erp-support-dropdown-option svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.erp-support-dropdown-option:hover {
+  background: #f2f2f2;
+  color: #b08d24;
+}
+
+
+/* DROPDOWN ANIMATION */
+
+@keyframes erp-support-dropdown-show {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

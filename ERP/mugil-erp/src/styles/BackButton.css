@@ -1,0 +1,64 @@
+/* =========================================
+   UNIVERSAL BACK BUTTON
+========================================= */
+
+.erp-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+
+  width: fit-content;
+
+  padding: 7px 12px;
+
+  margin: 0 0 14px 0;
+
+  background: transparent;
+
+  border: 1px solid #2563eb;
+  border-radius: 7px;
+
+  color: #2563eb;
+
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+
+  line-height: 1;
+
+  text-decoration: none;
+
+  cursor: pointer;
+
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+
+/* Arrow */
+
+.erp-back-button svg {
+  width: 15px;
+  height: 15px;
+
+  flex-shrink: 0;
+}
+
+
+/* Hover */
+
+.erp-back-button:hover {
+  color: #dc2626;
+  background: #fff5f5;
+  border-color: #dc2626;
+}
+
+
+/* Focus */
+
+.erp-back-button:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.25);
+  outline-offset: 2px;
+}

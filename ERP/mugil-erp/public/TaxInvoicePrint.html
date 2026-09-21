@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tax Invoice — Print Preview</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!--
+    Completely standalone document, following the exact same pattern as
+    QuotationPrint.html. It does not import React and does not import
+    anything from the existing Tax Invoice form/preview — it only reads
+    the data handed to it (see TaxInvoicePrint.js) and renders it.
+  -->
+  <link rel="stylesheet" href="./TaxInvoicePrint.css" />
+</head>
+<body>
+  <!--
+    TaxInvoicePrint.js looks for this exact id to know it is running
+    inside the print page (as opposed to being loaded by the host React
+    app just to expose window.generateTaxInvoicePrint). Everything below
+    this line is built dynamically from measured content.
+  -->
+  <div id="tip-print-app-root"></div>
+
+  <script src="./TaxInvoicePrint.js"></script>
+</body>
+</html>

@@ -1,0 +1,417 @@
+/* =========================================================
+   EXPENSE & PROFIT
+========================================================= */
+
+.expense-profit-page {
+  min-height: calc(100vh - 80px);
+  background: #f4f6f9;
+  padding: 32px 32px 60px;
+}
+
+.expense-profit-container {
+  width: 100%;
+  max-width: 1150px;
+  margin: 0 auto;
+}
+
+/* HEADER */
+
+.expense-profit-heading {
+  position: relative;
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.expense-profit-heading h1 {
+  margin: 0 0 5px;
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.expense-profit-heading p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13.5px;
+}
+
+.expense-profit-back {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  padding: 7px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.expense-profit-back:hover {
+  background: #f9fafb;
+}
+
+/* SUMMARY */
+
+.expense-profit-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.expense-profit-summary-card {
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+}
+
+.summary-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.summary-value {
+  display: block;
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.profit-value {
+  color: #15803d;
+}
+
+.loss-value {
+  color: #dc2626;
+}
+
+/* SECTIONS */
+
+.expense-profit-section {
+  margin-bottom: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.expense-profit-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 18px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.expense-profit-section-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* TABLES */
+
+.expense-summary-table-wrapper,
+.expense-profit-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.expense-summary-table,
+.expense-profit-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.expense-summary-table th,
+.expense-summary-table td,
+.expense-profit-table th,
+.expense-profit-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  font-size: 13px;
+}
+
+.expense-summary-table th,
+.expense-profit-table th {
+  background: #f9fafb;
+  color: #374151;
+  font-weight: 700;
+}
+
+.expense-summary-table td,
+.expense-profit-table td {
+  color: #4b5563;
+}
+
+.expense-summary-table tbody tr:last-child td,
+.expense-profit-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* PROFIT SUMMARY */
+
+.profit-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.profit-summary-grid > div {
+  padding: 18px;
+  border-right: 1px solid #e5e7eb;
+}
+
+.profit-summary-grid > div:last-child {
+  border-right: none;
+}
+
+.profit-summary-grid span {
+  display: block;
+  margin-bottom: 6px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.profit-summary-grid strong {
+  color: #111827;
+  font-size: 18px;
+}
+
+/* ADD EXPENSE */
+
+.add-expense-button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.add-expense-button:hover {
+  background: #1f2937;
+}
+
+/* TRANSACTION TYPE */
+
+.transaction-type {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.income-type {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.expense-type {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* TABLE ROW */
+
+.expense-profit-table tbody tr:hover,
+.expense-summary-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+/* TABLET */
+
+@media (max-width: 900px) {
+  .expense-profit-page {
+    padding: 28px 22px 50px;
+  }
+
+  .expense-profit-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .expense-profit-summary-card:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* MOBILE */
+
+@media (max-width: 560px) {
+  .expense-profit-page {
+    padding: 24px 16px 40px;
+  }
+
+  .expense-profit-heading {
+    padding-top: 42px;
+  }
+
+  .expense-profit-heading h1 {
+    font-size: 22px;
+  }
+
+  .expense-profit-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .expense-profit-summary-card:last-child {
+    grid-column: auto;
+  }
+
+  .profit-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profit-summary-grid > div {
+    border-right: none;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .profit-summary-grid > div:last-child {
+    border-bottom: none;
+  }
+
+  .expense-profit-section-header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+
+/* =========================================================
+   ADD EXPENSE FORM
+========================================================= */
+
+.expense-form {
+  padding: 20px;
+}
+
+.expense-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.expense-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.expense-form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.expense-form-field span {
+  color: #374151;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.expense-form-field span b {
+  color: #dc2626;
+}
+
+.expense-form-field input,
+.expense-form-field select,
+.expense-form-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 11px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.expense-form-field input:focus,
+.expense-form-field select:focus,
+.expense-form-field textarea:focus {
+  border-color: #6b7280;
+  box-shadow: 0 0 0 2px rgba(107, 114, 128, 0.10);
+}
+
+.expense-form-field textarea {
+  resize: vertical;
+}
+
+.expense-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.expense-form-cancel,
+.expense-form-save {
+  padding: 8px 15px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.expense-form-cancel {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+}
+
+.expense-form-cancel:hover {
+  background: #f9fafb;
+}
+
+.expense-form-save {
+  border: 1px solid #111827;
+  background: #111827;
+  color: #ffffff;
+}
+
+.expense-form-save:hover {
+  background: #1f2937;
+}
+
+/* MOBILE */
+
+@media (max-width: 560px) {
+  .expense-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .expense-form-field-wide {
+    grid-column: auto;
+  }
+
+  .expense-form {
+    padding: 16px;
+  }
+
+  .expense-form-actions {
+    flex-direction: column;
+  }
+
+  .expense-form-cancel,
+  .expense-form-save {
+    width: 100%;
+  }
+}
+  /**/

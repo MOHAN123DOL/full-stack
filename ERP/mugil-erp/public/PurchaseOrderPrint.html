@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Purchase Order — Print Preview</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!--
+    Completely standalone Purchase Order print document.
+
+    This file is intentionally independent from:
+      - PurchaseOrderForm.jsx
+      - PurchaseOrderPreview.jsx
+      - PrintLayout.jsx
+      - DocumentPage.jsx
+      - shared print.css
+      - QuotationPrint.html
+      - QuotationPrint.js
+      - QuotationPrint.css
+
+    PurchaseOrderPrint.js receives the existing Purchase Order data,
+    builds the document dynamically, measures the rendered content,
+    creates explicit A4 pages, and provides the browser print action.
+  -->
+
+  <link rel="stylesheet" href="./PurchaseOrderPrint.css" />
+</head>
+
+<body>
+
+  <!--
+    PurchaseOrderPrint.js looks for this exact root element.
+
+    When the same JavaScript file is loaded by the React application
+    only to expose window.generatePurchaseOrderPrint(), this element
+    does not exist and the standalone print-page boot process does
+    nothing.
+
+    When this HTML document is opened, this element exists and the
+    staged Purchase Order payload is read and rendered here.
+  -->
+  <div id="pop-print-app-root"></div>
+
+  <script src="./PurchaseOrderPrint.js"></script>
+
+</body>
+</html>

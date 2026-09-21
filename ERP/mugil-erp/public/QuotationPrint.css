@@ -1,0 +1,688 @@
+
+/* =========================================================================
+   QuotationPrint.css
+   -------------------------------------------------------------------------
+   Standalone stylesheet for the quotation print / PDF system.
+
+   Typography:
+   - Primary quotation font: Times New Roman
+   - Formal business-document typography hierarchy
+   - A4 portrait
+   - Existing qp- namespace preserved
+   ========================================================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #ecedf0;
+  font-family: "Times New Roman", Times, serif;
+  color: #000000;
+}
+
+/* ========================================================================
+   TOOLBAR
+   Screen-only. Never printed.
+   ======================================================================== */
+
+.qp-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  font-family: "Segoe UI", Arial, sans-serif;
+}
+
+.qp-toolbar__status {
+  margin-right: auto;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.qp-btn {
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.qp-btn--primary {
+  background: linear-gradient(135deg, #7c3aed, #f97316);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35);
+}
+
+.qp-btn--ghost {
+  background: #fff;
+  border-color: #d0d7e2;
+  color: #1f2937;
+}
+
+.qp-btn--save {
+  background: #fff;
+  border-color: #d0d7e2;
+  color: #1f2937;
+}
+
+.qp-error {
+  margin: 60px auto;
+  max-width: 520px;
+  text-align: center;
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #4b5563;
+}
+
+/* ========================================================================
+   PAGES
+   ======================================================================== */
+
+.qp-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 24px 0 60px;
+}
+
+.qp-page {
+  position: relative;
+  background: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.18);
+  border: 1px solid #e2e8f0;
+}
+
+/* ========================================================================
+   LETTERHEAD
+   ======================================================================== */
+
+.qp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.qp-header__center {
+  flex: 1;
+  text-align: center;
+}
+
+.qp-header__center h1 {
+  margin: 0;
+  font-size: 31px;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+}
+
+.qp-header__meta {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: #4b5563;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-logo {
+  flex: 0 0 auto;
+  width: 60px;
+  display: flex;
+  justify-content: center;
+}
+
+.qp-header-rule { width: 100%; height: 3px; margin-top: 10px; border-bottom: 3px solid #7c3aed; background: none; }
+/* ========================================================================
+   FOOTER
+   ======================================================================== */
+
+.qp-footer-rule { width: 100%; height: 2px; border-top: 2px solid #cbd5e1; background: none; }
+
+.qp-footer {
+  padding-top: 6px;
+  text-align: center;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-footer__address {
+  margin: 2px 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #2563eb;
+}
+
+.qp-footer__contact {
+  margin: 2px 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+.qp-footer__tagline {
+  margin: 0;
+  padding: 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #b45309;
+  white-space: nowrap;
+}
+
+/* ========================================================================
+   CONTENT AREA
+   ======================================================================== */
+
+.qp-content {
+  box-sizing: border-box;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-content > * {
+  box-sizing: border-box;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-content > * + * {
+  margin-top: 0;
+}
+
+/* ========================================================================
+   DOCUMENT TITLE
+   ======================================================================== */
+
+.qp-doc-title {
+  text-align: center;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 16px;
+  line-height: 1.2;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: #000000;
+  margin: 0 0 16px;
+}
+
+/* ========================================================================
+   DATE / QUOTATION NUMBER
+   ======================================================================== */
+
+.qp-meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #000000;
+  margin-bottom: 10px;
+}
+
+.qp-meta-row p {
+  margin: 0;
+  font-family: "Times New Roman", Times, serif;
+}
+
+/* ========================================================================
+   CUSTOMER DETAILS
+   ======================================================================== */
+
+.qp-customer {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #000000;
+  margin-bottom: 10px;
+}
+
+.qp-customer p {
+  margin: 1px 0;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-to-label {
+  margin-bottom: 3px !important;
+  font-weight: 700;
+}
+
+.qp-customer__name {
+  font-weight: 700;
+}
+
+/* ========================================================================
+   SUBJECT
+   ======================================================================== */
+
+.qp-subject {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #000000;
+  margin: 0 0 9px;
+}
+
+.qp-subject strong {
+  font-weight: 700;
+}
+
+/* ========================================================================
+   SALUTATION
+   ======================================================================== */
+
+.qp-salutation {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #000000;
+  margin: 0 0 7px;
+}
+
+/* ========================================================================
+   INTRODUCTION
+   ======================================================================== */
+
+.qp-intro {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #000000;
+  text-align: justify;
+  margin: 0 0 9px;
+}
+
+/* ========================================================================
+   LEAD-IN
+   ======================================================================== */
+
+.qp-lead-in {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #000000;
+  margin: 0 0 11px;
+}
+
+/* ========================================================================
+   SECTION HEADINGS
+   ======================================================================== */
+
+.qp-section-heading {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: #000000;
+  margin: 0 0 8px;
+}
+
+/* ========================================================================
+   ITEMS TABLE
+   ======================================================================== */
+
+.qp-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #000000;
+  margin-bottom: 11px;
+}
+
+.qp-items-table th,
+.qp-items-table td {
+  border: 1px solid #1f2937;
+  padding: 6px 7px;
+  vertical-align: middle;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+}
+
+.qp-items-table th {
+  background: #f1f5f9;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 700;
+  text-align: left;
+}
+
+.qp-items-table td {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+/* ========================================================================
+   TABLE COLUMN WIDTHS
+   ======================================================================== */
+
+.qp-col-sno {
+  width: 6%;
+  text-align: center;
+}
+
+.qp-col-desc {
+  width: 22%;
+}
+
+.qp-col-size {
+  width: 24%;
+}
+
+.qp-col-qty {
+  width: 10%;
+  text-align: center;
+}
+
+.qp-col-unit {
+  width: 8%;
+  text-align: center;
+}
+
+.qp-col-rate {
+  width: 15%;
+  text-align: right;
+}
+
+.qp-col-total {
+  width: 15%;
+  text-align: right;
+}
+
+.qp-items-table td.qp-col-qty,
+.qp-items-table td.qp-col-unit {
+  text-align: center;
+}
+
+.qp-items-table td.qp-col-rate,
+.qp-items-table td.qp-col-total {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ========================================================================
+   EMPTY TABLE ROW
+   ======================================================================== */
+
+.qp-empty-row {
+  text-align: center;
+  color: #4b5563;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ========================================================================
+   SUMMARY
+   ======================================================================== */
+
+.qp-summary-label {
+  text-align: right;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 700;
+  background: #f8fafc;
+}
+
+.qp-summary-value {
+  text-align: right;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 700;
+  background: #f8fafc;
+  white-space: nowrap;
+}
+
+.qp-grand-total-row td {
+  background: #ede9fe;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+/* ========================================================================
+   TECHNICAL DETAILS
+   ======================================================================== */
+
+.qp-tech-block {
+  margin-bottom: 11px;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-tech-heading {
+  font-family: "Times New Roman", Times, serif;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.3;
+  margin: 0 0 3px;
+}
+
+.qp-tech-points {
+  margin: 0;
+  padding-left: 18px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.qp-tech-points li {
+  margin-bottom: 2px;
+  font-family: "Times New Roman", Times, serif;
+}
+/* ========================================================================
+   TERMS & CONDITIONS
+   ======================================================================== */
+
+.qp-terms-block {
+  margin-bottom: 11px;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-terms-list {
+  margin: 0;
+  padding-left: 18px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.qp-terms-list li {
+  margin-bottom: 4px;
+  font-family: "Times New Roman", Times, serif;
+}
+
+/* ========================================================================
+   CLOSING
+   ======================================================================== */
+
+.qp-closing p {
+  margin: 2px 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #000000;
+}
+
+.qp-signature {
+  margin-top: 15px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #000000;
+}
+
+.qp-signature p {
+  margin: 2px 0;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-signature__space {
+  height: 42px;
+}
+
+.qp-signature__name {
+  font-family: "Times New Roman", Times, serif;
+  font-weight: 700;
+}
+
+/* ========================================================================
+   SPACER
+   ======================================================================== */
+
+.qp-spacer {
+  width: 100%;
+}
+
+/* ========================================================================
+   PRINT
+   ======================================================================== */
+
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    font-family: "Times New Roman", Times, serif !important;
+  }
+
+  .qp-toolbar {
+    display: none !important;
+  }
+
+  .qp-pages {
+    padding: 0;
+    gap: 0;
+  }
+
+  .qp-page {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .qp-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .qp-content,
+  .qp-content *,
+  .qp-header,
+  .qp-header *,
+  .qp-footer,
+  .qp-footer * {
+    font-family: "Times New Roman", Times, serif !important;
+  }
+}
+
+
+
+/* ========================================================================
+   FOOTER
+   ======================================================================== */
+
+.qp-footer {
+  padding-top: 5px;
+  text-align: center;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.qp-footer__address {
+  margin: 2px 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 9px;
+  line-height: 1.2;
+  color: #2563eb;
+}
+
+.qp-footer__contact {
+  margin: 2px 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 9px;
+  line-height: 1.2;
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+
+/* ========================================================================
+   TAGLINE + DONATION LOGOS
+   ======================================================================== */
+
+.qp-footer__tagline-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 30px;
+  margin-top: 2px;
+}
+
+.qp-footer__tagline {
+  margin: 0;
+  padding: 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 9px;
+  line-height: 1.2;
+  color: #b45309;
+  white-space: nowrap;
+}
+
+.qp-footer__logo {
+  display: block;
+  object-fit: contain;
+  object-position: center;
+  flex: 0 0 auto;
+}
+
+.qp-footer__logo--eye {
+  width: 35px;
+  height: 25px;
+}
+
+.qp-footer__logo--blood {
+  width: 25px;
+  height: 25px;
+}
+
+
+/* ========================================================================
+   FOOTER RULE
+   ======================================================================== */
+
+.qp-footer-rule {
+  width: 100%;
+  height: 2px;
+  border-top: 2px solid #cbd5e1;
+  background: none;
+}
+
+.qp-closing p:first-child {
+  margin-top: 1.5em !important;
+}
+
+.qp-closing p:nth-child(2) {
+  margin-top: 1.5em !important;
+}

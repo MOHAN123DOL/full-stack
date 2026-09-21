@@ -1,0 +1,124 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Brand palette — deep navy authority, amber accent, slate neutrals */
+  --navy-950:  #0a0f1e;
+  --navy-900:  #0d1526;
+  --navy-800:  #111f3d;
+  --navy-700:  #1a2f57;
+  --navy-600:  #1e3a6e;
+  --navy-400:  #3d5a99;
+  --navy-200:  #8aa8d4;
+  --navy-100:  #c4d4ec;
+  --navy-50:   #edf1f9;
+
+  --amber-500: #d4870a;
+  --amber-400: #e8980f;
+  --amber-300: #f5b03a;
+  --amber-100: #fdf0d5;
+
+  --slate-700: #374151;
+  --slate-500: #6b7280;
+  --slate-300: #d1d5db;
+  --slate-100: #f3f4f6;
+  --white:     #ffffff;
+
+  --success:   #16a34a;
+  --error:     #dc2626;
+  --error-bg:  #fef2f2;
+
+  /* Typography */
+  --font-display: 'Sora', sans-serif;
+  --font-body:    'Inter', sans-serif;
+
+  /* Radii */
+  --radius-sm:  6px;
+  --radius-md:  12px;
+  --radius-lg:  20px;
+
+  /* Shadows */
+  --shadow-card: 0 4px 24px rgba(10, 15, 30, 0.18);
+  --shadow-btn:  0 2px 8px rgba(10, 15, 30, 0.25);
+  --shadow-inset: inset 0 1px 3px rgba(10, 15, 30, 0.08);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  font-family: var(--font-body);
+  color: var(--slate-700);
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body {
+  overflow-y: auto;
+}
+
+body {
+  background: var(--navy-950);
+}
+body {
+  background: var(--navy-950);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+    font-family: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(212, 135, 10, 0.4); }
+  70%  { box-shadow: 0 0 0 10px rgba(212, 135, 10, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 135, 10, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+
+select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+
+  background-image: none !important;
+  background-repeat: no-repeat !important;
+}
+
+  /* ... */

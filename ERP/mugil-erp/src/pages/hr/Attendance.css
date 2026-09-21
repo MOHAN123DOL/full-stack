@@ -1,0 +1,1201 @@
+/* ==========================================================================
+   HR Attendance & Wages — FULL‑WIDTH Premium Styles
+   Removes centering / max‑width constraints.
+   ========================================================================== */
+
+/* ----- global reset for full‑width ----- */
+body {
+  margin: 0;
+  background: #f6f8fc; /* matches --aw-bg */
+}
+
+.aw-page {
+  --aw-accent: #0f766e;
+  --aw-accent-light: #14b8a6;
+  --aw-accent-dark: #0b5c56;
+  --aw-accent-glow: rgba(15, 118, 110, 0.15);
+  --aw-danger: #dc2626;
+  --aw-danger-light: #fef2f2;
+  --aw-warning: #d97706;
+  --aw-warning-light: #fffbeb;
+  --aw-success: #16a34a;
+  --aw-success-light: #f0fdf4;
+  --aw-border: #e9edf4;
+  --aw-border-light: #f1f4f9;
+  --aw-bg: #f6f8fc;
+  --aw-bg-white: #ffffff;
+  --aw-text: #0f172a;
+  --aw-text-muted: #64748b;
+  --aw-text-light: #94a3b8;
+  --aw-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --aw-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --aw-shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.10);
+  --aw-radius: 12px;
+  --aw-radius-sm: 8px;
+  --aw-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ─── FULL WIDTH ─── */
+  width: 100%;
+  max-width: 100% !important;   /* override any max-width */
+  margin: 0;                    /* remove auto centering */
+  padding: 28px 24px 60px;      /* keep consistent padding */
+  box-sizing: border-box;       /* padding included in width */
+  color: var(--aw-text);
+  background: var(--aw-bg);
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* ==========================================================================
+   PAGE HEADER — with Back Button
+   ========================================================================== */
+
+.aw-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--aw-border);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.aw-page-header-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+.aw-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 8px 10px;
+  border: 1.5px solid var(--aw-border);
+  background: var(--aw-bg-white);
+  border-radius: var(--aw-radius-sm);
+  color: var(--aw-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--aw-transition);
+  flex-shrink: 0;
+  font-family: inherit;
+  margin-top: 2px;
+}
+
+.aw-back-btn svg {
+  flex-shrink: 0;
+  transition: transform var(--aw-transition);
+}
+
+.aw-back-btn:hover {
+  border-color: var(--aw-accent);
+  color: var(--aw-accent-dark);
+  background: var(--aw-accent-glow);
+  transform: translateX(-2px);
+}
+
+.aw-back-btn:hover svg {
+  transform: translateX(-2px);
+}
+
+.aw-back-btn:active {
+  transform: translateX(0) scale(0.97);
+}
+
+.aw-back-btn:focus-visible {
+  outline: 2px solid var(--aw-accent);
+  outline-offset: 2px;
+}
+
+.aw-page-header-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.aw-page-header-titles h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--aw-text), var(--aw-accent-dark));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.aw-page-header-titles p {
+  margin: 0;
+  color: var(--aw-text-muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.aw-page-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.aw-header-badge {
+  background: var(--aw-accent-glow);
+  color: var(--aw-accent-dark);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(15, 118, 110, 0.15);
+}
+
+/* ==========================================================================
+   TABS — Modern pill style
+   ========================================================================== */
+
+.aw-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--aw-bg-white);
+  padding: 4px;
+  border-radius: var(--aw-radius);
+  margin-bottom: 24px;
+  box-shadow: var(--aw-shadow-sm);
+  border: 1px solid var(--aw-border);
+  flex-wrap: wrap;
+}
+
+.aw-tab-btn {
+  border: none;
+  background: transparent;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--aw-text-muted);
+  cursor: pointer;
+  border-radius: var(--aw-radius-sm);
+  transition: all var(--aw-transition);
+  position: relative;
+}
+
+.aw-tab-btn:hover {
+  color: var(--aw-text);
+  background: var(--aw-bg);
+}
+
+.aw-tab-btn-active {
+  color: var(--aw-accent-dark);
+  background: var(--aw-accent-glow);
+}
+
+.aw-tab-btn-active::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 3px;
+  background: var(--aw-accent);
+  border-radius: 999px;
+}
+
+.aw-tab-btn:focus-visible {
+  outline: 2px solid var(--aw-accent);
+  outline-offset: -2px;
+}
+
+.aw-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: awFadeIn 0.3s ease;
+}
+
+@keyframes awFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==========================================================================
+   SUMMARY CARDS — Glassmorphism-inspired
+   ========================================================================== */
+
+.aw-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.aw-summary-grid-tight {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.aw-summary-card {
+  background: var(--aw-bg-white);
+  border: 1px solid var(--aw-border);
+  border-radius: var(--aw-radius);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all var(--aw-transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.aw-summary-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--aw-accent), var(--aw-accent-light));
+  opacity: 0;
+  transition: opacity var(--aw-transition);
+}
+
+.aw-summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--aw-shadow);
+  border-color: var(--aw-accent-light);
+}
+
+.aw-summary-card:hover::before {
+  opacity: 1;
+}
+
+.aw-summary-card .aw-summary-value {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--aw-text);
+}
+
+.aw-summary-card .aw-summary-value.accent {
+  color: var(--aw-accent-dark);
+}
+
+.aw-summary-card .aw-summary-label {
+  font-size: 11px;
+  color: var(--aw-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.aw-summary-card .aw-summary-sub {
+  font-size: 12px;
+  color: var(--aw-text-light);
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   TOOLBAR
+   ========================================================================== */
+
+.aw-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: var(--aw-bg-white);
+  border: 1px solid var(--aw-border);
+  border-radius: var(--aw-radius);
+  padding: 16px 20px;
+  box-shadow: var(--aw-shadow-sm);
+  transition: box-shadow var(--aw-transition);
+}
+
+.aw-toolbar:focus-within {
+  box-shadow: 0 0 0 3px var(--aw-accent-glow), var(--aw-shadow);
+}
+
+.aw-toolbar-add {
+  margin-left: auto;
+}
+
+/* ==========================================================================
+   FORM FIELDS — Enhanced
+   ========================================================================== */
+
+.aw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.aw-field-inline {
+  min-width: 150px;
+  flex: 1 1 auto;
+}
+
+.aw-field-wide {
+  grid-column: 1 / -1;
+}
+
+.aw-field-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.aw-field-label {
+  font-weight: 600;
+  color: var(--aw-text);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.aw-required {
+  color: var(--aw-danger);
+  margin-left: 2px;
+}
+
+.aw-hint {
+  font-size: 11px;
+  color: var(--aw-text-light);
+  line-height: 1.4;
+}
+
+.aw-hint-inline {
+  font-weight: 400;
+  color: var(--aw-text-light);
+}
+
+.aw-error {
+  font-size: 11.5px;
+  color: var(--aw-danger);
+  font-weight: 500;
+}
+
+.aw-input,
+.aw-select {
+  border: 1.5px solid var(--aw-border);
+  border-radius: var(--aw-radius-sm);
+  padding: 9px 12px;
+  font-size: 13.5px;
+  background: var(--aw-bg-white);
+  color: var(--aw-text);
+  transition: all var(--aw-transition);
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+}
+
+.aw-input:hover,
+.aw-select:hover {
+  border-color: #cbd5e1;
+}
+
+.aw-input:focus,
+.aw-select:focus {
+  outline: none;
+  border-color: var(--aw-accent);
+  box-shadow: 0 0 0 3px var(--aw-accent-glow);
+}
+
+.aw-input:disabled {
+  background: var(--aw-bg);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.aw-input::placeholder {
+  color: var(--aw-text-light);
+  font-size: 12.5px;
+}
+
+.aw-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   TABLES — Clean, modern
+   ========================================================================== */
+
+.aw-table-wrap {
+  background: var(--aw-bg-white);
+  border: 1px solid var(--aw-border);
+  border-radius: var(--aw-radius);
+  overflow: hidden;
+  box-shadow: var(--aw-shadow-sm);
+}
+
+.aw-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.aw-table thead {
+  background: var(--aw-bg);
+  border-bottom: 1px solid var(--aw-border);
+}
+
+.aw-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--aw-text-muted);
+  padding: 12px 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: var(--aw-bg);
+  z-index: 2;
+}
+
+.aw-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--aw-border-light);
+  vertical-align: middle;
+  color: var(--aw-text);
+}
+
+.aw-table tbody tr {
+  transition: background var(--aw-transition);
+}
+
+.aw-table tbody tr:hover {
+  background: var(--aw-bg);
+}
+
+.aw-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.aw-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.aw-empty-row {
+  text-align: center;
+  color: var(--aw-text-light);
+  padding: 40px 20px;
+  font-style: italic;
+}
+
+.aw-remarks {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--aw-text-muted);
+  font-size: 12.5px;
+}
+
+.aw-row-actions {
+  white-space: nowrap;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.aw-link-btn {
+  background: none;
+  border: none;
+  color: var(--aw-accent-dark);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all var(--aw-transition);
+}
+
+.aw-link-btn:hover {
+  background: var(--aw-accent-glow);
+  text-decoration: none;
+}
+
+.aw-link-btn:focus-visible {
+  outline: 2px solid var(--aw-accent);
+  outline-offset: 1px;
+}
+
+.aw-link-danger {
+  color: var(--aw-danger);
+}
+
+.aw-link-danger:hover {
+  background: var(--aw-danger-light);
+}
+
+.aw-link-warning {
+  color: var(--aw-warning);
+}
+
+.aw-link-warning:hover {
+  background: var(--aw-warning-light);
+}
+
+/* ==========================================================================
+   STATUS PILLS — More vibrant
+   ========================================================================== */
+
+.aw-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--aw-bg);
+  color: var(--aw-text-muted);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  transition: all var(--aw-transition);
+}
+
+.aw-status-present {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+.aw-status-present::before {
+  content: '●';
+  margin-right: 4px;
+  color: #22c55e;
+}
+
+.aw-status-half-day {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+.aw-status-half-day::before {
+  content: '◐';
+  margin-right: 4px;
+  color: #f59e0b;
+}
+
+.aw-status-wfh {
+  background: #e0e7ff;
+  color: #3730a3;
+  border-color: #c7d2fe;
+}
+.aw-status-wfh::before {
+  content: '🏠';
+  margin-right: 4px;
+  font-size: 10px;
+}
+
+.aw-status-absent {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+.aw-status-absent::before {
+  content: '✕';
+  margin-right: 4px;
+  color: #ef4444;
+}
+
+.aw-status-paid-leave {
+  background: #dbeafe;
+  color: #1e40af;
+  border-color: #bfdbfe;
+}
+.aw-status-paid-leave::before {
+  content: '✓';
+  margin-right: 4px;
+  color: #3b82f6;
+}
+
+.aw-status-unpaid-leave {
+  background: #fce7f3;
+  color: #9d174d;
+  border-color: #fbcfe8;
+}
+.aw-status-unpaid-leave::before {
+  content: '○';
+  margin-right: 4px;
+  color: #ec4899;
+}
+
+.aw-status-holiday {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-color: #ddd6fe;
+}
+.aw-status-holiday::before {
+  content: '★';
+  margin-right: 4px;
+  color: #8b5cf6;
+}
+
+.aw-status-weekly-off {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+.aw-status-weekly-off::before {
+  content: '◻';
+  margin-right: 4px;
+  color: #94a3b8;
+}
+
+.aw-status-unknown {
+  background: var(--aw-bg);
+  color: var(--aw-text-muted);
+}
+
+.aw-status-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.aw-mini-pill {
+  font-size: 10.5px;
+  color: var(--aw-text-muted);
+  background: var(--aw-bg);
+  border: 1px solid var(--aw-border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   MODAL — Sleek overlay
+   ========================================================================== */
+
+.aw-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  animation: awFadeIn 0.2s ease;
+}
+
+.aw-modal {
+  background: var(--aw-bg-white);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 640px;
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 28px 32px 32px;
+  box-shadow: var(--aw-shadow-lg);
+  animation: awSlideUp 0.25s ease;
+}
+
+@keyframes awSlideUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.aw-modal-confirm {
+  max-width: 420px;
+}
+
+.aw-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.aw-modal-head h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--aw-text);
+}
+
+.aw-icon-btn {
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--aw-text-muted);
+  padding: 4px 8px;
+  border-radius: var(--aw-radius-sm);
+  transition: all var(--aw-transition);
+}
+
+.aw-icon-btn:hover {
+  background: var(--aw-bg);
+  color: var(--aw-text);
+}
+
+.aw-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.aw-calc-preview {
+  background: var(--aw-bg);
+  border: 1.5px dashed var(--aw-border);
+  border-radius: var(--aw-radius-sm);
+  padding: 12px 16px;
+  font-size: 13.5px;
+  margin-bottom: 16px;
+  font-weight: 500;
+  color: var(--aw-text);
+}
+
+.aw-calc-preview strong {
+  color: var(--aw-accent-dark);
+}
+
+.aw-duplicate-banner {
+  background: var(--aw-warning-light);
+  border: 1px solid #fbbf24;
+  border-radius: var(--aw-radius-sm);
+  padding: 14px 16px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: #78350f;
+}
+
+.aw-duplicate-banner button {
+  align-self: flex-start;
+}
+
+.aw-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--aw-border-light);
+}
+
+/* ==========================================================================
+   BUTTONS — Refined
+   ========================================================================== */
+
+.aw-btn-primary,
+.aw-btn-outline,
+.aw-btn-danger,
+.aw-btn-success {
+  border-radius: var(--aw-radius-sm);
+  padding: 10px 20px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: all var(--aw-transition);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: inherit;
+}
+
+.aw-btn-primary {
+  background: var(--aw-accent);
+  color: #fff;
+  border-color: var(--aw-accent);
+}
+
+.aw-btn-primary:hover {
+  background: var(--aw-accent-dark);
+  border-color: var(--aw-accent-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+}
+
+.aw-btn-primary:active {
+  transform: translateY(0);
+}
+
+.aw-btn-outline {
+  background: var(--aw-bg-white);
+  border-color: var(--aw-border);
+  color: var(--aw-text);
+}
+
+.aw-btn-outline:hover {
+  border-color: var(--aw-accent);
+  color: var(--aw-accent-dark);
+  background: var(--aw-accent-glow);
+}
+
+.aw-btn-danger {
+  background: var(--aw-danger);
+  color: #fff;
+  border-color: var(--aw-danger);
+}
+
+.aw-btn-danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+}
+
+.aw-btn-success {
+  background: var(--aw-success);
+  color: #fff;
+  border-color: var(--aw-success);
+}
+
+.aw-btn-success:hover {
+  background: #15803d;
+  border-color: #15803d;
+}
+
+.aw-btn-sm {
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+.aw-btn:focus-visible {
+  outline: 2px solid var(--aw-accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   WAGE RATES PANEL
+   ========================================================================== */
+
+.aw-panel {
+  background: var(--aw-bg-white);
+  border: 1px solid var(--aw-border);
+  border-radius: var(--aw-radius);
+  padding: 24px;
+  box-shadow: var(--aw-shadow-sm);
+}
+
+.aw-panel-head {
+  margin-bottom: 20px;
+}
+
+.aw-panel-head h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.aw-panel-head p {
+  color: var(--aw-text-muted);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.aw-wage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.aw-panel-sub {
+  border-top: 1px solid var(--aw-border);
+  padding-top: 20px;
+  margin-bottom: 20px;
+}
+
+.aw-panel-sub h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.aw-panel-sub p {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--aw-text-muted);
+}
+
+.aw-policy-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.aw-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  border-top: 1px solid var(--aw-border-light);
+}
+
+.aw-panel-current {
+  font-size: 12.5px;
+  color: var(--aw-text-muted);
+  margin-right: auto;
+  font-weight: 500;
+}
+
+.aw-saved-flash {
+  font-size: 13px;
+  color: var(--aw-success);
+  font-weight: 600;
+  animation: awPulse 0.4s ease;
+}
+
+@keyframes awPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ==========================================================================
+   EMPLOYEE SUMMARY TAB
+   ========================================================================== */
+
+.aw-employee-summary {
+  background: var(--aw-bg-white);
+  border: 1px solid var(--aw-border);
+  border-radius: var(--aw-radius);
+  padding: 24px;
+  box-shadow: var(--aw-shadow-sm);
+}
+
+.aw-employee-summary-head {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--aw-border-light);
+}
+
+.aw-employee-summary-head h3 {
+  margin: 0 0 2px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.aw-employee-summary-head .aw-hint {
+  font-size: 13px;
+  color: var(--aw-text-muted);
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .aw-page {
+    padding: 16px 12px 40px;
+  }
+
+  .aw-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .aw-page-header-left {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .aw-back-btn {
+    align-self: flex-start;
+    padding: 6px 12px 6px 8px;
+    font-size: 12px;
+  }
+
+  .aw-back-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .aw-page-header-titles h1 {
+    font-size: 20px;
+  }
+
+  .aw-page-header-actions {
+    align-self: flex-start;
+  }
+
+  .aw-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding: 4px;
+    gap: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .aw-tab-btn {
+    padding: 8px 14px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .aw-tab-btn-active::after {
+    bottom: 4px;
+    width: 14px;
+  }
+
+  .aw-summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+  }
+
+  .aw-summary-card {
+    padding: 14px 16px;
+  }
+
+  .aw-summary-card .aw-summary-value {
+    font-size: 20px;
+  }
+
+  .aw-toolbar {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .aw-toolbar-add {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .aw-field-inline {
+    min-width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .aw-form-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .aw-modal {
+    padding: 20px 16px;
+    margin: 8px;
+  }
+
+  .aw-table th,
+  .aw-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .aw-table-wrap {
+    border-radius: var(--aw-radius-sm);
+  }
+
+  .aw-panel {
+    padding: 16px;
+  }
+
+  .aw-wage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .aw-policy-row {
+    grid-template-columns: 1fr;
+  }
+
+  .aw-panel-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .aw-panel-current {
+    text-align: center;
+    margin-right: 0;
+  }
+
+  .aw-employee-summary {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .aw-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .aw-summary-grid-tight {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .aw-modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .aw-modal-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .aw-status-breakdown {
+    gap: 4px;
+  }
+
+  .aw-mini-pill {
+    font-size: 9px;
+    padding: 1px 6px;
+  }
+
+  .aw-row-actions {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .aw-link-btn {
+    font-size: 11px;
+    padding: 2px 4px;
+  }
+}
+
+/* ==========================================================================
+   SCROLLBAR STYLING
+   ========================================================================== */
+
+.aw-table-wrap::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.aw-table-wrap::-webkit-scrollbar-track {
+  background: var(--aw-bg);
+}
+
+.aw-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--aw-border);
+  border-radius: 999px;
+}
+
+.aw-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--aw-text-light);
+}
+
+.aw-modal::-webkit-scrollbar {
+  width: 4px;
+}
+
+.aw-modal::-webkit-scrollbar-thumb {
+  background: var(--aw-border);
+  border-radius: 999px;
+}
+
+.aw-modal::-webkit-scrollbar-thumb:hover {
+  background: var(--aw-text-light);
+}

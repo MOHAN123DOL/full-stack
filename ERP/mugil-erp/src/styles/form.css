@@ -1,0 +1,13 @@
+
+.form-page {
+  flex: 1;
+  padding: 22px 28px 100px;
+  max-width: 1080px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  background: #ffffff;
+}

@@ -1,0 +1,288 @@
+/* ==========================================================
+   DeliveryChallanPreview.css
+   ----------------------------------------------------------
+   Scoped styles for the Delivery Challan preview only.
+
+   Structural / print behavior — .doc-scene, .doc-toolbar,
+   .doc-page sizing (210mm x 297mm), .no-print, and the
+   @media print page rules — already come from the shared
+   print.css and are NOT duplicated here.
+
+   Ink color: the physical challan book is printed entirely in
+   blue ink, so every pre-printed element below uses
+   var(--brand-blue) / var(--brand-blue-dark). Text the user
+   actually types into the blanks (the .dc-filled elements) is
+   rendered in var(--text-primary) so the preview reads the
+   same way the real book does once someone has written on it:
+   blue template, dark filled-in entries.
+   ========================================================== */
+
+.dc-page {
+  font-family: var(--print-body);
+  color: var(--text-primary);
+}
+
+.dc-page p {
+  margin: 0;
+}
+
+/* ---------- Top strip: SSI/TIN | DELIVERY CHALLAN | Cell/Works/Resi ---------- */
+
+.dc-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--brand-blue);
+  font-size: 9px;
+  line-height: 1.5;
+  margin-bottom: 2px;
+}
+
+.dc-topline__left {
+  text-align: left;
+}
+
+.dc-topline__center {
+  flex-shrink: 0;
+  text-align: center;
+  padding-top: 1px;
+}
+
+.dc-topline__title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.dc-topline__right {
+  text-align: right;
+}
+
+/* ---------- Brand block: logo + company name + works address ---------- */
+
+.dc-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  margin: 4px 0 8px;
+}
+
+.dc-brand__logo {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--brand-blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--print-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--brand-blue);
+  overflow: hidden;
+}
+
+.dc-brand__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.dc-brand__text h1 {
+  margin: 0;
+  font-family: var(--print-display);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--brand-blue-dark);
+  letter-spacing: 0.3px;
+}
+
+.dc-brand__text p {
+  margin: 1px 0 0;
+  font-size: 10px;
+  color: var(--brand-blue);
+}
+
+.dc-divider {
+  border: none;
+  border-top: 1.5px solid var(--brand-blue);
+  margin: 0 0 8px;
+}
+
+/* ---------- To / M/s (left, open) + No. / Date grid (right, boxed) ---------- */
+
+.dc-info {
+  display: flex;
+  align-items: stretch;
+  font-size: 11px;
+  margin-bottom: 0;
+}
+
+.dc-info-left {
+  flex: 0 0 42%;
+  padding: 4px 10px 4px 0;
+}
+
+.dc-info-line {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 3px;
+}
+
+.dc-info-line-small {
+  font-size: 9.5px;
+  color: var(--text-secondary);
+}
+
+.dc-info-right {
+  flex: 1;
+  border: 1px solid var(--brand-blue);
+  padding: 2px 8px;
+}
+
+.dc-info-right-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 0;
+}
+
+.dc-info-right-row + .dc-info-right-row {
+  border-top: 1px solid var(--brand-blue-tint);
+}
+
+.dc-date-label {
+  margin-left: auto;
+}
+
+.dc-static-label {
+  color: var(--brand-blue);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dc-filled {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.dc-filled-block {
+  flex: 1;
+}
+
+.dc-number-value {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ---------- Items table ---------- */
+
+.dc-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 8px;
+  font-size: 10.5px;
+}
+
+.dc-items-table th,
+.dc-items-table td {
+  border: 1px solid var(--brand-blue);
+}
+
+.dc-items-table thead th {
+  background: transparent;
+  color: var(--brand-blue);
+  font-weight: 700;
+  padding: 4px 6px;
+  text-align: center;
+}
+
+.dc-items-table tbody td {
+  padding: 5px 6px;
+  height: 20px;
+  vertical-align: top;
+  color: var(--text-primary);
+}
+
+.dc-cell-center {
+  text-align: center;
+}
+
+.dc-cell-left {
+  text-align: left;
+}
+
+/* ---------- Amount in words ---------- */
+
+.dc-amount-words {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 6px 0 22px;
+  font-size: 11px;
+}
+
+.dc-amount-line {
+  flex: 1;
+  border-bottom: 1px dotted var(--brand-blue);
+  padding-bottom: 2px;
+  min-height: 14px;
+}
+
+/* ---------- Footer: pre-printed, do not redesign ---------- */
+
+.dc-footer-top-divider {
+  border: none;
+  border-top: 1px solid var(--brand-blue);
+  margin: 10px 0 6px;
+}
+
+.dc-footer-signoff {
+  text-align: right;
+  font-size: 11px;
+  color: var(--brand-blue);
+}
+
+.dc-footer-signoff p {
+  margin: 2px 0;
+}
+
+.dc-for-company strong {
+  font-family: var(--print-display);
+  font-style: italic;
+}
+
+.dc-signature-line {
+  margin-top: 26px;
+}
+
+.dc-footer-bottom-divider {
+  border: none;
+  border-top: 1px solid var(--brand-blue);
+  margin: 8px 0 6px;
+}
+
+.dc-footer-donate {
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--brand-blue);
+}
+
+/* ---------- Small screens: let the toolbar wrap ---------- */
+
+@media (max-width: 480px) {
+  .doc-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}

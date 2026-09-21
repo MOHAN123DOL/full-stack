@@ -1,0 +1,1630 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+:root {
+  --navy: #08213a;
+  --blue: #1268c9;
+  --blue-light: #4aa3ff;
+  --yellow: #f5b51b;
+  --ink: #10253b;
+  --muted: #6b7d90;
+  --line: rgba(8, 33, 58, .16);
+  --white: #fff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Inter", Arial, sans-serif;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #f7f9fc;
+}
+
+/* ============================================================
+   BRAND NEW LOGIN EXPERIENCE
+   No login card / no boxed UI.
+   The form floats directly over a clean white right panel.
+   ============================================================ */
+
+.login-root {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+  overflow: hidden;
+  isolation: isolate;
+
+  background-position: left center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+/* Clean separation between factory and login area */
+.login-root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 48%,
+      rgba(255,255,255,.05) 54%,
+      rgba(255,255,255,.72) 69%,
+      rgba(255,255,255,.98) 81%,
+      #ffffff 100%
+    );
+}
+
+/* Large soft blue atmosphere */
+.login-root::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+
+  right: -260px;
+  top: 8%;
+  width: 680px;
+  height: 680px;
+  border-radius: 50%;
+
+  background:
+    radial-gradient(
+      circle,
+      rgba(18,104,201,.11) 0%,
+      rgba(18,104,201,.045) 35%,
+      transparent 70%
+    );
+
+  animation: ambient 8s ease-in-out infinite alternate;
+}
+
+/* Background overlay */
+.login-bg-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+
+  background:
+    linear-gradient(
+      90deg,
+      rgba(255,255,255,0) 0%,
+      rgba(255,255,255,0) 56%,
+      rgba(255,255,255,.22) 72%,
+      rgba(255,255,255,.70) 100%
+    );
+}
+
+/* Technical line pattern */
+.login-bg-overlay::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 43%;
+  height: 100%;
+
+  opacity: .30;
+
+  background-image:
+    linear-gradient(rgba(18,104,201,.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(18,104,201,.08) 1px, transparent 1px);
+
+  background-size: 44px 44px;
+
+  mask-image: linear-gradient(90deg, transparent, black 45%);
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 45%);
+}
+
+/* Decorative engineering circle */
+.login-bg-overlay::after {
+  content: "";
+  position: absolute;
+
+  right: 4%;
+  top: 14%;
+
+  width: 170px;
+  height: 170px;
+
+  border: 1px solid rgba(18,104,201,.12);
+  border-radius: 50%;
+
+  box-shadow:
+    0 0 0 24px rgba(18,104,201,.025),
+    0 0 0 48px rgba(18,104,201,.018);
+
+  animation: rotateSlow 22s linear infinite;
+}
+
+/* ============================================================
+   FLOATING FORM AREA
+   ============================================================ */
+
+.login-card-shell {
+  position: relative;
+  z-index: 3;
+
+  width: min(39vw, 560px);
+  min-width: 410px;
+  min-height: 100vh;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 50px clamp(45px, 5vw, 90px) 55px 25px;
+
+  pointer-events: none;
+
+  animation: reveal .75s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.login-card-shell > .uiverse-form {
+  pointer-events: auto;
+}
+
+/* ============================================================
+   NO BOX
+   ============================================================ */
+
+.uiverse-form {
+  position: relative;
+
+  width: 100%;
+  max-width: 410px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  /* IMPORTANT: no card */
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+
+  transition: transform .35s ease;
+}
+
+.uiverse-form:hover {
+  transform: translateY(-3px);
+}
+
+/* Remove the old card decorations */
+.uiverse-form::after {
+  display: none;
+}
+
+/* Premium small brand line */
+.uiverse-form::before {
+  content: "";
+  position: absolute;
+
+  top: -24px;
+  left: 0;
+
+  width: 58px;
+  height: 4px;
+
+  border-radius: 0 5px 5px 0;
+
+  background: var(--yellow);
+  box-shadow: 0 4px 15px rgba(245,181,27,.24);
+}
+
+/* ============================================================
+   LOGO
+   ============================================================ */
+
+.uiverse-logo {
+  width: 68px;
+  height: 68px;
+
+  padding: 8px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  margin: 0 0 19px;
+
+  border-radius: 18px;
+
+  background: rgba(255,255,255,.76);
+
+  border: 1px solid rgba(8,33,58,.08);
+
+  box-shadow:
+    0 13px 30px rgba(8,33,58,.10),
+    0 0 0 8px rgba(255,255,255,.28);
+
+  transition:
+    transform .3s ease,
+    box-shadow .3s ease;
+}
+
+.uiverse-logo:hover {
+  transform: translateY(-5px) rotate(-1deg);
+  box-shadow:
+    0 19px 38px rgba(8,33,58,.15),
+    0 0 0 10px rgba(18,104,201,.035);
+}
+
+.uiverse-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ============================================================
+   HEADING
+   ============================================================ */
+
+.uiverse-heading {
+  color: var(--navy);
+
+  padding: 0;
+
+  text-align: left;
+
+  font-weight: 800;
+
+  font-size: clamp(1.8rem, 2.6vw, 2.25rem);
+
+  line-height: 1.08;
+
+  margin: 0;
+
+  letter-spacing: -.055em;
+}
+
+.uiverse-subtitle {
+  color: var(--muted);
+
+  text-align: left;
+
+  font-size: 12px;
+
+  margin: 7px 0 24px;
+
+  line-height: 1.6;
+}
+
+/* ============================================================
+   LABELS
+   ============================================================ */
+
+.form-label {
+  display: block;
+
+  margin: 15px 0 8px;
+
+  color: #60758a;
+
+  font-size: 9px;
+
+  font-weight: 800;
+
+  text-transform: uppercase;
+
+  letter-spacing: .14em;
+}
+
+/* ============================================================
+   DEPARTMENT SELECTOR
+   ============================================================ */
+
+.department-group {
+  position: relative;
+  z-index: 20;
+  margin-bottom: 5px;
+}
+
+.department-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.department-trigger {
+  position: relative;
+
+  width: 100%;
+  min-height: 61px;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 7px 10px;
+
+  border: 1px solid rgba(8,33,58,.13);
+  border-radius: 14px;
+
+  outline: none;
+
+  background: rgba(255,255,255,.56);
+
+  color: var(--ink);
+
+  cursor: pointer;
+  text-align: left;
+
+  box-shadow:
+    0 8px 22px rgba(8,33,58,.045);
+
+  transition:
+    border-color .25s ease,
+    background .25s ease,
+    box-shadow .25s ease,
+    transform .25s ease;
+}
+
+.department-trigger:hover {
+  transform: translateY(-2px);
+
+  border-color: rgba(18,104,201,.34);
+
+  background: rgba(255,255,255,.88);
+
+  box-shadow:
+    0 13px 28px rgba(8,33,58,.09),
+    0 0 0 4px rgba(18,104,201,.035);
+}
+
+.department-trigger.is-open {
+  border-color: rgba(18,104,201,.50);
+
+  background: rgba(255,255,255,.95);
+
+  box-shadow:
+    0 14px 30px rgba(8,33,58,.10),
+    0 0 0 4px rgba(18,104,201,.06);
+}
+
+.department-trigger:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.department-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 11px;
+
+  color: #ffffff;
+
+  background:
+    linear-gradient(145deg, #08213a, #1268c9);
+
+  box-shadow:
+    0 8px 17px rgba(18,104,201,.22);
+}
+
+.department-content {
+  min-width: 0;
+  flex: 1;
+
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.department-content strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.department-content small {
+  color: #8191a1;
+  font-size: 9px;
+}
+
+.department-chevron {
+  color: #8091a2;
+  transition: transform .25s ease;
+}
+
+.department-trigger.is-open .department-chevron {
+  transform: rotate(180deg);
+}
+
+/* Dropdown */
+.department-menu {
+  position: absolute;
+
+  top: calc(100% + 9px);
+  left: 0;
+  right: 0;
+
+  z-index: 50;
+
+  padding: 7px;
+
+  border-radius: 15px;
+
+  background: rgba(255,255,255,.97);
+
+  border: 1px solid rgba(8,33,58,.10);
+
+  box-shadow:
+    0 25px 55px rgba(8,33,58,.16);
+
+  opacity: 0;
+  visibility: hidden;
+
+  transform: translateY(-8px) scale(.985);
+
+  transform-origin: top center;
+
+  transition:
+    opacity .2s ease,
+    visibility .2s ease,
+    transform .22s ease;
+}
+
+.department-menu-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+.department-option {
+  width: 100%;
+  min-height: 48px;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 6px 8px;
+
+  border: none;
+  border-radius: 10px;
+
+  background: transparent;
+
+  cursor: pointer;
+  text-align: left;
+
+  transition:
+    background .2s ease,
+    transform .2s ease;
+}
+
+.department-option:hover {
+  background: rgba(18,104,201,.06);
+  transform: translateX(3px);
+}
+
+.department-option.selected {
+  background: rgba(18,104,201,.075);
+}
+
+.department-option-icon {
+  width: 32px;
+  height: 32px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 9px;
+
+  color: #ffffff;
+  background: var(--navy);
+}
+
+.department-option-text {
+  flex: 1;
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.department-option-text strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.department-option-text small {
+  color: #8291a0;
+  font-size: 8.5px;
+}
+
+.department-check {
+  color: #159447;
+}
+
+/* ============================================================
+   ERROR
+   ============================================================ */
+
+.error-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+
+  margin: 8px 0;
+
+  padding: 10px 12px;
+
+  border-radius: 10px;
+
+  color: #a61b1b;
+
+  background: rgba(254,242,242,.85);
+
+  border: 1px solid rgba(220,38,38,.14);
+  border-left: 3px solid #dc2626;
+
+  font-size: 10px;
+
+  animation: errorIn .3s ease both;
+}
+
+/* ============================================================
+   INPUTS
+   ============================================================ */
+
+.uiverse-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.uiverse-input-icon {
+  position: absolute;
+
+  left: 2px;
+
+  color: #8091a1;
+
+  pointer-events: none;
+
+  transition:
+    color .25s ease,
+    transform .25s ease;
+}
+
+.uiverse-field:focus-within .uiverse-input-icon {
+  color: var(--blue);
+  transform: scale(1.08);
+}
+
+.uiverse-input {
+  width: 100%;
+
+  min-height: 52px;
+
+  border-radius: 0;
+
+  border: 0;
+  border-bottom: 1.5px solid rgba(8,33,58,.19);
+
+  background: transparent;
+
+  color: var(--ink);
+
+  outline: none;
+
+  padding: .75em .2em .75em 2.05em;
+
+  font-family: "Inter", Arial, sans-serif;
+  font-size: 13px;
+
+  box-shadow: none;
+
+  transition:
+    border-color .3s ease,
+    background .3s ease,
+    padding .3s ease;
+}
+
+.uiverse-input::placeholder {
+  color: #9aa9b7;
+}
+
+.uiverse-input:hover {
+  border-bottom-color: rgba(18,104,201,.45);
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent 75%,
+      rgba(18,104,201,.025)
+    );
+}
+
+.uiverse-input:focus {
+  border-bottom-color: var(--blue);
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent 70%,
+      rgba(18,104,201,.035)
+    );
+
+  box-shadow:
+    0 1px 0 var(--blue);
+}
+
+.uiverse-input:disabled {
+  opacity: .6;
+}
+
+/* ============================================================
+   SIGN IN
+   ============================================================ */
+
+.uiverse-btn-wrapper {
+  display: flex;
+  justify-content: flex-start;
+
+  margin-top: 28px;
+}
+
+.uiverse-btn {
+  position: relative;
+  overflow: hidden;
+
+  width: 100%;
+  min-height: 53px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: .8em 1.8em;
+
+  border: 0;
+  border-radius: 12px;
+
+  background:
+    linear-gradient(
+      105deg,
+      #08213a 0%,
+      #0b55a4 42%,
+      #1268c9 72%,
+      #2687e5 100%
+    );
+
+  color: #ffffff;
+
+  font-family: "Inter", Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 13px 27px rgba(18,104,201,.22);
+
+  transition:
+    transform .25s cubic-bezier(.2,.8,.2,1),
+    box-shadow .25s ease,
+    filter .25s ease;
+}
+
+/* Moving highlight */
+.uiverse-btn::before {
+  content: "";
+
+  position: absolute;
+
+  top: 0;
+  bottom: 0;
+  left: -70%;
+
+  width: 45%;
+
+  transform: skewX(-22deg);
+
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(255,255,255,.30),
+      transparent
+    );
+
+  transition: left .7s ease;
+}
+
+.uiverse-btn:hover {
+  transform: translateY(-3px);
+
+  filter: brightness(1.05);
+
+  box-shadow:
+    0 19px 35px rgba(18,104,201,.29);
+}
+
+.uiverse-btn:hover::before {
+  left: 135%;
+}
+
+.uiverse-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 8px 18px rgba(18,104,201,.20);
+}
+
+.uiverse-btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ============================================================
+   SPINNER
+   ============================================================ */
+
+.login-spinner {
+  width: 15px;
+  height: 15px;
+
+  border: 2px solid rgba(255,255,255,.28);
+  border-top-color: #ffffff;
+
+  border-radius: 50%;
+
+  animation: spin .7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+
+.login-footer {
+  margin-top: 18px;
+  padding-top: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+
+  gap: 14px;
+
+  color: #8b9aaa;
+
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.login-footer::before {
+  content: "";
+  width: 24px;
+  height: 1px;
+  background: rgba(8,33,58,.16);
+}
+
+.login-footer a {
+  color: #426d96;
+  text-decoration: none;
+
+  transition:
+    color .2s ease,
+    transform .2s ease;
+}
+
+.login-footer a:hover {
+  color: var(--blue);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   MICRO INTERACTION
+   ============================================================ */
+
+.uiverse-field::after {
+  content: "";
+
+  position: absolute;
+
+  left: 0;
+  bottom: 0;
+
+  width: 0;
+  height: 2px;
+
+  border-radius: 2px;
+
+  background: var(--blue);
+
+  transition: width .3s ease;
+}
+
+.uiverse-field:focus-within::after {
+  width: 100%;
+}
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateX(35px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes ambient {
+  from {
+    transform: scale(.92);
+    opacity: .55;
+  }
+
+  to {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes rotateSlow {
+  from {
+    transform: rotate(0);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes errorIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 1100px) {
+  .login-card-shell {
+    width: min(44vw, 500px);
+    min-width: 390px;
+    padding-right: 45px;
+  }
+
+  .login-root::before {
+    background:
+      linear-gradient(
+        90deg,
+        transparent 0%,
+        transparent 42%,
+        rgba(255,255,255,.35) 60%,
+        rgba(255,255,255,.95) 82%,
+        #fff 100%
+      );
+  }
+}
+
+@media (max-width: 850px) {
+  body {
+    overflow: auto;
+  }
+
+  .login-root {
+    justify-content: center;
+    background-position: 28% center;
+  }
+
+  .login-root::before {
+    background:
+      linear-gradient(
+        180deg,
+        rgba(255,255,255,.20),
+        rgba(255,255,255,.92) 72%
+      );
+  }
+
+  .login-bg-overlay::before {
+    width: 100%;
+    opacity: .10;
+  }
+
+  .login-card-shell {
+    width: min(100%, 500px);
+    min-width: 0;
+    min-height: 100vh;
+
+    padding: 45px 28px;
+  }
+
+  .uiverse-form {
+    max-width: 430px;
+    padding: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .login-card-shell {
+    padding: 35px 20px;
+  }
+
+  .uiverse-heading {
+    font-size: 1.7rem;
+  }
+
+  .uiverse-logo {
+    width: 60px;
+    height: 60px;
+  }
+
+  .login-footer {
+    font-size: 8.5px;
+  }
+
+  .login-bg-overlay::after {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+
+/* ============================================================
+   MUGIL ERP — V3 SIGNATURE INDUSTRIAL UI
+   Premium enhancement on the borderless design.
+   No card has been reintroduced.
+   ============================================================ */
+
+/* Richer brand palette */
+:root {
+  --navy-deep: #041323;
+  --navy: #08213a;
+  --blue: #1268c9;
+  --blue-bright: #2d8bea;
+  --cyan: #62c4ff;
+  --gold: #f6b91a;
+  --gold-soft: #ffd967;
+  --ink: #0b2238;
+  --muted: #72859a;
+  --surface: rgba(255,255,255,.78);
+}
+
+/* ------------------------------------------------------------
+   FULL-SCREEN ATMOSPHERE
+   ------------------------------------------------------------ */
+
+.login-root {
+  background-color: #f7fafc;
+  transition: background-position 1.2s cubic-bezier(.2,.8,.2,1);
+}
+
+.login-root:hover {
+  background-position: 5% center;
+}
+
+.login-root::before {
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 45%,
+      rgba(255,255,255,.02) 50%,
+      rgba(255,255,255,.52) 65%,
+      rgba(255,255,255,.91) 75%,
+      #fff 87%
+    );
+}
+
+/* Glow follows the login zone */
+.login-root::after {
+  right: -230px;
+  top: 9%;
+  width: 760px;
+  height: 760px;
+  background:
+    radial-gradient(
+      circle at 46% 50%,
+      rgba(45,139,234,.16) 0,
+      rgba(45,139,234,.07) 26%,
+      rgba(98,196,255,.035) 44%,
+      transparent 69%
+    );
+  filter: blur(2px);
+  animation: signatureGlow 8s ease-in-out infinite alternate;
+}
+
+/* Fine blueprint pattern */
+.login-bg-overlay::before {
+  width: 48%;
+  opacity: .36;
+  background-image:
+    linear-gradient(rgba(18,104,201,.075) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(18,104,201,.075) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image:
+    linear-gradient(90deg, transparent 0%, black 35%, black 100%);
+  -webkit-mask-image:
+    linear-gradient(90deg, transparent 0%, black 35%, black 100%);
+}
+
+/* Bigger technical orbit */
+.login-bg-overlay::after {
+  right: 7%;
+  top: 12%;
+  width: 205px;
+  height: 205px;
+  border: 1px solid rgba(18,104,201,.11);
+  box-shadow:
+    0 0 0 18px rgba(18,104,201,.018),
+    0 0 0 42px rgba(18,104,201,.015),
+    0 0 0 70px rgba(18,104,201,.010);
+  animation: engineeringOrbit 24s linear infinite;
+}
+
+/* ------------------------------------------------------------
+   FORM POSITION / DEPTH
+   ------------------------------------------------------------ */
+
+.login-card-shell {
+  width: min(42vw, 585px);
+  padding-right: clamp(55px, 6vw, 105px);
+  padding-left: 35px;
+}
+
+.uiverse-form {
+  max-width: 425px;
+  transform-origin: center right;
+}
+
+.uiverse-form:hover {
+  transform: translateY(-5px) translateX(-4px);
+}
+
+/* Decorative vertical measurement line */
+.uiverse-form::after {
+  display: block;
+  content: "";
+
+  position: absolute;
+  left: -34px;
+  top: 2px;
+
+  width: 1px;
+  height: 92px;
+
+  background:
+    linear-gradient(
+      180deg,
+      var(--gold) 0 28%,
+      rgba(8,33,58,.14) 28% 100%
+    );
+
+  opacity: .9;
+
+  box-shadow:
+    0 0 0 5px rgba(255,255,255,.20);
+
+  transform-origin: top;
+  animation: measurementLine 1s ease-out both;
+}
+
+/* Brand line upgraded */
+.uiverse-form::before {
+  top: -29px;
+  width: 78px;
+  height: 5px;
+
+  background:
+    linear-gradient(
+      90deg,
+      var(--gold) 0 72%,
+      var(--navy) 72% 100%
+    );
+
+  box-shadow:
+    0 7px 18px rgba(246,185,26,.20);
+}
+
+/* ------------------------------------------------------------
+   LOGO / BRAND
+   ------------------------------------------------------------ */
+
+.uiverse-logo {
+  width: 72px;
+  height: 72px;
+  margin-bottom: 21px;
+
+  border: 1px solid rgba(8,33,58,.08);
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255,255,255,.94),
+      rgba(242,247,251,.72)
+    );
+
+  box-shadow:
+    0 18px 38px rgba(8,33,58,.12),
+    0 0 0 1px rgba(255,255,255,.75),
+    0 0 0 10px rgba(18,104,201,.022);
+
+  animation: brandFloat 5s ease-in-out infinite;
+}
+
+.uiverse-logo:hover {
+  animation-play-state: paused;
+}
+
+/* ------------------------------------------------------------
+   TYPOGRAPHY
+   ------------------------------------------------------------ */
+
+.uiverse-heading {
+  font-size: clamp(1.95rem, 3vw, 2.45rem);
+  line-height: 1.02;
+  letter-spacing: -.065em;
+
+  background:
+    linear-gradient(
+      100deg,
+      var(--navy-deep),
+      var(--navy) 48%,
+      var(--blue)
+    );
+
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+
+  text-wrap: balance;
+}
+
+.uiverse-subtitle {
+  max-width: 340px;
+  color: #77899b;
+  font-size: 11.5px;
+  line-height: 1.65;
+  margin-top: 9px;
+  margin-bottom: 26px;
+}
+
+/* ------------------------------------------------------------
+   DEPARTMENT FIELD
+   ------------------------------------------------------------ */
+
+.department-trigger {
+  min-height: 66px;
+  border-radius: 16px;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255,255,255,.72),
+      rgba(247,250,253,.43)
+    );
+
+  border-color: rgba(8,33,58,.12);
+
+  box-shadow:
+    0 8px 22px rgba(8,33,58,.038),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+
+.department-trigger::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+
+  height: 1px;
+
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(18,104,201,.22),
+      transparent
+    );
+
+  opacity: .65;
+}
+
+.department-trigger:hover {
+  border-color: rgba(18,104,201,.36);
+  box-shadow:
+    0 16px 30px rgba(8,33,58,.09),
+    0 0 0 5px rgba(18,104,201,.035);
+}
+
+.department-icon {
+  background:
+    linear-gradient(
+      145deg,
+      #071b30,
+      #1268c9
+    );
+
+  box-shadow:
+    0 8px 18px rgba(18,104,201,.24),
+    inset 0 1px 0 rgba(255,255,255,.18);
+}
+
+.department-content strong {
+  font-size: 12.5px;
+}
+
+.department-content small {
+  font-size: 8.7px;
+}
+
+/* Dropdown has a stronger application feel */
+.department-menu {
+  border-radius: 18px;
+  padding: 8px;
+
+  background: rgba(255,255,255,.975);
+
+  box-shadow:
+    0 30px 60px rgba(4,19,35,.18),
+    0 5px 18px rgba(18,104,201,.055);
+}
+
+.department-option {
+  min-height: 52px;
+  border-radius: 11px;
+}
+
+.department-option:hover {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(18,104,201,.075),
+      rgba(98,196,255,.025)
+    );
+}
+
+/* ------------------------------------------------------------
+   INPUTS
+   ------------------------------------------------------------ */
+
+.uiverse-field {
+  min-height: 55px;
+}
+
+.uiverse-input {
+  min-height: 54px;
+  padding-left: 2.25em;
+
+  color: #122a40;
+
+  border-bottom-color: rgba(8,33,58,.16);
+
+  transition:
+    border-color .28s ease,
+    box-shadow .28s ease,
+    background .28s ease,
+    transform .28s ease;
+}
+
+.uiverse-input:hover {
+  border-bottom-color: rgba(18,104,201,.44);
+  background:
+    linear-gradient(
+      180deg,
+      transparent 68%,
+      rgba(18,104,201,.028)
+    );
+}
+
+.uiverse-input:focus {
+  border-bottom-color: var(--blue);
+  box-shadow:
+    0 2px 0 var(--blue),
+    0 9px 25px rgba(18,104,201,.055);
+}
+
+.uiverse-input-icon {
+  left: 0;
+}
+
+/* Animated input underline */
+.uiverse-field::after {
+  height: 2px;
+  border-radius: 3px;
+  background:
+    linear-gradient(
+      90deg,
+      var(--navy),
+      var(--blue),
+      var(--cyan)
+    );
+}
+
+/* ------------------------------------------------------------
+   BUTTON — SIGNATURE ACTION
+   ------------------------------------------------------------ */
+
+.uiverse-btn-wrapper {
+  margin-top: 31px;
+}
+
+.uiverse-btn {
+  min-height: 56px;
+  border-radius: 14px;
+
+  background:
+    linear-gradient(
+      110deg,
+      #061a2d 0%,
+      #0a4179 30%,
+      #1268c9 65%,
+      #3295ed 100%
+    );
+
+  box-shadow:
+    0 16px 32px rgba(18,104,201,.22),
+    0 4px 10px rgba(4,19,35,.08);
+
+  letter-spacing: .015em;
+
+  transition:
+    transform .25s cubic-bezier(.2,.8,.2,1),
+    box-shadow .25s ease,
+    filter .25s ease;
+}
+
+.uiverse-btn:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 22px 42px rgba(18,104,201,.30),
+    0 5px 14px rgba(4,19,35,.09);
+}
+
+.uiverse-btn:active {
+  transform: translateY(-1px);
+}
+
+/* ------------------------------------------------------------
+   FOOTER
+   ------------------------------------------------------------ */
+
+.login-footer {
+  margin-top: 19px;
+  color: #8a9bab;
+}
+
+.login-footer::before {
+  width: 32px;
+
+  background:
+    linear-gradient(
+      90deg,
+      var(--gold),
+      rgba(8,33,58,.14)
+    );
+}
+
+.login-footer a {
+  color: #547493;
+}
+
+.login-footer a:hover {
+  color: var(--blue);
+}
+
+/* ------------------------------------------------------------
+   TINY FLOATING BRAND MARKERS
+   ------------------------------------------------------------ */
+
+.login-card-shell::before {
+  content: "MUGIL • ERP";
+
+  position: absolute;
+  right: 22px;
+  bottom: 26px;
+
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .24em;
+
+  color: rgba(8,33,58,.20);
+
+  transform: rotate(-90deg);
+  transform-origin: right bottom;
+
+  pointer-events: none;
+}
+
+.login-card-shell::after {
+  content: "";
+
+  position: absolute;
+  right: 37px;
+  top: 23%;
+
+  width: 6px;
+  height: 6px;
+
+  border-radius: 50%;
+
+  background: var(--gold);
+
+  box-shadow:
+    0 0 0 5px rgba(246,185,26,.10),
+    0 0 18px rgba(246,185,26,.34);
+
+  animation: statusPulse 2.6s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------
+   KEYFRAMES
+   ------------------------------------------------------------ */
+
+@keyframes signatureGlow {
+  from {
+    transform: translate3d(0,0,0) scale(.90);
+    opacity: .52;
+  }
+
+  to {
+    transform: translate3d(-18px,12px,0) scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes engineeringOrbit {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+
+  to {
+    transform: rotate(360deg) scale(1.02);
+  }
+}
+
+@keyframes measurementLine {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+
+  to {
+    transform: scaleY(1);
+    opacity: .9;
+  }
+}
+
+@keyframes brandFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes statusPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: .65;
+  }
+
+  50% {
+    transform: scale(1.45);
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------
+   RESPONSIVE V3
+   ------------------------------------------------------------ */
+
+@media (max-width: 1100px) {
+  .login-card-shell {
+    width: min(45vw, 540px);
+    padding-right: 52px;
+  }
+}
+
+@media (max-width: 850px) {
+  .login-root:hover {
+    background-position: center;
+  }
+
+  .login-card-shell {
+    width: min(100%, 500px);
+    padding: 48px 28px;
+  }
+
+  .uiverse-form {
+    max-width: 430px;
+  }
+
+  .login-card-shell::before,
+  .login-card-shell::after {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .login-card-shell {
+    padding: 35px 21px;
+  }
+
+  .uiverse-form {
+    max-width: 100%;
+  }
+
+  .uiverse-heading {
+    font-size: 1.78rem;
+  }
+
+  .uiverse-form::after {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .uiverse-logo,
+  .login-root::after,
+  .login-bg-overlay::after,
+  .login-card-shell::after {
+    animation: none !important;
+  }
+}

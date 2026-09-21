@@ -1,0 +1,252 @@
+.accounts-report-page {
+  min-height: calc(100vh - 70px);
+  padding: 32px 40px;
+  background: #f8fafc;
+}
+
+.accounts-report-container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.accounts-report-heading {
+  margin-bottom: 28px;
+}
+
+.accounts-report-heading h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.accounts-report-heading p {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: #6b7280;
+}
+
+/* Document filter */
+
+.accounts-report-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.accounts-report-filter label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.accounts-report-filter-select {
+  min-width: 120px;
+  height: 38px;
+  padding: 0 34px 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.accounts-report-filter-select:focus {
+  border-color: #9ca3af;
+}
+
+/* Table container */
+.accounts-report-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+/* Table */
+.accounts-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 850px;
+}
+
+/* Header */
+.accounts-report-table thead th {
+  padding: 15px 18px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  background: #f3f4f6;
+  border-bottom: 1px solid #d1d5db;
+  white-space: nowrap;
+}
+
+.accounts-report-table thead th:first-child,
+.accounts-report-table tbody td:first-child {
+  width: 70px;
+  text-align: center;
+}
+
+/* Rows */
+.accounts-report-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.accounts-report-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.accounts-report-table tbody td {
+  padding: 15px 18px;
+  font-size: 14px;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.accounts-report-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Document number */
+.report-document-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.report-document-short {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: #e5e7eb;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-document-number {
+  font-weight: 600;
+  color: #111827;
+}
+
+/* Status */
+.report-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-status-select {
+  min-width: 110px;
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+/* Green */
+.payment-status-paid,
+.delivery-status-delivered {
+  color: #166534;
+  border-color: #86efac;
+  background: #dcfce7;
+}
+
+/* Orange */
+.payment-status-pending,
+.delivery-status-pending {
+  color: #92400e;
+  border-color: #fcd34d;
+  background: #fef3c7;
+}
+
+/* Red */
+.payment-status-na,
+.delivery-status-na {
+  color: #b91c1c;
+  border-color: #fca5a5;
+  background: #fee2e2;
+}
+
+.report-status-select:focus {
+  outline: none;
+}
+
+.payment-paid,
+.delivery-delivered {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.payment-pending,
+.delivery-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.payment-n\/a {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* Action buttons */
+.report-action-button {
+  min-width: 68px;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.report-view-button {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+.report-view-button:hover {
+  background: #e5e7eb;
+}
+
+.report-print-button {
+  background: #111827;
+  color: #ffffff;
+}
+
+.report-print-button:hover {
+  background: #374151;
+}
+
+/* Empty state */
+.report-empty {
+  padding: 40px !important;
+  text-align: center !important;
+  color: #6b7280 !important;
+}
+
+.accounts-report-top {
+  margin-bottom: 16px;
+}

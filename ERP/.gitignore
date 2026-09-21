@@ -1,0 +1,123 @@
+# Dependencies
+
+node_modules/
+ 
+# Environment variables
+
+.env
+
+.env.*
+
+!.env.example
+ 
+# Build output
+
+dist/
+
+build/
+ 
+# Logs
+
+*.log
+
+npm-debug.log*
+
+yarn-debug.log*
+
+pnpm-debug.log*
+ 
+# OS files
+
+.DS_Store
+
+Thumbs.db
+ 
+# IDE / Editor
+
+.vscode/
+
+.idea/
+ 
+# Temporary files
+
+tmp/
+
+temp/
+ 
+# Coverage
+
+coverage/
+ 
+
+
+# =========================
+# Python / Django
+# =========================
+backend/.venv/
+backend/__pycache__/
+backend/**/*.pyc
+
+# Django
+backend/db.sqlite3
+
+# Environment variables
+backend/.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# ==================================================
+# Django
+# ==================================================
+
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/**/migrations/*.pyc
+
+# Database
+backend/db.sqlite3
+
+# Environment
+backend/.env
+
+# Media
+backend/media/
+
+# Static
+backend/staticfiles/
+
+# Logs
+backend/*.log
+backend/logs/
+
+
+# ==================================================
+# React
+# ==================================================
+
+mugil-erp/node_modules/
+mugil-erp/dist/
+
+
+# ==================================================
+# IDE
+# ==================================================
+
+.vscode/
+.idea/
+
+
+# ==================================================
+# OS
+# ==================================================
+
+.DS_Store
+Thumbs.db

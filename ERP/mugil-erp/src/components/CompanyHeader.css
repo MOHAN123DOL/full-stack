@@ -1,0 +1,31 @@
+
+.doc-header__logo,
+.doc-header__logo--right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.doc-header__logo {
+  width: 70px;
+  height: 70px;
+}
+
+.doc-header__logo--right {
+  width: 70px;
+  height: 70px;
+}
+
+.doc-header__logo img {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+}
+
+.doc-header__logo--right img {
+  width: 62px;
+  height: 62px;
+  object-fit: contain;
+}
+

@@ -1,0 +1,531 @@
+/* ==========================================================
+   CONSUMABLE STOCK PAGE
+   PART 1
+========================================================== */
+
+.cons-stock-page-shell {
+  min-height: 100vh;
+  background: #f4f7fb;
+  padding: 32px;
+}
+
+.cons-stock-page-container {
+  max-width: 1600px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* ==========================================================
+   HEADER
+========================================================== */
+
+.cons-stock-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.cons-stock-page-backlink {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  text-decoration: none;
+  color: #334155;
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  transition: all 0.25s ease;
+  font-weight: 500;
+}
+
+.cons-stock-page-backlink:hover {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  transform: translateY(-2px);
+}
+
+.cons-stock-page-backicon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cons-stock-page-backtext {
+  font-size: 14px;
+}
+
+.cons-stock-page-headingblock {
+  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  border-radius: 22px;
+  padding: 36px;
+  color: #ffffff;
+  box-shadow: 0 20px 45px rgba(37, 99, 235, 0.18);
+}
+
+.cons-stock-page-headingcontent {
+  max-width: 750px;
+}
+
+.cons-stock-page-sectiontag {
+  display: inline-block;
+  margin-bottom: 14px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+}
+
+.cons-stock-page-title {
+  margin: 0;
+  font-size: 2.4rem;
+  font-weight: 700;
+}
+
+.cons-stock-page-subtitle {
+  margin-top: 14px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* ==========================================================
+   SUMMARY CARDS
+========================================================== */
+
+.cons-stock-dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 22px;
+}
+
+.cons-stock-dashboard-card {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  transition: all 0.25s ease;
+}
+
+.cons-stock-dashboard-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.08);
+}
+
+.cons-stock-dashboard-cardicon {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  background: #eff6ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cons-stock-dashboard-cardcontent {
+  display: flex;
+  flex-direction: column;
+}
+
+.cons-stock-dashboard-cardvalue {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1;
+}
+
+.cons-stock-dashboard-cardlabel {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* ==========================================================
+   TOOLBAR
+========================================================== */
+
+.cons-stock-toolbar-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+  padding: 24px;
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+  flex-wrap: wrap;
+}
+
+.cons-stock-toolbar-searchwrapper {
+  flex: 1;
+  min-width: 300px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 14px;
+  padding: 0 18px;
+}
+
+.cons-stock-toolbar-searchicon {
+  color: #64748b;
+  display: flex;
+  align-items: center;
+}
+
+.cons-stock-toolbar-searchinput {
+  width: 100%;
+  height: 52px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.cons-stock-toolbar-searchinput::placeholder {
+  color: #94a3b8;
+}
+
+.cons-stock-toolbar-filterarea {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.cons-stock-toolbar-filteritem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cons-stock-toolbar-filterlabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.cons-stock-toolbar-filterselect {
+  min-width: 220px;
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #ffffff;
+  font-size: 14px;
+  color: #0f172a;
+  outline: none;
+  transition: 0.25s ease;
+}
+
+.cons-stock-toolbar-filterselect:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* ==========================================================
+   TABLE SECTION
+========================================================== */
+
+.cons-stock-table-section {
+  width: 100%;
+}
+
+.cons-stock-table-card {
+  background: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.cons-stock-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.cons-stock-table-grid {
+  width: 100%;
+  min-width: 1200px;
+  border-collapse: collapse;
+}
+
+.cons-stock-table-grid thead {
+  background: #f8fafc;
+}
+
+.cons-stock-table-grid thead th {
+  padding: 18px 20px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.cons-stock-table-row {
+  transition: background-color 0.25s ease;
+}
+
+.cons-stock-table-row:hover {
+  background: #f8fbff;
+}
+
+.cons-stock-table-cell {
+  padding: 18px 20px;
+  font-size: 14px;
+  color: #334155;
+  border-bottom: 1px solid #eef2f7;
+  vertical-align: middle;
+}
+
+/* ==========================================================
+   TABLE CONTENT
+========================================================== */
+
+.cons-stock-table-reference {
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.cons-stock-table-primaryblock {
+  display: flex;
+  flex-direction: column;
+}
+
+.cons-stock-table-primarytext {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.cons-stock-table-categorypill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cons-stock-table-quantityvalue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+/* ==========================================================
+   STATUS BADGES
+========================================================== */
+
+.cons-stock-table-statusbadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 110px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.cons-stock-table-status-in-stock {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.cons-stock-table-status-low-stock {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.cons-stock-table-status-out-of-stock {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.cons-stock-table-status-expired {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+/* ==========================================================
+   EMPTY STATE
+========================================================== */
+
+.cons-stock-table-emptycell {
+  padding: 70px 20px;
+  text-align: center;
+}
+
+.cons-stock-table-emptycontent {
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.cons-stock-table-emptytitle {
+  margin: 0 0 14px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.cons-stock-table-emptydescription {
+  margin: 0;
+  color: #64748b;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+/* ==========================================================
+   SCROLLBAR
+========================================================== */
+
+.cons-stock-table-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.cons-stock-table-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.cons-stock-table-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+.cons-stock-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ==========================================================
+   RESPONSIVE
+========================================================== */
+
+@media (max-width: 1200px) {
+
+  .cons-stock-toolbar-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cons-stock-toolbar-filterarea {
+    width: 100%;
+  }
+
+  .cons-stock-toolbar-filteritem {
+    flex: 1;
+    min-width: 220px;
+  }
+
+  .cons-stock-toolbar-filterselect {
+    width: 100%;
+  }
+
+}
+
+@media (max-width: 768px) {
+
+  .cons-stock-page-shell {
+    padding: 18px;
+  }
+
+  .cons-stock-page-headingblock {
+    padding: 24px;
+  }
+
+  .cons-stock-page-title {
+    font-size: 2rem;
+  }
+
+  .cons-stock-page-subtitle {
+    font-size: 14px;
+  }
+
+  .cons-stock-dashboard-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .cons-stock-dashboard-card {
+    padding: 20px;
+  }
+
+  .cons-stock-dashboard-cardicon {
+    width: 52px;
+    height: 52px;
+  }
+
+  .cons-stock-toolbar-searchwrapper {
+    min-width: 100%;
+  }
+
+  .cons-stock-toolbar-filterarea {
+    flex-direction: column;
+  }
+
+  .cons-stock-toolbar-filteritem {
+    width: 100%;
+  }
+
+  .cons-stock-toolbar-filterselect {
+    width: 100%;
+  }
+
+  .cons-stock-table-grid {
+    min-width: 1000px;
+  }
+
+}
+
+@media (max-width: 480px) {
+
+  .cons-stock-page-shell {
+    padding: 14px;
+  }
+
+  .cons-stock-page-backlink {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .cons-stock-page-title {
+    font-size: 1.7rem;
+  }
+
+  .cons-stock-dashboard-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .cons-stock-dashboard-cardicon {
+    margin-bottom: 6px;
+  }
+
+}
