@@ -70,9 +70,8 @@ const AUTHENTICATION_DELAY_MS = 500;
 
 function getDepartment(value) {
   return (
-    DEPARTMENTS.find(
-      (department) => department.value === value,
-    ) ?? DEFAULT_DEPARTMENT
+    DEPARTMENTS.find((department) => department.value === value) ??
+    DEFAULT_DEPARTMENT
   );
 }
 
@@ -90,9 +89,7 @@ export default function LoginTemplate({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [department, setDepartment] = useState(
-    initialDepartment.value,
-  );
+  const [department, setDepartment] = useState(initialDepartment.value);
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
@@ -112,8 +109,7 @@ export default function LoginTemplate({
 
   const selectedDepartment = getDepartment(department);
 
-  const SelectedDepartmentIcon =
-    selectedDepartment.icon;
+  const SelectedDepartmentIcon = selectedDepartment.icon;
 
   // -----------------------------
   // Component mounted
@@ -132,9 +128,7 @@ export default function LoginTemplate({
   // -----------------------------
 
   useEffect(() => {
-    setDepartment(
-      getDepartment(currentDepartment).value,
-    );
+    setDepartment(getDepartment(currentDepartment).value);
   }, [currentDepartment]);
 
   // -----------------------------
@@ -157,24 +151,15 @@ export default function LoginTemplate({
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setDropdownOpen(false);
       }
     };
 
-    document.addEventListener(
-      "mousedown",
-      handleOutsideClick,
-    );
+    document.addEventListener("mousedown", handleOutsideClick);
 
     return () => {
-      document.removeEventListener(
-        "mousedown",
-        handleOutsideClick,
-      );
+      document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, []);
 
@@ -189,16 +174,10 @@ export default function LoginTemplate({
       }
     };
 
-    document.addEventListener(
-      "keydown",
-      handleEscape,
-    );
+    document.addEventListener("keydown", handleEscape);
 
     return () => {
-      document.removeEventListener(
-        "keydown",
-        handleEscape,
-      );
+      document.removeEventListener("keydown", handleEscape);
     };
   }, []);
 
@@ -228,13 +207,8 @@ export default function LoginTemplate({
     const normalizedUsername = username.trim();
 
     // Validate username/password
-    if (
-      !normalizedUsername ||
-      !password.trim()
-    ) {
-      setError(
-        "Please enter both username and password.",
-      );
+    if (!normalizedUsername || !password.trim()) {
+      setError("Please enter both username and password.");
 
       return;
     }
@@ -245,10 +219,7 @@ export default function LoginTemplate({
     try {
       // Small UI delay
       await new Promise((resolve) => {
-        window.setTimeout(
-          resolve,
-          AUTHENTICATION_DELAY_MS,
-        );
+        window.setTimeout(resolve, AUTHENTICATION_DELAY_MS);
       });
 
       if (!mountedRef.current) {
@@ -265,11 +236,7 @@ export default function LoginTemplate({
        *
        * to Django through AuthContext.
        */
-      const result = await login(
-        normalizedUsername,
-        password,
-        department,
-      );
+      const result = await login(normalizedUsername, password, department);
 
       if (!mountedRef.current) {
         return;
@@ -325,12 +292,71 @@ export default function LoginTemplate({
     } catch (error) {
       console.error("Login error:", error);
 
-      if (mountedRef.current) {
-        setPassword("");
-        setError(
-          "Unable to sign in. Please try again.",
-        );
+      if (!mountedRef.current) {
+        return;
       }
+
+      setPassword("");
+
+      // Backend error response
+      if (error?.response) {
+        const responseData = error.response.data;
+
+        console.log("Backend login error:", responseData);
+
+        let backendMessage = "";
+
+        // Normal backend message
+        if (typeof responseData?.message === "string") {
+          backendMessage = responseData.message;
+        }
+
+        // Django/DRF detail
+        else if (typeof responseData?.detail === "string") {
+          backendMessage = responseData.detail;
+        }
+
+        // Backend errors object
+        else if (responseData?.errors) {
+          backendMessage = Object.entries(responseData.errors)
+            .map(([field, messages]) => {
+              const message = Array.isArray(messages)
+                ? messages.join(", ")
+                : String(messages);
+
+              return `${field}: ${message}`;
+            })
+            .join(" | ");
+        }
+
+        // Django field-level response
+        else if (responseData && typeof responseData === "object") {
+          backendMessage = Object.entries(responseData)
+            .map(([field, messages]) => {
+              const message = Array.isArray(messages)
+                ? messages.join(", ")
+                : String(messages);
+
+              return `${field}: ${message}`;
+            })
+            .join(" | ");
+        }
+
+        setError(backendMessage || `Login failed (${error.response.status}).`);
+
+        return;
+      }
+
+      // Request reached no response
+      if (error?.request) {
+        setError(
+          "Unable to connect to the server. Please check whether the backend is running.",
+        );
+        return;
+      }
+
+      // Frontend/other error
+      setError(error?.message || "Unable to sign in. Please try again.");
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -349,31 +375,19 @@ export default function LoginTemplate({
         backgroundImage: `url(${industrialImage})`,
       }}
     >
-      <div
-        className="login-bg-overlay"
-        aria-hidden="true"
-      />
+      <div className="login-bg-overlay" aria-hidden="true" />
 
       <section className="login-card-shell">
-        <form
-          className="uiverse-form"
-          onSubmit={handleSubmit}
-          noValidate
-        >
+        <form className="uiverse-form" onSubmit={handleSubmit} noValidate>
           {/* Logo */}
 
           <div className="uiverse-logo">
-            <img
-              src={mugilLogo}
-              alt="Mugil Engineering Industries"
-            />
+            <img src={mugilLogo} alt="Mugil Engineering Industries" />
           </div>
 
           {/* Heading */}
 
-          <p className="uiverse-heading">
-            {selectedDepartment.label} Login
-          </p>
+          <p className="uiverse-heading">{selectedDepartment.label} Login</p>
 
           <p className="uiverse-subtitle">
             Mugil Industries ERP — Secure Access Portal
@@ -382,61 +396,40 @@ export default function LoginTemplate({
           {/* Department */}
 
           <div className="department-group">
-            <label
-              className="form-label"
-              htmlFor="department-button"
-            >
+            <label className="form-label" htmlFor="department-button">
               Department
             </label>
 
-            <div
-              className="department-dropdown"
-              ref={dropdownRef}
-            >
+            <div className="department-dropdown" ref={dropdownRef}>
               <button
                 id="department-button"
                 type="button"
                 className={`department-trigger ${
                   dropdownOpen ? "is-open" : ""
                 }`}
-                onClick={() =>
-                  setDropdownOpen(
-                    (isOpen) => !isOpen,
-                  )
-                }
+                onClick={() => setDropdownOpen((isOpen) => !isOpen)}
                 disabled={loading}
                 aria-haspopup="listbox"
                 aria-expanded={dropdownOpen}
               >
                 <span className="department-icon">
-                  <SelectedDepartmentIcon
-                    size={17}
-                  />
+                  <SelectedDepartmentIcon size={17} />
                 </span>
 
                 <span className="department-content">
-                  <strong>
-                    {selectedDepartment.label}
-                  </strong>
+                  <strong>{selectedDepartment.label}</strong>
 
-                  <small>
-                    {selectedDepartment.description}
-                  </small>
+                  <small>{selectedDepartment.description}</small>
                 </span>
 
-                <ChevronDown
-                  size={17}
-                  className="department-chevron"
-                />
+                <ChevronDown size={17} className="department-chevron" />
               </button>
 
               {/* Department menu */}
 
               <div
                 className={`department-menu ${
-                  dropdownOpen
-                    ? "department-menu-open"
-                    : ""
+                  dropdownOpen ? "department-menu-open" : ""
                 }`}
                 role="listbox"
                 aria-label="Select department"
@@ -444,43 +437,31 @@ export default function LoginTemplate({
                 {DEPARTMENTS.map((item) => {
                   const Icon = item.icon;
 
-                  const isSelected =
-                    item.value === department;
+                  const isSelected = item.value === department;
 
                   return (
                     <button
                       key={item.value}
                       type="button"
                       className={`department-option ${
-                        isSelected
-                          ? "selected"
-                          : ""
+                        isSelected ? "selected" : ""
                       }`}
                       role="option"
                       aria-selected={isSelected}
-                      onClick={() =>
-                        handleDepartmentChange(item)
-                      }
+                      onClick={() => handleDepartmentChange(item)}
                     >
                       <span className="department-option-icon">
                         <Icon size={17} />
                       </span>
 
                       <span className="department-option-text">
-                        <strong>
-                          {item.label}
-                        </strong>
+                        <strong>{item.label}</strong>
 
-                        <small>
-                          {item.description}
-                        </small>
+                        <small>{item.description}</small>
                       </span>
 
                       {isSelected && (
-                        <Check
-                          size={16}
-                          className="department-check"
-                        />
+                        <Check size={16} className="department-check" />
                       )}
                     </button>
                   );
@@ -492,11 +473,7 @@ export default function LoginTemplate({
           {/* Error */}
 
           {error && (
-            <div
-              className="error-alert"
-              id="login-error"
-              role="alert"
-            >
+            <div className="error-alert" id="login-error" role="alert">
               <AlertTriangle size={16} />
 
               <span>{error}</span>
@@ -506,10 +483,7 @@ export default function LoginTemplate({
           {/* Username */}
 
           <div className="uiverse-field">
-            <UserRound
-              size={17}
-              className="uiverse-input-icon"
-            />
+            <UserRound size={17} className="uiverse-input-icon" />
 
             <input
               id="username"
@@ -528,21 +502,14 @@ export default function LoginTemplate({
               required
               disabled={loading}
               aria-invalid={Boolean(error)}
-              aria-describedby={
-                error
-                  ? "login-error"
-                  : undefined
-              }
+              aria-describedby={error ? "login-error" : undefined}
             />
           </div>
 
           {/* Password */}
 
           <div className="uiverse-field">
-            <LockKeyhole
-              size={17}
-              className="uiverse-input-icon"
-            />
+            <LockKeyhole size={17} className="uiverse-input-icon" />
 
             <input
               id="password"
@@ -560,32 +527,22 @@ export default function LoginTemplate({
               required
               disabled={loading}
               aria-invalid={Boolean(error)}
-              aria-describedby={
-                error
-                  ? "login-error"
-                  : undefined
-              }
+              aria-describedby={error ? "login-error" : undefined}
             />
           </div>
 
           {/* Login button */}
 
           <div className="uiverse-btn-wrapper">
-            <button
-              type="submit"
-              className="uiverse-btn"
-              disabled={loading}
-            >
+            <button type="submit" className="uiverse-btn" disabled={loading}>
               {loading ? (
                 <>
                   <span className="login-spinner" />
-
                   Authenticating…
                 </>
               ) : (
                 <>
                   Sign in
-
                   <ArrowRight size={17} />
                 </>
               )}
@@ -595,14 +552,9 @@ export default function LoginTemplate({
           {/* Footer */}
 
           <div className="login-footer">
-            <span>
-              © {new Date().getFullYear()} Mugil
-              Industries
-            </span>
+            <span>© {new Date().getFullYear()} Mugil Industries</span>
 
-            <a href="/privacy-policy">
-              Privacy Policy
-            </a>
+            <a href="/privacy-policy">Privacy Policy</a>
           </div>
         </form>
       </section>

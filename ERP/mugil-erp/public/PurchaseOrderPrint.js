@@ -42,6 +42,31 @@
 
    Browser automatic document pagination is therefore not relied upon
    for the logical page structure.
+
+   PDF SAVE + STATUS CONFIRM
+   -------------------------------------------------------------------------
+   When the user clicks "🖨 Print / Save as PDF":
+
+     1. The rendered .pop-pages element is converted to a PDF blob
+        in-browser using html2pdf.js (loaded lazily on first use).
+     2. The PDF is downloaded locally as before.
+     3. The same PDF blob is POSTed to:
+            /erp/purchase-orders/<poNumber>/confirm/
+        which stores it under MEDIA/PO/PDF/ and flips the PO status
+        from "previewed" to "confirmed".
+     4. On success, the toolbar status text is updated to reflect
+        the confirmed state.
+
+   AUTHENTICATION (OPTION 3: COOKIE + CSRF)
+   -------------------------------------------------------------------------
+   No JWT access token is used here.
+
+   The HttpOnly refresh cookie set by /erp/login/ is sent
+   automatically by the browser on the confirm request because the
+   print tab is same-origin with the React app (credentials: "include").
+
+   Django enforces CSRF on the confirm endpoint, so the csrftoken
+   cookie is forwarded as the X-CSRFToken header.
    ========================================================================= */
 
 (function () {
@@ -49,6 +74,18 @@
 
   var PAYLOAD_KEY = "pop-print-payload-v1";
   var ROOT_ID = "pop-print-app-root";
+
+  /* =======================================================================
+     PDF / CONFIRM CONFIG
+     ======================================================================= */
+
+  var CONFIRM_URL_TEMPLATE =
+    "/api/erp/purchase-orders/{poNumber}/confirm/";
+
+  var HTML2PDF_CDN =
+    "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+
+  var html2pdfLoadingPromise = null;
 
   /* =======================================================================
      PAGE GEOMETRY
@@ -223,6 +260,198 @@
   }
 
   /* =======================================================================
+     CSRF COOKIE READER
+     -----------------------------------------------------------------------
+     Django sets the csrftoken cookie via get_token() during /erp/login/.
+     We forward it as X-CSRFToken so the csrf_protect decorator on the
+     confirm view accepts the request.
+     ======================================================================= */
+
+  function readCookie(name) {
+    var match = document.cookie.match(
+      new RegExp("(^|;\\s*)" + name + "=([^;]*)"),
+    );
+
+    return match ? decodeURIComponent(match[2]) : null;
+  }
+
+  /* =======================================================================
+     HTML2PDF LAZY LOADER
+     ======================================================================= */
+
+  function loadHtml2Pdf() {
+    if (typeof window.html2pdf === "function") {
+      return Promise.resolve(window.html2pdf);
+    }
+
+    if (html2pdfLoadingPromise) {
+      return html2pdfLoadingPromise;
+    }
+
+    html2pdfLoadingPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement("script");
+
+      script.src = HTML2PDF_CDN;
+      script.async = true;
+
+      script.onload = function () {
+        if (typeof window.html2pdf === "function") {
+          resolve(window.html2pdf);
+        } else {
+          html2pdfLoadingPromise = null;
+          reject(new Error("html2pdf did not register on window."));
+        }
+      };
+
+      script.onerror = function () {
+        html2pdfLoadingPromise = null;
+        reject(new Error("html2pdf.js failed to load."));
+      };
+
+      document.head.appendChild(script);
+    });
+
+    return html2pdfLoadingPromise;
+  }
+
+  /* =======================================================================
+     PDF BUILDER
+     ======================================================================= */
+
+  function buildPdfBlob(pagesHost, filename) {
+    return loadHtml2Pdf().then(function (html2pdf) {
+      if (!pagesHost) {
+        throw new Error(
+          "PDF generation failed: pages host element was not found.",
+        );
+      }
+
+      var options = {
+        margin: 0,
+        filename: filename || "purchase-order.pdf",
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          logging: false,
+        },
+        jsPDF: {
+          unit: "mm",
+          format: "a4",
+          orientation: "portrait",
+        },
+        pagebreak: { mode: ["css", "legacy"] },
+      };
+
+      var worker = html2pdf()
+        .set(options)
+        .from(pagesHost);
+
+      return worker.toPdf().get("pdf").then(function () {
+        return worker.outputPdf("blob");
+      });
+    });
+  }
+
+  /* =======================================================================
+     CONFIRM API CALL (cookie + CSRF)
+     -----------------------------------------------------------------------
+     The print tab is same-origin with the React app, so the HttpOnly
+     refresh cookie set by /erp/login/ is automatically sent. CSRF is
+     enforced by Django, so we forward the csrftoken cookie as the
+     X-CSRFToken header. No access token is used here at all.
+     ======================================================================= */
+  function postPdfToBackend(poNumber, pdfBlob, filename) {
+    if (!poNumber) {
+      return Promise.reject(
+        new Error("Cannot confirm: Purchase Order number is missing."),
+      );
+    }
+
+    if (!pdfBlob) {
+      return Promise.reject(
+        new Error("Cannot confirm: PDF blob is missing."),
+      );
+    }
+
+    var url = CONFIRM_URL_TEMPLATE.replace(
+      "{poNumber}",
+      encodeURIComponent(poNumber),
+    );
+
+    var formData = new FormData();
+
+    formData.append(
+      "pdf",
+      pdfBlob,
+      filename || poNumber + ".pdf",
+    );
+
+    var csrfToken = readCookie("csrftoken");
+
+    if (!csrfToken) {
+      console.warn(
+        "[PurchaseOrderPrint] CSRF token was not found in document.cookie.",
+      );
+    }
+
+    return fetch(url, {
+      method: "POST",
+      headers: csrfToken
+        ? {
+            "X-CSRFToken": csrfToken,
+          }
+        : {},
+      body: formData,
+      credentials: "include",
+    })
+      .catch(function (networkError) {
+        // fetch() itself rejected — DNS, CORS, offline, etc.
+        throw new Error(
+          "Network error while confirming the Purchase Order: " +
+            (networkError && networkError.message
+              ? networkError.message
+              : "unknown error"),
+        );
+      })
+      .then(async function (response) {
+        var contentType =
+          response.headers.get("content-type") || "";
+
+        var body;
+
+        if (contentType.includes("application/json")) {
+          body = await response.json();
+        } else {
+          body = await response.text();
+        }
+
+        if (!response.ok) {
+          var message = "";
+
+          if (typeof body === "object" && body !== null) {
+            message =
+              body.message ||
+              body.detail ||
+              JSON.stringify(body);
+          } else {
+            message = body || "Server rejected the PDF upload.";
+          }
+
+          throw new Error(
+            "HTTP " +
+              response.status +
+              ": " +
+              message,
+          );
+        }
+
+        return body;
+      });
+  }
+
+  /* =======================================================================
      PUBLIC ENTRY POINT
      ======================================================================= */
 
@@ -266,6 +495,10 @@
     );
 
     if (!printTab) {
+      console.error(
+        "[PurchaseOrderPrint] Pop-up was blocked by the browser.",
+      );
+
       window.alert(
         "Your browser blocked the Purchase Order print preview pop-up. Please allow pop-ups for this site and try again.",
       );
@@ -287,6 +520,12 @@
     try {
       raw = localStorage.getItem(PAYLOAD_KEY);
     } catch (error) {
+      if (typeof console !== "undefined") {
+        console.error(
+          "[PurchaseOrderPrint] Could not read payload from localStorage:",
+          error,
+        );
+      }
       return null;
     }
 
@@ -301,6 +540,12 @@
 
       return parsed;
     } catch (error) {
+      if (typeof console !== "undefined") {
+        console.error(
+          "[PurchaseOrderPrint] Payload in localStorage is corrupt:",
+          error,
+        );
+      }
       return null;
     }
   }
@@ -328,6 +573,10 @@
       var payload = readPayload();
 
       if (!payload || !payload.data) {
+        console.error(
+          "[PurchaseOrderPrint] No Purchase Order payload found for print preview.",
+        );
+
         root.appendChild(
           el(
             "p",
@@ -439,20 +688,21 @@
     );
 
     footer.appendChild(
-  el(
-    "p",
-    "pop-footer__address",
-    escapeHtml(LETTERHEAD.address),
-  ),
-);
+      el(
+        "p",
+        "pop-footer__address",
+        escapeHtml(LETTERHEAD.address),
+      ),
+    );
 
-footer.appendChild(
-  el(
-    "p",
-    "pop-footer__address",
-    "S.F. No: 436 / 5A, Near B K Bharath Township, Thanjavur Main Road, Valavanthankottai, Trichy - 620015",
-  ),
-);
+    footer.appendChild(
+      el(
+        "p",
+        "pop-footer__address",
+        "S.F. No: 436 / 5A, Near B K Bharath Township, Thanjavur Main Road, Valavanthankottai, Trichy - 620015",
+      ),
+    );
+
     footer.appendChild(
       el(
         "p",
@@ -605,27 +855,27 @@ footer.appendChild(
     );
 
     var contactPerson = pick(
-  vendor,
-  [
-    "contactPerson",
-    "contact",
-    "contactName",
-    "person",
-  ],
-  "",
-);
+      vendor,
+      [
+        "contactPerson",
+        "contact",
+        "contactName",
+        "person",
+      ],
+      "",
+    );
 
-var phone = pick(
-  vendor,
-  [
-    "phone",
-    "phoneNumber",
-    "mobile",
-    "mobileNumber",
-    "contactNumber",
-  ],
-  "",
-);
+    var phone = pick(
+      vendor,
+      [
+        "phone",
+        "phoneNumber",
+        "mobile",
+        "mobileNumber",
+        "contactNumber",
+      ],
+      "",
+    );
 
     var leftHtml =
       '<div class="pop-meta-row__left">' +
@@ -675,26 +925,26 @@ var phone = pick(
       leftHtml += "</p>";
     }
 
-if (contactPerson) {
-  leftHtml +=
-    "<p>Contact Person : " +
-    escapeHtml(contactPerson) +
-    "</p>";
-}
+    if (contactPerson) {
+      leftHtml +=
+        "<p>Contact Person : " +
+        escapeHtml(contactPerson) +
+        "</p>";
+    }
 
-if (phone) {
-  leftHtml +=
-    "<p>Phone : " +
-    escapeHtml(phone) +
-    "</p>";
-}
+    if (phone) {
+      leftHtml +=
+        "<p>Phone : " +
+        escapeHtml(phone) +
+        "</p>";
+    }
 
-if (gst) {
-  leftHtml +=
-    "<p>GST : " +
-    escapeHtml(gst) +
-    "</p>";
-}
+    if (gst) {
+      leftHtml +=
+        "<p>GST : " +
+        escapeHtml(gst) +
+        "</p>";
+    }
 
     leftHtml += "</div></div>";
 
@@ -794,60 +1044,56 @@ if (gst) {
      COLUMN HELPERS
      ======================================================================= */
 
-function getVisibleColumns(columns, includeAmountDetails) {
-if (!Array.isArray(columns)) {
-return [];
-}
+  function getVisibleColumns(columns, includeAmountDetails) {
+    if (!Array.isArray(columns)) {
+      return [];
+    }
 
-return columns.filter(function (column) {
-if (!column) {
-return false;
-}
+    return columns.filter(function (column) {
+      if (!column) {
+        return false;
+      }
 
+      if (column.visible === false) {
+        return false;
+      }
 
-if (column.visible === false) {
-  return false;
-}
+      var id = String(
+        column.id || "",
+      ).toLowerCase();
 
-var id = String(
-  column.id || "",
-).toLowerCase();
+      var label = String(
+        column.label || "",
+      ).toLowerCase();
 
-var label = String(
-  column.label || "",
-).toLowerCase();
+      if (
+        id === "action" ||
+        id === "actions" ||
+        label === "action" ||
+        label === "actions"
+      ) {
+        return false;
+      }
 
-if (
-  id === "action" ||
-  id === "actions" ||
-  label === "action" ||
-  label === "actions"
-) {
-  return false;
-}
+      /*
+       * Hide the Amount column when
+       * "Include amount details" is unchecked.
+       */
+      if (
+        !includeAmountDetails &&
+        (
+          id === "amount" ||
+          label === "amount" ||
+          label.includes("amount") ||
+          label.includes("price")
+        )
+      ) {
+        return false;
+      }
 
-/*
- * Hide the Amount column when
- * "Include amount details" is unchecked.
- */
-if (
-  !includeAmountDetails &&
-  (
-    id === "amount" ||
-    label === "amount" ||
-    label.includes("amount") ||
-    label.includes("price")
-  )
-) {
-  return false;
-}
-
-return true;
-
-
-});
-}
-
+      return true;
+    });
+  }
 
   function getColumnValue(item, column) {
     if (!item || !column) {
@@ -929,540 +1175,542 @@ return true;
      PURCHASE ORDER TABLE
      ======================================================================= */
 
-function buildItemsTableHeaderRow(
-  visibleColumns,
-) {
-  var tr = el("tr", "");
+  function buildItemsTableHeaderRow(
+    visibleColumns,
+  ) {
+    var tr = el("tr", "");
 
-  /*
-   * Serial number is always the first column.
-   */
-  var serialTh = el(
-    "th",
-    "pop-column-serial",
-    "S.No",
-  );
-
-  tr.appendChild(serialTh);
-
-  visibleColumns.forEach(
-    function (column) {
-      var th = el(
-        "th",
-        getColumnClass(column),
-        escapeHtml(
-          column.label ||
-            column.id ||
-            "Column",
-        ),
-      );
-
-      tr.appendChild(th);
-    },
-  );
-
-  return tr;
-}
-
-function buildItemRow(
-  item,
-  visibleColumns,
-  index,
-) {
-  var tr = el("tr", "");
-
-  /*
-   * Serial number column.
-   */
-  var serialTd = el(
-    "td",
-    "pop-column-serial",
-  );
-
-  serialTd.textContent =
-    String(index + 1);
-
-  tr.appendChild(serialTd);
-
-  /*
-   * Dynamic Purchase Order columns.
-   */
-  visibleColumns.forEach(
-    function (column) {
-      var td = el(
-        "td",
-        getColumnClass(column),
-      );
-
-      td.textContent =
-        getColumnDisplayValue(
-          item,
-          column,
-        );
-
-      tr.appendChild(td);
-    },
-  );
-
-  return tr;
-}
-
-function buildEmptyRow(
-  visibleColumns,
-) {
-  var tr = el("tr", "");
-
-  var td = el(
-    "td",
-    "pop-empty-row",
-    "No items available",
-  );
-
-  /*
-   * +1 because S.No is always
-   * added before visibleColumns.
-   */
-  td.colSpan =
-    Math.max(
-      1,
-      visibleColumns.length + 1,
+    /*
+     * Serial number is always the first column.
+     */
+    var serialTh = el(
+      "th",
+      "pop-column-serial",
+      "S.No",
     );
 
-  tr.appendChild(td);
+    tr.appendChild(serialTh);
 
-  return tr;
-}
-
-/* =======================================================================
-   TABLE
-   ======================================================================= */
-
-function buildItemsTable(
-  rows,
-  visibleColumns,
-  includeHeader,
-) {
-  var table = el(
-    "table",
-    "pop-items-table",
-  );
-
-  /*
-   * ---------------------------------------------------------------
-   * Column widths
-   * ---------------------------------------------------------------
-   *
-   * Reference Purchase Order:
-   *
-   * S.No           6%
-   * Description   34%
-   * Specification 28%
-   * Qty            7%
-   * Unit           7%
-   * Amount         18%
-   *
-   * Total = 100%
-   *
-   * If custom columns are present, the remaining width is
-   * distributed among those custom columns.
-   */
-
-  var colgroup =
-    el("colgroup");
-
-  /*
-   * S.No
-   */
-  var serialCol =
-    document.createElement(
-      "col",
-    );
-
-  serialCol.style.width =
-    "6%";
-
-  colgroup.appendChild(
-    serialCol,
-  );
-
-  /*
-   * First identify which columns are standard
-   * and which are custom.
-   */
-  var standardColumnInfo =
-    [];
-
-  var customColumns =
-    [];
-
-  visibleColumns.forEach(
-    function (column) {
-      var id = String(
-        column.id || "",
-      ).toLowerCase();
-
-      var label = String(
-        column.label || "",
-      ).toLowerCase();
-
-      var width = null;
-
-      if (
-        id === "description" ||
-        label === "description" ||
-        label.includes("description")
-      ) {
-        width = 34;
-      } else if (
-        id === "specification" ||
-        label === "specification" ||
-        label.includes("specification") ||
-        label === "spec"
-      ) {
-        width = 28;
-      } else if (
-        id === "qty" ||
-        label === "qty" ||
-        label.includes("quantity")
-      ) {
-        width = 7;
-      } else if (
-        id === "unit" ||
-        label === "unit"
-      ) {
-        width = 7;
-      } else if (
-        id === "amount" ||
-        label === "amount" ||
-        label.includes("amount") ||
-        label.includes("price")
-      ) {
-        width = 18;
-      }
-
-      if (width !== null) {
-        standardColumnInfo.push({
-          column: column,
-          width: width,
-        });
-      } else {
-        customColumns.push(
-          column,
+    visibleColumns.forEach(
+      function (column) {
+        var th = el(
+          "th",
+          getColumnClass(column),
+          escapeHtml(
+            column.label ||
+              column.id ||
+              "Column",
+          ),
         );
-      }
-    },
-  );
 
-  /*
-   * Width occupied by standard columns.
-   */
-  var standardWidth =
-    standardColumnInfo.reduce(
-      function (total, entry) {
-        return total + entry.width;
+        tr.appendChild(th);
       },
-      0,
     );
 
-  /*
-   * Available width after S.No and standard columns.
-   *
-   * S.No already occupies 6%.
-   */
-  var remainingWidth =
-    Math.max(
-      0,
-      94 - standardWidth,
+    return tr;
+  }
+
+  function buildItemRow(
+    item,
+    visibleColumns,
+    index,
+  ) {
+    var tr = el("tr", "");
+
+    /*
+     * Serial number column.
+     */
+    var serialTd = el(
+      "td",
+      "pop-column-serial",
     );
 
-  /*
-   * If there are custom columns, distribute
-   * the remaining width equally.
-   */
-  var customWidth =
-    customColumns.length > 0
-      ? remainingWidth /
-        customColumns.length
-      : 0;
+    serialTd.textContent =
+      String(index + 1);
 
-  /*
-   * Create the <col> elements in the EXACT
-   * same order as visibleColumns.
-   */
-  visibleColumns.forEach(
-    function (column) {
-      var id = String(
-        column.id || "",
-      ).toLowerCase();
+    tr.appendChild(serialTd);
 
-      var label = String(
-        column.label || "",
-      ).toLowerCase();
-
-      var width = null;
-
-      if (
-        id === "description" ||
-        label === "description" ||
-        label.includes("description")
-      ) {
-        width = 34;
-      } else if (
-        id === "specification" ||
-        label === "specification" ||
-        label.includes("specification") ||
-        label === "spec"
-      ) {
-        width = 28;
-      } else if (
-        id === "qty" ||
-        label === "qty" ||
-        label.includes("quantity")
-      ) {
-        width = 7;
-      } else if (
-        id === "unit" ||
-        label === "unit"
-      ) {
-        width = 7;
-      } else if (
-        id === "amount" ||
-        label === "amount" ||
-        label.includes("amount") ||
-        label.includes("price")
-      ) {
-        width = 18;
-      }
-
-      var col =
-        document.createElement(
-          "col",
+    /*
+     * Dynamic Purchase Order columns.
+     */
+    visibleColumns.forEach(
+      function (column) {
+        var td = el(
+          "td",
+          getColumnClass(column),
         );
 
-      if (width !== null) {
-        col.style.width =
-          width + "%";
-      } else {
-        col.style.width =
-          customWidth + "%";
-      }
+        td.textContent =
+          getColumnDisplayValue(
+            item,
+            column,
+          );
 
-      colgroup.appendChild(
-        col,
+        tr.appendChild(td);
+      },
+    );
+
+    return tr;
+  }
+
+  function buildEmptyRow(
+    visibleColumns,
+  ) {
+    var tr = el("tr", "");
+
+    var td = el(
+      "td",
+      "pop-empty-row",
+      "No items available",
+    );
+
+    /*
+     * +1 because S.No is always
+     * added before visibleColumns.
+     */
+    td.colSpan =
+      Math.max(
+        1,
+        visibleColumns.length + 1,
       );
-    },
-  );
 
-  table.appendChild(
-    colgroup,
-  );
+    tr.appendChild(td);
 
-  /*
-   * Header
-   */
-  if (includeHeader) {
-    var thead =
-      el("thead");
+    return tr;
+  }
 
-    thead.appendChild(
-      buildItemsTableHeaderRow(
-        visibleColumns,
-      ),
+  /* =======================================================================
+     TABLE
+     ======================================================================= */
+
+  function buildItemsTable(
+    rows,
+    visibleColumns,
+    includeHeader,
+  ) {
+    var table = el(
+      "table",
+      "pop-items-table",
+    );
+
+    /*
+     * ---------------------------------------------------------------
+     * Column widths
+     * ---------------------------------------------------------------
+     *
+     * Reference Purchase Order:
+     *
+     * S.No           6%
+     * Description   34%
+     * Specification 28%
+     * Qty            7%
+     * Unit           7%
+     * Amount         18%
+     *
+     * Total = 100%
+     *
+     * If custom columns are present, the remaining width is
+     * distributed among those custom columns.
+     */
+
+    var colgroup =
+      el("colgroup");
+
+    /*
+     * S.No
+     */
+    var serialCol =
+      document.createElement(
+        "col",
+      );
+
+    serialCol.style.width =
+      "6%";
+
+    colgroup.appendChild(
+      serialCol,
+    );
+
+    /*
+     * First identify which columns are standard
+     * and which are custom.
+     */
+    var standardColumnInfo =
+      [];
+
+    var customColumns =
+      [];
+
+    visibleColumns.forEach(
+      function (column) {
+        var id = String(
+          column.id || "",
+        ).toLowerCase();
+
+        var label = String(
+          column.label || "",
+        ).toLowerCase();
+
+        var width = null;
+
+        if (
+          id === "description" ||
+          label === "description" ||
+          label.includes("description")
+        ) {
+          width = 34;
+        } else if (
+          id === "specification" ||
+          label === "specification" ||
+          label.includes("specification") ||
+          label === "spec"
+        ) {
+          width = 28;
+        } else if (
+          id === "qty" ||
+          label === "qty" ||
+          label.includes("quantity")
+        ) {
+          width = 7;
+        } else if (
+          id === "unit" ||
+          label === "unit"
+        ) {
+          width = 7;
+        } else if (
+          id === "amount" ||
+          label === "amount" ||
+          label.includes("amount") ||
+          label.includes("price")
+        ) {
+          width = 18;
+        }
+
+        if (width !== null) {
+          standardColumnInfo.push({
+            column: column,
+            width: width,
+          });
+        } else {
+          customColumns.push(
+            column,
+          );
+        }
+      },
+    );
+
+    /*
+     * Width occupied by standard columns.
+     */
+    var standardWidth =
+      standardColumnInfo.reduce(
+        function (total, entry) {
+          return total + entry.width;
+        },
+        0,
+      );
+
+    /*
+     * Available width after S.No and standard columns.
+     *
+     * S.No already occupies 6%.
+     */
+    var remainingWidth =
+      Math.max(
+        0,
+        94 - standardWidth,
+      );
+
+    /*
+     * If there are custom columns, distribute
+     * the remaining width equally.
+     */
+    var customWidth =
+      customColumns.length > 0
+        ? remainingWidth /
+          customColumns.length
+        : 0;
+
+    /*
+     * Create the <col> elements in the EXACT
+     * same order as visibleColumns.
+     */
+    visibleColumns.forEach(
+      function (column) {
+        var id = String(
+          column.id || "",
+        ).toLowerCase();
+
+        var label = String(
+          column.label || "",
+        ).toLowerCase();
+
+        var width = null;
+
+        if (
+          id === "description" ||
+          label === "description" ||
+          label.includes("description")
+        ) {
+          width = 34;
+        } else if (
+          id === "specification" ||
+          label === "specification" ||
+          label.includes("specification") ||
+          label === "spec"
+        ) {
+          width = 28;
+        } else if (
+          id === "qty" ||
+          label === "qty" ||
+          label.includes("quantity")
+        ) {
+          width = 7;
+        } else if (
+          id === "unit" ||
+          label === "unit"
+        ) {
+          width = 7;
+        } else if (
+          id === "amount" ||
+          label === "amount" ||
+          label.includes("amount") ||
+          label.includes("price")
+        ) {
+          width = 18;
+        }
+
+        var col =
+          document.createElement(
+            "col",
+          );
+
+        if (width !== null) {
+          col.style.width =
+            width + "%";
+        } else {
+          col.style.width =
+            customWidth + "%";
+        }
+
+        colgroup.appendChild(
+          col,
+        );
+      },
     );
 
     table.appendChild(
-      thead,
+      colgroup,
     );
+
+    /*
+     * Header
+     */
+    if (includeHeader) {
+      var thead =
+        el("thead");
+
+      thead.appendChild(
+        buildItemsTableHeaderRow(
+          visibleColumns,
+        ),
+      );
+
+      table.appendChild(
+        thead,
+      );
+    }
+
+    /*
+     * Body
+     */
+    var tbody =
+      el("tbody");
+
+    rows.forEach(
+      function (row) {
+        tbody.appendChild(
+          row,
+        );
+      },
+    );
+
+    table.appendChild(
+      tbody,
+    );
+
+    return table;
   }
 
-  /*
-   * Body
-   */
-  var tbody =
-    el("tbody");
-
-  rows.forEach(
-    function (row) {
-      tbody.appendChild(
-        row,
-      );
-    },
-  );
-
-  table.appendChild(
-    tbody,
-  );
-
-  return table;
-}
   /* =======================================================================
      AMOUNT SUMMARY
      ======================================================================= */
 
-function buildSummaryNode(
-  data,
-  summary,
-) {
-  var wrap = el(
-    "div",
-    "",
-  );
-
-  wrap.appendChild(
-    buildSectionHeadingNode(
-      "Amount Summary:",
-    ),
-  );
-
-  var list = el(
-    "ul",
-    "pop-summary-list",
-  );
-
-  /*
-   * ================================================================
-   * CALCULATE FROM PURCHASE ORDER ITEMS
-   * ================================================================
-   *
-   * Each item already contains its final Amount.
-   * The subtotal is the sum of those item amounts.
-   */
-
-  var items =
-    Array.isArray(data.items)
-      ? data.items
-      : [];
-
-  var subtotal =
-    items.reduce(
-      function (sum, item) {
-        var amount =
-          Number(
-            item.amount,
-          ) || 0;
-
-        return sum + amount;
-      },
-      0,
+  function buildSummaryNode(
+    data,
+    summary,
+  ) {
+    var wrap = el(
+      "div",
+      "",
     );
 
-  /*
-   * ================================================================
-   * GST PERCENTAGE
-   * ================================================================
-   *
-   * Use the GST percentage entered in the existing PO data.
-   */
+    wrap.appendChild(
+      buildSectionHeadingNode(
+        "Amount Summary:",
+      ),
+    );
 
-  var gstPercent =
-    data &&
-    data.gstPercent !==
-      undefined &&
-    data.gstPercent !==
-      null &&
-    data.gstPercent !== ""
-      ? Number(
-          data.gstPercent,
-        )
-      : 0;
+    var list = el(
+      "ul",
+      "pop-summary-list",
+    );
 
-  /*
-   * ================================================================
-   * GST AMOUNT
-   * ================================================================
-   *
-   * GST = subtotal × GST percentage / 100
-   */
+    /*
+     * ================================================================
+     * CALCULATE FROM PURCHASE ORDER ITEMS
+     * ================================================================
+     *
+     * Each item already contains its final Amount.
+     * The subtotal is the sum of those item amounts.
+     */
 
-  var gstAmount =
-    (subtotal *
-      gstPercent) /
-    100;
+    var items =
+      Array.isArray(data.items)
+        ? data.items
+        : [];
 
-  /*
-   * ================================================================
-   * FINAL TOTAL
-   * ================================================================
-   *
-   * Final Total = subtotal + GST
-   */
+    var subtotal =
+      items.reduce(
+        function (sum, item) {
+          var amount =
+            Number(
+              item.amount,
+            ) || 0;
 
-  var grandTotal =
-    subtotal +
-    gstAmount;
+          return sum + amount;
+        },
+        0,
+      );
 
-  /*
-   * ================================================================
-   * TOTAL EXCLUDING GST
-   * ================================================================
-   */
+    /*
+     * ================================================================
+     * GST PERCENTAGE
+     * ================================================================
+     *
+     * Use the GST percentage entered in the existing PO data.
+     */
 
-  list.appendChild(
-    el(
-      "li",
-      "",
-      "<strong>Total (Excluding GST):</strong> ₹ " +
-        escapeHtml(
-          formatIndianCurrency(
-            subtotal,
-          ),
-        ) +
-        "/-",
-    ),
-  );
+    var gstPercent =
+      data &&
+      data.gstPercent !==
+        undefined &&
+      data.gstPercent !==
+        null &&
+      data.gstPercent !== ""
+        ? Number(
+            data.gstPercent,
+          )
+        : 0;
 
-  /*
-   * ================================================================
-   * GST
-   * ================================================================
-   */
+    /*
+     * ================================================================
+     * GST AMOUNT
+     * ================================================================
+     *
+     * GST = subtotal × GST percentage / 100
+     */
 
-  list.appendChild(
-    el(
-      "li",
-      "",
-      "<strong>GST @ " +
-        escapeHtml(
-          String(
-            gstPercent,
-          ),
-        ) +
-        "%:</strong> ₹ " +
-        escapeHtml(
-          formatIndianCurrency(
-            gstAmount,
-          ),
-        ) +
-        "/-",
-    ),
-  );
+    var gstAmount =
+      (subtotal *
+        gstPercent) /
+      100;
 
-  /*
-   * ================================================================
-   * TOTAL AMOUNT
-   * ================================================================
-   */
+    /*
+     * ================================================================
+     * FINAL TOTAL
+     * ================================================================
+     *
+     * Final Total = subtotal + GST
+     */
 
-  list.appendChild(
-    el(
-      "li",
-      "",
-      "<strong>Total Amount:</strong> ₹ " +
-        escapeHtml(
-          formatIndianCurrency(
-            grandTotal,
-          ),
-        ) +
-        "/-",
-    ),
-  );
+    var grandTotal =
+      subtotal +
+      gstAmount;
 
-  wrap.appendChild(
-    list,
-  );
+    /*
+     * ================================================================
+     * TOTAL EXCLUDING GST
+     * ================================================================
+     */
 
-  return wrap;
-}
+    list.appendChild(
+      el(
+        "li",
+        "",
+        "<strong>Total (Excluding GST):</strong> ₹ " +
+          escapeHtml(
+            formatIndianCurrency(
+              subtotal,
+            ),
+          ) +
+          "/-",
+      ),
+    );
+
+    /*
+     * ================================================================
+     * GST
+     * ================================================================
+     */
+
+    list.appendChild(
+      el(
+        "li",
+        "",
+        "<strong>GST @ " +
+          escapeHtml(
+            String(
+              gstPercent,
+            ),
+          ) +
+          "%:</strong> ₹ " +
+          escapeHtml(
+            formatIndianCurrency(
+              gstAmount,
+            ),
+          ) +
+          "/-",
+      ),
+    );
+
+    /*
+     * ================================================================
+     * TOTAL AMOUNT
+     * ================================================================
+     */
+
+    list.appendChild(
+      el(
+        "li",
+        "",
+        "<strong>Total Amount:</strong> ₹ " +
+          escapeHtml(
+            formatIndianCurrency(
+              grandTotal,
+            ),
+          ) +
+          "/-",
+      ),
+    );
+
+    wrap.appendChild(
+      list,
+    );
+
+    return wrap;
+  }
+
   /* =======================================================================
      CLOSING + SIGNATURE
      ======================================================================= */
@@ -1557,26 +1805,24 @@ function buildSummaryNode(
      PAGINATION ENGINE
      ======================================================================= */
 
-function buildDocument(
-root,
-data,
-summary,
-columns,
-) {
-var includeAmountDetails =
-data.includeAmountDetails !== false;
+  function buildDocument(
+    root,
+    data,
+    summary,
+    columns,
+  ) {
+    var includeAmountDetails =
+      data.includeAmountDetails !== false;
 
+    var visibleColumns =
+      getVisibleColumns(
+        columns,
+        includeAmountDetails,
+      );
 
-var visibleColumns =
-getVisibleColumns(
-columns,
-includeAmountDetails,
-);
-
-var items = Array.isArray(data.items)
-  ? data.items
-  : [];
-
+    var items = Array.isArray(data.items)
+      ? data.items
+      : [];
 
     /*
      * Fallback if the payload doesn't contain the current columns array.
@@ -1642,12 +1888,12 @@ var items = Array.isArray(data.items)
     );
 
     var saveBtn = el(
-  "button",
-  "pop-btn pop-btn--save",
-  "Save",
-);
+      "button",
+      "pop-btn pop-btn--save",
+      "Save",
+    );
 
-saveBtn.type = "button";
+    saveBtn.type = "button";
 
     var closeBtn = el(
       "button",
@@ -1671,13 +1917,6 @@ saveBtn.type = "button";
     );
 
     printBtn.type = "button";
-
-    printBtn.addEventListener(
-      "click",
-      function () {
-        window.print();
-      },
-    );
 
     toolbar.appendChild(status);
     toolbar.appendChild(saveBtn);
@@ -2000,15 +2239,15 @@ saveBtn.type = "button";
 
     if (items.length) {
       rowNodes =
-  items.map(
-    function (item, index) {
-      return buildItemRow(
-        item,
-        visibleColumns,
-        index,
-      );
-    },
-  );
+        items.map(
+          function (item, index) {
+            return buildItemRow(
+              item,
+              visibleColumns,
+              index,
+            );
+          },
+        );
     } else {
       rowNodes = [
         buildEmptyRow(
@@ -2060,19 +2299,19 @@ saveBtn.type = "button";
        SUMMARY
        =================================================================== */
 
-var summaryNode = null;
-var summaryHeight = 0;
+    var summaryNode = null;
+    var summaryHeight = 0;
 
-if (includeAmountDetails) {
-summaryNode =
-buildSummaryNode(
-data,
-summary,
-);
+    if (includeAmountDetails) {
+      summaryNode =
+        buildSummaryNode(
+          data,
+          summary,
+        );
 
-summaryHeight =
-measure(summaryNode);
-}
+      summaryHeight =
+        measure(summaryNode);
+    }
 
     /* ===================================================================
        CLOSING
@@ -2294,19 +2533,19 @@ measure(summaryNode);
        If it does not fit, packGeneric() starts the next page.
        =================================================================== */
 
-var afterTable = [];
+    var afterTable = [];
 
-if (includeAmountDetails) {
-afterTable.push({
-node: summaryNode,
-height: summaryHeight,
-});
-}
+    if (includeAmountDetails) {
+      afterTable.push({
+        node: summaryNode,
+        height: summaryHeight,
+      });
+    }
 
-afterTable.push({
-node: closingNode,
-height: closingHeight,
-});
+    afterTable.push({
+      node: closingNode,
+      height: closingHeight,
+    });
 
     /* ===================================================================
        PACK REMAINING AFTER-TABLE CONTENT
@@ -2357,6 +2596,7 @@ height: closingHeight,
         spacer,
       );
     }
+
     /* ===================================================================
        RENDER EXPLICIT A4 PAGES
        =================================================================== */
@@ -2441,7 +2681,7 @@ height: closingHeight,
             contentWrap.appendChild(
               node,
             );
-          }
+          },
         );
 
         /* ---------------------------------------------------------------
@@ -2498,5 +2738,118 @@ height: closingHeight,
       (pages.length > 1
         ? "s"
         : "");
+
+    /* ===================================================================
+       PDF SAVE + CONFIRM HANDLER
+       -------------------------------------------------------------------
+       Bound to both the "Save" and "🖨 Print / Save as PDF" buttons.
+
+       Steps:
+         1. Build PDF blob from the already-rendered .pop-pages element.
+         2. Trigger a local download (same user-visible behaviour as
+            before — the user still receives the PDF).
+         3. Upload the blob to the backend confirm endpoint, which
+            stores it under MEDIA/PO/PDF/ and flips the PO status to
+            "confirmed".
+         4. Update the toolbar status text on success / failure.
+       =================================================================== */
+
+    var pdfBusy = false;
+
+    function downloadBlob(blob, filename) {
+      var url = URL.createObjectURL(blob);
+
+      var link = document.createElement("a");
+
+      link.href = url;
+      link.download = filename;
+
+      document.body.appendChild(link);
+
+      link.click();
+
+      document.body.removeChild(link);
+
+      // Give the browser a moment to start the download before
+      // revoking the object URL.
+      setTimeout(function () {
+        URL.revokeObjectURL(url);
+      }, 4000);
+    }
+
+    function handleSaveAndConfirm() {
+      if (pdfBusy) {
+        return;
+      }
+
+      var originalStatusText =
+        "Purchase Order " +
+        (data.poNumber || "") +
+        " — " +
+        pages.length +
+        " page" +
+        (pages.length > 1 ? "s" : "");
+
+      if (!data.poNumber) {
+        status.textContent =
+          "Purchase Order — Save failed (missing PO number)";
+
+        window.alert(
+          "Cannot save the PDF: Purchase Order number is missing.",
+        );
+        return;
+      }
+
+      pdfBusy = true;
+
+      status.textContent =
+        originalStatusText + " — Generating PDF…";
+
+      var filename = data.poNumber + ".pdf";
+
+      buildPdfBlob(pagesHost, filename)
+        .then(function (blob) {
+          // 1. Local download — unchanged user-visible behaviour.
+          downloadBlob(blob, filename);
+
+          status.textContent =
+            originalStatusText + " — Uploading & confirming…";
+
+          // 2. Upload + confirm on the backend.
+          return postPdfToBackend(
+            data.poNumber,
+            blob,
+            filename,
+          );
+        })
+        .then(function () {
+          status.textContent =
+            "Purchase Order " +
+            (data.poNumber || "") +
+            " — Confirmed ✓  (PDF saved)";
+        })
+        .catch(function (error) {
+          console.error(
+            "[PurchaseOrderPrint] Save / confirm failed:",
+            error,
+          );
+
+          status.textContent =
+            originalStatusText + " — Save failed";
+
+          window.alert(
+            "The PDF was downloaded locally, but the Purchase Order could not be confirmed on the server.\n\n" +
+              (error && error.message
+                ? error.message
+                : "Unknown error."),
+          );
+        })
+        .then(function () {
+          pdfBusy = false;
+        });
+    }
+
+    saveBtn.addEventListener("click", handleSaveAndConfirm);
+    printBtn.addEventListener("click", handleSaveAndConfirm);
   }
 })();

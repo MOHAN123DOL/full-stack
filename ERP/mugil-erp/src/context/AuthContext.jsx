@@ -12,6 +12,72 @@ const AuthContext = createContext(null);
 // Prevent multiple refresh requests at the same time
 let refreshPromise = null;
 
+/**
+ * =========================================================
+ * CHANGED (new helper) — extractBackendErrorMessage
+ * =========================================================
+ *
+ * Reads the actual Django/DRF error payload and converts it
+ * into a single human-readable string, instead of throwing
+ * the backend response away.
+ *
+ * Supports:
+ *   1. { message: "..." }
+ *   2. { detail: "..." }
+ *   3. { errors: { field: ["msg", ...], ... } }
+ *   4. { field: ["msg", ...], ... }  (raw DRF field errors)
+ */
+function extractBackendErrorMessage(responseData, fallbackStatus) {
+  if (!responseData || typeof responseData !== "object") {
+    return fallbackStatus
+      ? `Login failed (${fallbackStatus}).`
+      : "Unable to sign in. Please try again.";
+  }
+
+  // Format 1
+  if (typeof responseData.message === "string" && responseData.message) {
+    return responseData.message;
+  }
+
+  // Format 2
+  if (typeof responseData.detail === "string" && responseData.detail) {
+    return responseData.detail;
+  }
+
+  // Format 3
+  if (responseData.errors && typeof responseData.errors === "object") {
+    const combined = Object.entries(responseData.errors)
+      .map(([field, messages]) => {
+        const text = Array.isArray(messages)
+          ? messages.join(", ")
+          : String(messages);
+        return `${field}: ${text}`;
+      })
+      .join(" | ");
+
+    if (combined) {
+      return combined;
+    }
+  }
+
+  // Format 4 (raw field-level object, e.g. { username: [...], password: [...] })
+  const combined = Object.entries(responseData)
+    .map(([field, messages]) => {
+      const text = Array.isArray(messages)
+        ? messages.join(", ")
+        : String(messages);
+      return `${field}: ${text}`;
+    })
+    .join(" | ");
+
+  return (
+    combined ||
+    (fallbackStatus
+      ? `Login failed (${fallbackStatus}).`
+      : "Unable to sign in. Please try again.")
+  );
+}
+
 export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
@@ -215,13 +281,22 @@ export function AuthProvider({ children }) {
 
       /*
        * Django returned an HTTP error
+       *
+       * CHANGED: previously this only ever read
+       * error.response.data?.message, which silently
+       * discarded "detail", "errors", and raw field-level
+       * error payloads from Django/DRF. Now the full
+       * response body is inspected via
+       * extractBackendErrorMessage() so the real backend
+       * message reaches LoginTemplate.jsx.
        */
       if (error.response) {
         return {
           success: false,
-          message:
-            error.response.data?.message ||
-            "Unable to sign in.",
+          message: extractBackendErrorMessage(
+            error.response.data,
+            error.response.status
+          ),
         };
       }
 
@@ -232,7 +307,7 @@ export function AuthProvider({ children }) {
         return {
           success: false,
           message:
-            "Unable to connect to the server.",
+            "Unable to connect to the server. Please check whether the backend is running.",
         };
       }
 

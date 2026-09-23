@@ -1,135 +1,101 @@
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import Header from "../../components/Header";
+import Loading from "../../components/loading";
+import Error from "../../components/error";
+import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
+
 import "./AccountsHome.css";
+const MODULE_ICONS = {
+  "purchase-order": (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="20" r="1.3" fill="currentColor" />
+      <circle cx="18" cy="20" r="1.3" fill="currentColor" />
+    </svg>
+  ),
 
-export default function AccountsHome() {
-  const navigate = useNavigate();
+  quotation: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6 3h9l4 4v14H6z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M15 3v5h4M9 12h6M9 15h6M9 18h4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
 
-  const menus = [
-    {
-      title: "Purchase Order",
-      short: "PO",
-      description: "Create and manage Purchase Orders.",
-      path: "/accounts/PO",
-      color: "#0f766e",
-      icon: (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H7"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <circle cx="10" cy="20" r="1.3" fill="currentColor" />
-          <circle cx="18" cy="20" r="1.3" fill="currentColor" />
-        </svg>
-      ),
-    },
-    {
-      title: "Quotation",
-      short: "QO",
-      description: "Create and manage Quotations.",
-      path: "/accounts/QO",
-      color: "#1d4ed8",
-      icon: (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M6 3h9l4 4v14H6z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M15 3v5h4M9 12h6M9 15h6M9 18h4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      ),
-    },
-    {
-      title: "Tax Invoice",
-      short: "TI",
-      description: "Create and manage Tax Invoices.",
-      path: "/accounts/TaxInvoice",
-      color: "#b45309",
-      icon: (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M6 3h9l4 4v14H6z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M15 3v5h4M9 12h6M9 15h4M9 18h5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      ),
-    },
-    {
-      title: "Delivery Challan",
-      short: "DC",
-      description: "Create and manage Delivery Challans.",
-      path: "/accounts/DeliveryChallan",
-      color: "#7c3aed",
-      icon: (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M3 7h11v10H3zM14 10h4l3 3v4h-7z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-          />
-          <circle cx="7" cy="19" r="1.5" fill="currentColor" />
-          <circle cx="18" cy="19" r="1.5" fill="currentColor" />
-        </svg>
-      ),
-    },
-    {
-      title: "Proforma Invoice",
-      short: "PI",
-      description: "Create and manage Proforma Invoices.",
-      path: "/accounts/ProformaInvoice",
-      color: "#dc2626",
-      icon: (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M6 3h9l4 4v14H6z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M15 3v5h4M9 12h6M9 15h6M9 18h4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      ),
-    },
+  "tax-invoice": (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6 3h9l4 4v14H6z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M15 3v5h4M9 12h6M9 15h4M9 18h5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
 
-    {
-  title: "Report",
-  short: "RP",
-  description: "View and manage all accounting reports.",
-  path: "/accounts/Report",
-  color: "#374151",
-  icon: (
+  "delivery-challan": (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M3 7h11v10H3zM14 10h4l3 3v4h-7z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <circle cx="7" cy="19" r="1.5" fill="currentColor" />
+      <circle cx="18" cy="19" r="1.5" fill="currentColor" />
+    </svg>
+  ),
+
+  "proforma-invoice": (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6 3h9l4 4v14H6z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M15 3v5h4M9 12h6M9 15h6M9 18h4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
+
+  report: (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
         d="M4 4h16v16H4z"
@@ -147,15 +113,8 @@ export default function AccountsHome() {
       />
     </svg>
   ),
-},
 
-{
-  title: "Journal",
-  short: "JR",
-  description: "Record and manage financial transactions.",
-  path: "/accounts/ExpenseProfit",
-  color: "#475569",
-  icon: (
+  journal: (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
         d="M4 19V5M4 19h16"
@@ -175,9 +134,84 @@ export default function AccountsHome() {
       />
     </svg>
   ),
-},
-  ];
+};
+export default function AccountsHome() {
+  const navigate = useNavigate();
+  const { accessToken } = useAuth();
 
+  const [menus, setMenus] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // ============================================================
+  // LOAD ACCOUNTS MODULES FROM API
+  // ============================================================
+  const fetchAccountsModules = useCallback(async () => {
+    if (!accessToken) {
+      setMenus([]);
+      setError("Your session has expired. Please login again.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await api.get("/erp/accounts/modules/", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      console.log("Accounts Modules API:", response.data);
+
+      const result = response.data;
+
+      if (!result || !Array.isArray(result.modules)) {
+        throw new Error("Invalid Accounts modules response.");
+      }
+
+      setMenus(result.modules);
+    } catch (err) {
+      console.error("Accounts Modules Error:", err);
+
+      if (err.response) {
+        if (err.response.status === 401) {
+          setError("Your session has expired. Please login again.");
+        } else if (err.response.status === 403) {
+          setError("You are not authorized to access Accounts.");
+        } else {
+          setError(
+            err.response.data?.detail ||
+              err.response.data?.message ||
+              "Unable to load Accounts modules.",
+          );
+        }
+      } else if (err.request) {
+        setError(
+          "Unable to connect to the server. Please check whether the backend is running.",
+        );
+      } else {
+        setError(err.message || "Something went wrong while loading Accounts.");
+      }
+
+      setMenus([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken]);
+
+  // ============================================================
+  // INITIAL LOAD
+  // ============================================================
+  useEffect(() => {
+    fetchAccountsModules();
+  }, [fetchAccountsModules]);
+
+  // ============================================================
+  // NAVIGATION
+  // ============================================================
   const handleOpen = (path) => {
     navigate(path);
   };
@@ -189,13 +223,45 @@ export default function AccountsHome() {
     }
   };
 
+  // ============================================================
+  // LOADING
+  // ============================================================
+  if (loading) {
+    return (
+      <>
+        <Header />
+
+        <main className="accounts-page">
+          <Loading />
+        </main>
+      </>
+    );
+  }
+
+  // ============================================================
+  // ERROR
+  // ============================================================
+  if (error) {
+    return (
+      <>
+        <Header />
+
+        <main className="accounts-page">
+          <Error onRetry={fetchAccountsModules} />
+        </main>
+      </>
+    );
+  }
+
+  // ============================================================
+  // YOUR ORIGINAL UI — UNCHANGED
+  // ============================================================
   return (
     <>
       <Header />
 
       <main className="accounts-page">
         <div className="accounts-container">
-
           {/* Page heading */}
           <div className="accounts-heading">
             <h1>Accounts Module</h1>
@@ -215,12 +281,10 @@ export default function AccountsHome() {
                 tabIndex={0}
               >
                 <div className="accounts-card-icon">
-                  {item.icon}
+                  {MODULE_ICONS[item.icon]}
                 </div>
 
-                <div className="accounts-card-short">
-                  {item.short}
-                </div>
+                <div className="accounts-card-short">{item.short}</div>
 
                 <h2>{item.title}</h2>
 
@@ -233,7 +297,6 @@ export default function AccountsHome() {
               </div>
             ))}
           </div>
-
         </div>
       </main>
     </>

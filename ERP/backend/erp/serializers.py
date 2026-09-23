@@ -265,3 +265,112 @@ class ChangePasswordSerializer(serializers.Serializer):
             })
 
         return attrs
+
+
+#accounts
+
+from rest_framework import serializers
+
+from .models import PurchaseOrder
+from rest_framework import serializers
+
+from .models import PurchaseOrder
+
+
+class PurchaseOrderSerializer(serializers.ModelSerializer):
+
+    created_by_name = serializers.CharField(
+        source="created_by.username",
+        read_only=True,
+    )
+
+    created_by_type = serializers.CharField(
+        source="created_by.user_type",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PurchaseOrder
+
+        fields = [
+            "id",
+
+            "po_number",
+            "po_date",
+            "ref_quote_number",
+            "ref_date",
+            "subject",
+            "prepared_by",
+
+            "vendor",
+
+            "intro_text",
+
+            "items",
+            "columns",
+
+            "include_amount_details",
+            "subtotal",
+            "gst_percent",
+            "gst_amount",
+            "grand_total",
+
+            "delivery",
+            "payment",
+            "terms",
+            "notes",
+            "signatures",
+
+            "document_data",
+
+            "status",
+             "pdf_file",
+
+            "created_by",
+            "created_by_name",
+            "created_by_type",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "po_number",
+            "created_by",
+            "created_by_name",
+            "created_by_type",
+            "created_at",
+            "updated_at",
+             "pdf_file",
+        ]
+
+#customer detial for all form
+from rest_framework import serializers
+from .models import Customer
+
+
+class CustomerSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Customer
+
+        fields = [
+            "id",
+            "company_name",
+            "address",
+            "contact_person",
+            "phone",
+            "email",
+            "gst_number",
+            "source",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "source",
+            "created_at",
+            "updated_at",
+        ]

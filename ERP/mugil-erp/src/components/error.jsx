@@ -1,9 +1,13 @@
 // AuthLoading.jsx
 import "./error.css";
 
-export default function AuthLoading() {
+export default function AuthLoading({ onRetry }) {
   const handleRetry = () => {
-    window.location.reload();
+    if (typeof onRetry === "function") {
+      onRetry();
+    } else {
+      window.location.reload();
+    }
   };
 
   return (
@@ -29,6 +33,7 @@ export default function AuthLoading() {
                   strokeDasharray="35 35"
                 />
               </g>
+
               <g transform="translate(230,0)">
                 <polyline
                   className="face__eye-lid"
@@ -52,11 +57,15 @@ export default function AuthLoading() {
               ry="4"
             />
 
-            <g transform="translate(65,334)" strokeDasharray="102 102">
+            <g
+              transform="translate(65,334)"
+              strokeDasharray="102 102"
+            >
               <path
                 className="face__mouth-left"
                 d="M 0 30 C 0 30 40 0 95 0"
               />
+
               <path
                 className="face__mouth-right"
                 d="M 95 0 C 150 0 190 30 190 30"
@@ -76,16 +85,19 @@ export default function AuthLoading() {
           className="arr-2"
           viewBox="0 0 24 24"
         >
-          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z" />
+          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 18.3638L10.8076 16.9999H4V10.9999H16.1716Z" />
         </svg>
+
         <span className="text">TRY AGAIN</span>
+
         <span className="circle"></span>
+
         <svg
           xmlns="http://www.w3.org/2000/svg"
           className="arr-1"
           viewBox="0 0 24 24"
         >
-          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z" />
+          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 18.3638L10.8076 16.9999H4V10.9999H16.1716Z" />
         </svg>
       </button>
     </main>
