@@ -4,7 +4,25 @@ from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import F
-
+from .models import (
+    Customer,
+    DeliveryChallan,
+    DeliveryChallanNumberSettings,
+    PurchaseOrder,
+    PurchaseOrderNumberSettings,
+    Quotation,
+    QuotationNumberSettings,
+    TaxInvoice,
+    TaxInvoiceNumberSettings,
+    User,
+)
+from .serializers import (
+    CustomerSerializer,
+    DeliveryChallanSerializer,
+    PurchaseOrderSerializer,
+    QuotationSerializer,
+    TaxInvoiceSerializer,
+)
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -2745,6 +2763,613 @@ class DeliveryChallanConfirmAPIView(APIView):
                             dc.pdf_file.url
                         )
                         if dc.pdf_file
+                        else None
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+
+
+#for tax invoice
+# ==================================================================
+# NEXT TAX INVOICE NUMBER
+# ==================================================================
+class TaxInvoiceNextNumberAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def get(self, request):
+
+        settings = (
+            TaxInvoiceNumberSettings.objects
+            .filter(is_active=True)
+            .first()
+        )
+
+        if not settings:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Tax invoice number settings "
+                        "have not been configured."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # 1. Generate current invoice number
+        # ==================================================
+
+        invoice_number = (
+            f"{settings.prefix}"
+            f"{settings.next_number:0{settings.number_padding}d}"
+        )
+
+        # ==================================================
+        # 2. Check whether current invoice already exists
+        # ==================================================
+
+        existing_invoice = (
+            TaxInvoice.objects
+            .filter(invoice_number=invoice_number)
+            .first()
+        )
+
+        # ==================================================
+        # 3. CURRENT INVOICE EXISTS
+        # ==================================================
+
+        if existing_invoice is not None:
+
+            serializer = TaxInvoiceSerializer(
+                existing_invoice
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": False,
+                    "invoice_number": invoice_number,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # ==================================================
+        # 4. CURRENT INVOICE DOES NOT EXIST
+        #    GET PREVIOUS INVOICE
+        # ==================================================
+
+        previous_invoice = (
+            TaxInvoice.objects
+            .order_by("-id")
+            .first()
+        )
+
+        # ==================================================
+        # 5. NO PREVIOUS INVOICE
+        # ==================================================
+
+        if previous_invoice is None:
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": True,
+                    "invoice_number": invoice_number,
+                    "data": None,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # ==================================================
+        # 6. CLONE PREVIOUS INVOICE
+        # ==================================================
+
+        serializer = TaxInvoiceSerializer(
+            previous_invoice
+        )
+
+        previous_data = serializer.data.copy()
+
+        previous_data["invoice_number"] = invoice_number
+
+        return Response(
+            {
+                "success": True,
+                "is_new": True,
+                "invoice_number": invoice_number,
+                "previous_invoice_number": (
+                    previous_invoice.invoice_number
+                ),
+                "data": previous_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ==================================================================
+# TAX INVOICE CUSTOMERS (GET / POST / PATCH)
+# ==================================================================
+class TaxInvoiceCustomerAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    # =========================
+    # GET
+    # =========================
+
+    def get(self, request, pk=None):
+
+        # GET /tax-invoice-customers/
+        if pk is None:
+
+            customers = Customer.objects.filter(
+                source=Customer.Source.TAX_INVOICE
+            )
+
+            serializer = CustomerSerializer(
+                customers,
+                many=True,
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Tax invoice customers retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # GET /tax-invoice-customers/<id>/
+        try:
+            customer = Customer.objects.get(
+                pk=pk,
+                source=Customer.Source.TAX_INVOICE,
+            )
+
+        except Customer.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Tax invoice customer not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerSerializer(customer)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Tax invoice customer retrieved successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =========================
+    # POST
+    # =========================
+
+    def post(self, request):
+
+        serializer = CustomerSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+
+            customer = serializer.save(
+                source=Customer.Source.TAX_INVOICE
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Tax invoice customer created successfully.",
+                    "data": CustomerSerializer(
+                        customer
+                    ).data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Customer validation failed.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # =========================
+    # PATCH
+    # =========================
+
+    def patch(self, request, pk=None):
+
+        if pk is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Customer ID is required "
+                        "for PATCH."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            customer = Customer.objects.get(
+                pk=pk,
+                source=Customer.Source.TAX_INVOICE,
+            )
+
+        except Customer.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Tax invoice customer not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerSerializer(
+            customer,
+            data=request.data,
+            partial=True,
+        )
+
+        if serializer.is_valid():
+
+            customer = serializer.save(
+                source=Customer.Source.TAX_INVOICE
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Tax invoice customer updated successfully.",
+                    "data": CustomerSerializer(
+                        customer
+                    ).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Customer validation failed.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+# ==================================================================
+# CREATE / UPDATE TAX INVOICE
+# ==================================================================
+class TaxInvoiceCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def post(self, request):
+
+        with transaction.atomic():
+
+            data = request.data.copy()
+
+            # ==================================================
+            # 1. CHECK EXISTING INVOICE
+            # ==================================================
+
+            incoming_invoice_number = str(
+                data.get("invoice_number", "")
+            ).strip()
+
+            existing_invoice = None
+
+            if incoming_invoice_number:
+
+                existing_invoice = (
+                    TaxInvoice.objects
+                    .select_for_update()
+                    .filter(
+                        invoice_number=incoming_invoice_number
+                    )
+                    .first()
+                )
+
+            # ==================================================
+            # 2. CUSTOMER NAME (from receiver_details)
+            # ==================================================
+            #
+            # Frontend sends receiver_details.companyName inside
+            # the JSON payload. We look up the matching Tax Invoice
+            # customer and stamp its id on the invoice for future
+            # reporting / joins. Not required — the invoice still
+            # saves if the customer master is missing.
+            #
+            # ==================================================
+
+            receiver_details = (
+                data.get("receiver_details") or {}
+            )
+
+            if not isinstance(receiver_details, dict):
+                receiver_details = {}
+
+            customer_name = str(
+                receiver_details.get("companyName", "")
+            ).strip()
+
+            customer = None
+
+            if customer_name:
+
+                customer = (
+                    Customer.objects
+                    .filter(
+                        company_name__iexact=customer_name,
+                        source=Customer.Source.TAX_INVOICE,
+                    )
+                    .first()
+                )
+
+            # ==================================================
+            # 3. UPDATE EXISTING INVOICE
+            # ==================================================
+
+            if existing_invoice is not None:
+
+                # Invoice number is only used to find the invoice.
+                # It must not be changed by an update.
+                data.pop("invoice_number", None)
+
+                serializer = TaxInvoiceSerializer(
+                    existing_invoice,
+                    data=data,
+                    partial=True,
+                )
+
+                serializer.is_valid(
+                    raise_exception=True
+                )
+
+                invoice = serializer.save()
+
+                response_serializer = TaxInvoiceSerializer(invoice)
+
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Tax invoice updated successfully.",
+                        "data": response_serializer.data,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            # ==================================================
+            # 4. CREATE NEW INVOICE
+            # ==================================================
+
+            serializer = TaxInvoiceSerializer(
+                data=data
+            )
+
+            serializer.is_valid(
+                raise_exception=True
+            )
+
+            invoice = serializer.save()
+
+        response_serializer = TaxInvoiceSerializer(invoice)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Tax invoice created successfully.",
+                "data": response_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ==================================================================
+# CONFIRM TAX INVOICE (PDF SAVE + STATUS FLIP)
+# ==================================================================
+@method_decorator(csrf_protect, name="dispatch")
+class TaxInvoiceConfirmAPIView(APIView):
+
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, invoice_number):
+
+        with transaction.atomic():
+
+            # ============================================================
+            # 1. Session check (HttpOnly refresh cookie)
+            # ============================================================
+
+            refresh_token = request.COOKIES.get(
+                settings.REFRESH_COOKIE_NAME
+            )
+
+            if not refresh_token:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session not found. Please login again.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            try:
+                token = RefreshToken(refresh_token)
+                user_id = token.get("user_id")
+            except Exception:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session is invalid or expired.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session user no longer exists.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            # ============================================================
+            # 2. Accounts-department check
+            # ============================================================
+
+            if user.user_type != User.UserType.ACCOUNTS:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accounts access required.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            # ============================================================
+            # 3. Locate the Tax Invoice (locked)
+            # ============================================================
+
+            try:
+                invoice = (
+                    TaxInvoice.objects
+                    .select_for_update()
+                    .get(invoice_number=invoice_number)
+                )
+            except TaxInvoice.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Tax invoice not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # ============================================================
+            # 4. Read the uploaded PDF
+            # ============================================================
+
+            pdf_file = request.FILES.get("pdf")
+
+            if not pdf_file:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No PDF file was uploaded.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # ============================================================
+            # 5. Save PDF under MEDIA/tax_invoices/pdf/
+            # ============================================================
+
+            safe_inv = (
+                str(invoice_number)
+                .replace("/", "-")
+                .replace("\\", "-")
+            )
+            filename = f"{safe_inv}.pdf"
+
+            if invoice.pdf_file:
+                try:
+                    invoice.pdf_file.delete(save=False)
+                except Exception:
+                    pass
+
+            invoice.pdf_file.save(
+                filename,
+                ContentFile(pdf_file.read()),
+                save=False,
+            )
+
+            # ============================================================
+            # 6. Flip status to confirmed
+            # ============================================================
+
+            was_already_confirmed = (
+                invoice.status
+                == TaxInvoice.Status.CONFIRMED
+            )
+
+            invoice.status = TaxInvoice.Status.CONFIRMED
+
+            invoice.save(
+                update_fields=[
+                    "pdf_file",
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+            # ============================================================
+            # 7. Advance the invoice number counter
+            # ------------------------------------------------------------
+            # Only on the first confirmation. Re-printing an
+            # already-confirmed invoice must NOT consume another number.
+            # ============================================================
+
+            if not was_already_confirmed:
+
+                settings_obj = (
+                    TaxInvoiceNumberSettings.objects
+                    .select_for_update()
+                    .filter(is_active=True)
+                    .first()
+                )
+
+                if settings_obj:
+
+                    settings_obj.next_number += 1
+
+                    settings_obj.save(
+                        update_fields=[
+                            "next_number",
+                            "updated_at",
+                        ]
+                    )
+
+            # ============================================================
+            # 8. Response
+            # ============================================================
+
+            serializer = TaxInvoiceSerializer(invoice)
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Tax invoice confirmed and PDF saved.",
+                    "data": serializer.data,
+                    "pdf_url": (
+                        request.build_absolute_uri(
+                            invoice.pdf_file.url
+                        )
+                        if invoice.pdf_file
                         else None
                     ),
                 },

@@ -4,7 +4,7 @@ from .views import ( AccountsModulesAPIView, ChangePasswordAPIView, CustomerAPIV
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView,
                       NextPurchaseOrderNumberAPIView, ProfileAPIView, PurchaseOrderConfirmAPIView,
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
-                          QuotationNextNumberAPIView, RefreshTokenAPIView, UserProfileDetailAPIView, 
+                          QuotationNextNumberAPIView, RefreshTokenAPIView, TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
                           UserProfileListCreateAPIView)
 
 
@@ -83,6 +83,33 @@ urlpatterns = [
     "delivery-challans/<str:dc_number>/confirm/",
     DeliveryChallanConfirmAPIView.as_view(),
     name="delivery-challan-confirm",
+),
+#for tax invoice
+
+path(
+    "tax-invoices/next-number/",
+    TaxInvoiceNextNumberAPIView.as_view(),
+    name="tax-invoice-next-number",
+),
+path(
+    "tax-invoice-customers/",
+    TaxInvoiceCustomerAPIView.as_view(),
+    name="tax-invoice-customers",
+),
+path(
+    "tax-invoice-customers/<int:pk>/",
+    TaxInvoiceCustomerAPIView.as_view(),
+    name="tax-invoice-customer-detail",
+),
+path(
+    "tax-invoices/",
+    TaxInvoiceCreateAPIView.as_view(),
+    name="tax-invoice-create",
+),
+path(
+    "tax-invoices/<str:invoice_number>/confirm/",
+    TaxInvoiceConfirmAPIView.as_view(),
+    name="tax-invoice-confirm",
 ),
 
 

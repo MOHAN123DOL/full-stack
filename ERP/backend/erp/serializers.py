@@ -703,3 +703,217 @@ class DeliveryChallanSerializer(serializers.ModelSerializer):
             )
 
         return value
+    
+
+# for tax invoice
+from rest_framework import serializers
+
+from .models import TaxInvoice
+
+
+class TaxInvoiceSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = TaxInvoice
+
+        fields = [
+            "id",
+            "invoice_number",
+            "invoice_date",
+            "date_of_supply",
+            "reverse_charge",
+
+            "vehicle_number",
+            "mode_of_transport",
+
+            "receiver_details",
+            "receiver_gst",
+            "receiver_address_option_id",
+
+            "consignee_details",
+            "consignee_gst",
+            "consignee_address_option_id",
+
+            "place_of_supply_state",
+            "place_of_supply_state_code",
+            "state_name_code",
+
+            "company_address_id",
+
+            "items",
+
+            "subtotal",
+            "cgst_percent",
+            "cgst_amount",
+            "sgst_percent",
+            "sgst_amount",
+            "igst_percent",
+            "igst_amount",
+            "rounded_off",
+            "grand_total",
+            "amount_in_words",
+
+            "bank_name",
+            "account_number",
+            "branch",
+            "ifsc",
+            "pan",
+
+            "declaration",
+            "enclosures",
+
+            "document_data",
+
+            "status",
+            "pdf_file",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "pdf_file",
+            "created_at",
+            "updated_at",
+        ]
+
+    # ==========================================================
+    # FIELD VALIDATION
+    # ==========================================================
+
+    def validate_invoice_number(self, value):
+
+        value = str(value or "").strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Invoice number is required."
+            )
+
+        return value
+
+    def validate_items(self, value):
+
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                "Items must be a list."
+            )
+
+        if not value:
+            raise serializers.ValidationError(
+                "At least one invoice item is required."
+            )
+
+        for index, item in enumerate(value, start=1):
+
+            if not isinstance(item, dict):
+                raise serializers.ValidationError(
+                    f"Item {index} must be an object."
+                )
+
+            description = str(
+                item.get("description", "") or ""
+            ).strip()
+
+            if not description:
+                raise serializers.ValidationError(
+                    f"Item {index}: description is required."
+                )
+
+            quantity = item.get("quantity", "")
+
+            if quantity not in ("", None):
+
+                try:
+                    qty_value = float(quantity)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError(
+                        f"Item {index}: quantity must be a number."
+                    )
+
+                if qty_value < 0:
+                    raise serializers.ValidationError(
+                        f"Item {index}: quantity cannot be negative."
+                    )
+
+            rate = item.get("rate", "")
+
+            if rate not in ("", None):
+
+                try:
+                    rate_value = float(rate)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError(
+                        f"Item {index}: rate must be a number."
+                    )
+
+                if rate_value < 0:
+                    raise serializers.ValidationError(
+                        f"Item {index}: rate cannot be negative."
+                    )
+
+        return value
+
+    def validate_receiver_details(self, value):
+
+        if value is None:
+            return {}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Receiver details must be an object."
+            )
+
+        return value
+
+    def validate_consignee_details(self, value):
+
+        if value is None:
+            return {}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Consignee details must be an object."
+            )
+
+        return value
+
+    def validate_enclosures(self, value):
+
+        if value is None:
+            return {}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Enclosures must be an object."
+            )
+
+        return value
+
+    def validate_cgst_percent(self, value):
+
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                "CGST percentage cannot be negative."
+            )
+
+        return value
+
+    def validate_sgst_percent(self, value):
+
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                "SGST percentage cannot be negative."
+            )
+
+        return value
+
+    def validate_igst_percent(self, value):
+
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                "IGST percentage cannot be negative."
+            )
+
+        return value

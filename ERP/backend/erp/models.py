@@ -334,6 +334,7 @@ class Customer(models.Model):
         PURCHASE_ORDER = "purchase_order", "Purchase Order"
         QUOTATION = "quotation", "Quotation"
         DELIVERY_CHALLAN = "delivery_challan", "Delivery Challan"
+        TAX_INVOICE = "tax_invoice", "Tax Invoice"
         OTHER = "other", "Other"
 
     company_name = models.CharField(
@@ -364,6 +365,18 @@ class Customer(models.Model):
 
     gst_number = models.CharField(
         max_length=50,
+        blank=True,
+        default="",
+    )
+    state = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    # NEW
+    state_code = models.CharField(
+        max_length=10,
         blank=True,
         default="",
     )
@@ -706,3 +719,366 @@ class DeliveryChallan(models.Model):
 
     def __str__(self):
         return self.dc_number
+
+
+#for tax
+class TaxInvoiceNumberSettings(models.Model):
+    prefix = models.CharField(
+        max_length=20,
+        default="INV",
+    )
+
+    next_number = models.PositiveIntegerField(
+        default=1,
+    )
+
+    number_padding = models.PositiveIntegerField(
+        default=3,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
+
+
+class TaxInvoice(models.Model):
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        PREVIEWED = "PREVIEWED", "Previewed"
+        CONFIRMED = "CONFIRMED", "Confirmed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    # ==================================================
+    # Invoice identity
+    # ==================================================
+
+    invoice_number = models.CharField(
+        max_length=50,
+        unique=True,
+    )
+
+    invoice_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    date_of_supply = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    reverse_charge = models.CharField(
+        max_length=5,
+        blank=True,
+        default="NO",
+    )
+
+    # ==================================================
+    # Transport
+    # ==================================================
+
+    vehicle_number = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    mode_of_transport = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Receiver (Billed To)
+    # ==================================================
+    #
+    # Stored as JSON because the form allows every field to be
+    # overridden per invoice, and there is no FK to Customer here
+    # (the form uses a GST-lookup that is independent of the
+    # Customer model).
+    #
+    # Shape:
+    # {
+    #   "companyName": "...",
+    #   "gst": "...",
+    #   "address": "...",
+    #   "state": "...",
+    #   "stateCode": "...",
+    #   "phone": "...",
+    #   "email": "..."
+    # }
+    #
+
+    receiver_details = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    # GST value selected from the lookup dropdown (kept separately so
+    # the printed receiver block can still be reconstructed if the
+    # user later changes receiver_details manually).
+    receiver_gst = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # Which COMPANY_ADDRESSES entry (unit1/unit2) was chosen for the
+    # receiver address, if any.
+    receiver_address_option_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Consignee (Shipped To)
+    # ==================================================
+
+    consignee_details = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    consignee_gst = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    consignee_address_option_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Place of Supply
+    # ==================================================
+
+    place_of_supply_state = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    place_of_supply_state_code = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+    )
+
+    state_name_code = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Company address (Unit 1 / Unit 2)
+    # ==================================================
+
+    company_address_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="unit1",
+    )
+
+    # ==================================================
+    # Items
+    # ==================================================
+    #
+    # Each item:
+    # {
+    #   "id": "...",
+    #   "description": "...",
+    #   "hsn": "...",
+    #   "quantity": "10",
+    #   "unit": "Mtrs",
+    #   "rate": "250",
+    #   "amount": 2500
+    # }
+    #
+
+    items = models.JSONField(
+        default=list,
+    )
+
+    # ==================================================
+    # Tax percentages / totals
+    # ==================================================
+
+    subtotal = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    cgst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=9,
+    )
+
+    cgst_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    sgst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=9,
+    )
+
+    sgst_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    igst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+    )
+
+    igst_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    rounded_off = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    grand_total = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    amount_in_words = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Bank details
+    # ==================================================
+
+    bank_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    account_number = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    branch = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    ifsc = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+    )
+
+    pan = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Declaration
+    # ==================================================
+
+    declaration = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Enclosures
+    # ==================================================
+    #
+    # Shape:
+    # {
+    #   "Delivery Challan": true,
+    #   "Material Accountable Statement": true,
+    #   ...
+    # }
+    #
+
+    enclosures = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    # ==================================================
+    # Complete original form data
+    # --------------------------------------------------
+    # Mirrors PurchaseOrder.document_data — the full frontend
+    # payload is stored verbatim so nothing the form computes
+    # is ever lost even if a field is later added.
+    # ==================================================
+
+    document_data = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    # ==================================================
+    # Status / PDF
+    # ==================================================
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+
+    pdf_file = models.FileField(
+        upload_to="tax_invoices/pdf/",
+        blank=True,
+        null=True,
+    )
+
+    # ==================================================
+    # Timestamps
+    # ==================================================
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.invoice_number
