@@ -1,6 +1,11 @@
 from django.urls import path
 
-from .views import AccountsModulesAPIView, ChangePasswordAPIView, CustomerAPIView, LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView, NextPurchaseOrderNumberAPIView, ProfileAPIView, PurchaseOrderConfirmAPIView, PurchaseOrderListCreateAPIView, RefreshTokenAPIView, UserProfileDetailAPIView, UserProfileListCreateAPIView
+from .views import ( AccountsModulesAPIView, ChangePasswordAPIView, CustomerAPIView, 
+                    LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView,
+                      NextPurchaseOrderNumberAPIView, ProfileAPIView, PurchaseOrderConfirmAPIView,
+                        PurchaseOrderListCreateAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
+                          QuotationNextNumberAPIView, RefreshTokenAPIView, UserProfileDetailAPIView, 
+                          UserProfileListCreateAPIView)
 
 
 urlpatterns = [
@@ -37,6 +42,32 @@ urlpatterns = [
         PurchaseOrderConfirmAPIView.as_view(),
         name="purchase-order-confirm",
     ),
+
+
+     path(
+    "quotations/next-number/",
+    QuotationNextNumberAPIView.as_view(),
+    name="quotation-next-number",
+),
+
+# Quotation customers
+path(
+    "quotation-customers/",
+    QuotationCustomerAPIView.as_view(),
+    name="quotation-customers",
+),
+path(
+        "quotation-customers/<int:pk>/",
+        QuotationCustomerAPIView.as_view(),
+        name="quotation-customer-detail",
+    ),
+
+# Quotation create / update
+path(
+    "quotations/",
+    QuotationCreateAPIView.as_view(),
+    name="quotation-create",
+),
 
 
 

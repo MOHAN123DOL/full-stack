@@ -374,3 +374,183 @@ class CustomerSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+from rest_framework import serializers
+
+from .models import Quotation, Customer
+class QuotationSerializer(serializers.ModelSerializer):
+
+    customer_id = serializers.PrimaryKeyRelatedField(
+        source="customer",
+        queryset=Customer.objects.all(),
+        write_only=True,
+    )
+
+    customer = serializers.SerializerMethodField(
+        read_only=True,
+    )
+
+    class Meta:
+        model = Quotation
+
+        fields = [
+            "id",
+            "quotation_number",
+            "quotation_date",
+
+            "customer_id",
+            "customer",
+
+            "subject",
+            "intro",
+
+            "items",
+            "technical_details",
+            "terms",
+            "signatures",
+
+            "company_name",
+            "designation",
+
+            "subtotal",
+            "gst_percent",
+            "gst_amount",
+            "grand_total",
+
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "customer",
+            "subtotal",
+            "gst_amount",
+            "grand_total",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_customer(self, obj):
+
+        customer = obj.customer
+
+        return {
+            "id": customer.id,
+            "company_name": customer.company_name,
+            "address": customer.address,
+            "contact_person": customer.contact_person,
+            "phone": customer.phone,
+            "email": customer.email,
+            "gst_number": customer.gst_number,
+        }
+
+    def validate_items(self, value):
+
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                "Items must be a list."
+            )
+
+        if not value:
+            raise serializers.ValidationError(
+                "At least one quotation item is required."
+            )
+
+        return value
+
+    def validate_gst_percent(self, value):
+
+        if value < 0:
+            raise serializers.ValidationError(
+                "GST percentage cannot be negative."
+            )
+
+        return value
+
+    def validate(self, attrs):
+
+        items = attrs.get("items", [])
+
+        subtotal = 0
+
+        for item in items:
+
+            qty = float(
+                item.get("qty", 0) or 0
+            )
+
+            rate = float(
+                item.get("rate", 0) or 0
+            )
+
+            if qty < 0:
+                raise serializers.ValidationError({
+                    "items": "Quantity cannot be negative."
+                })
+
+            if rate < 0:
+                raise serializers.ValidationError({
+                    "items": "Rate cannot be negative."
+                })
+
+            subtotal += qty * rate
+
+        gst_percent = float(
+            attrs.get("gst_percent", 0) or 0
+        )
+
+        gst_amount = (
+            subtotal * gst_percent / 100
+        )
+
+        grand_total = (
+            subtotal + gst_amount
+        )
+
+        # Store calculated values temporarily
+        self._calculated_amounts = {
+            "subtotal": round(subtotal, 2),
+            "gst_amount": round(gst_amount, 2),
+            "grand_total": round(grand_total, 2),
+        }
+
+        return attrs
+
+    def create(self, validated_data):
+
+        amounts = getattr(
+            self,
+            "_calculated_amounts",
+            {
+                "subtotal": 0,
+                "gst_amount": 0,
+                "grand_total": 0,
+            },
+        )
+
+        return Quotation.objects.create(
+            **validated_data,
+            **amounts,
+        )
+
+    def update(self, instance, validated_data):
+
+        amounts = getattr(
+            self,
+            "_calculated_amounts",
+            None,
+        )
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if amounts:
+            instance.subtotal = amounts["subtotal"]
+            instance.gst_amount = amounts["gst_amount"]
+            instance.grand_total = amounts["grand_total"]
+
+        instance.save()
+
+        return instance

@@ -1,12 +1,24 @@
 from django.shortcuts import render
 from django.db import transaction
+from decimal import Decimal
 
+from django.db import transaction
+from django.db.models import F
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from .models import Quotation, QuotationNumberSettings
+
+from .permissions import IsAccounts
 from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework import status
 
 from .models import PurchaseOrder, PurchaseOrderNumberSettings
-from .serializers import PurchaseOrderSerializer
+from .serializers import PurchaseOrderSerializer, QuotationSerializer
 from .permissions import IsAccounts
 from django.db import transaction
 from django.db import transaction
@@ -981,20 +993,97 @@ class NextPurchaseOrderNumberAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Purchase Order number settings have not been configured."
+                    "message": (
+                        "Purchase Order number settings "
+                        "have not been configured."
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        # -----------------------------------------
+        # 1. Generate current PO number
+        # -----------------------------------------
 
         po_number = (
             f"{settings_obj.prefix}"
             f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
         )
 
+        # -----------------------------------------
+        # 2. Check current PO
+        # -----------------------------------------
+
+        existing_po = (
+            PurchaseOrder.objects
+            .select_related("created_by")
+            .filter(po_number=po_number)
+            .first()
+        )
+
+        # -----------------------------------------
+        # 3. Current PO EXISTS
+        # -----------------------------------------
+
+        if existing_po is not None:
+
+            serializer = PurchaseOrderSerializer(existing_po)
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": False,
+                    "po_number": po_number,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK
+            )
+
+        # -----------------------------------------
+        # 4. Current PO DOES NOT EXIST
+        #    Get previous PO
+        # -----------------------------------------
+
+        previous_po = (
+            PurchaseOrder.objects
+            .select_related("created_by")
+            .order_by("-id")
+            .first()
+        )
+
+        # -----------------------------------------
+        # 5. No previous PO exists
+        # -----------------------------------------
+
+        if previous_po is None:
+            return Response(
+                {
+                    "success": True,
+                    "is_new": True,
+                    "po_number": po_number,
+                    "data": None,
+                },
+                status=status.HTTP_200_OK
+            )
+
+        # -----------------------------------------
+        # 6. Copy previous PO data
+        #    but use NEW PO number
+        # -----------------------------------------
+
+        serializer = PurchaseOrderSerializer(previous_po)
+
+        previous_data = serializer.data.copy()
+
+        previous_data["po_number"] = po_number
+
         return Response(
             {
                 "success": True,
-                "po_number": po_number
+                "is_new": True,
+                "po_number": po_number,
+                "previous_po_number": previous_po.po_number,
+                "data": previous_data,
             },
             status=status.HTTP_200_OK
         )
@@ -1355,3 +1444,473 @@ class PurchaseOrderConfirmAPIView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
+
+# for quotation module
+class QuotationNextNumberAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def get(self, request):
+
+        settings = (
+            QuotationNumberSettings.objects
+            .filter(is_active=True)
+            .first()
+        )
+
+        if not settings:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Quotation number settings "
+                        "have not been configured."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # 1. Generate current quotation number
+        # ==================================================
+
+        quotation_number = (
+            f"{settings.prefix}"
+            f"{settings.next_number:0{settings.number_padding}d}"
+        )
+
+        # ==================================================
+        # 2. Check whether current quotation already exists
+        # ==================================================
+
+        existing_quotation = (
+            Quotation.objects
+            .select_related("customer")
+            .filter(
+                quotation_number=quotation_number
+            )
+            .first()
+        )
+
+        # ==================================================
+        # 3. CURRENT QUOTATION EXISTS
+        # ==================================================
+
+        if existing_quotation is not None:
+
+            serializer = QuotationSerializer(
+                existing_quotation
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": False,
+                    "quotation_number": quotation_number,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # ==================================================
+        # 4. CURRENT QUOTATION DOES NOT EXIST
+        #    GET PREVIOUS QUOTATION
+        # ==================================================
+
+        previous_quotation = (
+            Quotation.objects
+            .select_related("customer")
+            .order_by("-id")
+            .first()
+        )
+
+        # ==================================================
+        # 5. NO PREVIOUS QUOTATION
+        # ==================================================
+
+        if previous_quotation is None:
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": True,
+                    "quotation_number": quotation_number,
+                    "data": None,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        
+
+        serializer = QuotationSerializer(
+            previous_quotation
+        )
+
+        previous_data = serializer.data.copy()
+
+        previous_data["quotation_number"] = (
+            quotation_number
+        )
+
+        return Response(
+            {
+                "success": True,
+                "is_new": True,
+                "quotation_number": quotation_number,
+                "previous_quotation_number": (
+                    previous_quotation.quotation_number
+                ),
+                "data": previous_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    
+class QuotationCustomerAPIView(APIView):
+
+    permission_classes = [IsAccounts]
+
+    # =========================
+    # GET
+    # =========================
+
+    def get(self, request, pk=None):
+
+        # GET /quotation-customers/
+        if pk is None:
+
+            customers = Customer.objects.filter(
+                source=Customer.Source.QUOTATION
+            )
+
+            serializer = CustomerSerializer(
+                customers,
+                many=True,
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Quotation customers retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # GET /quotation-customers/<id>/
+        try:
+            customer = Customer.objects.get(
+                pk=pk,
+                source=Customer.Source.QUOTATION,
+            )
+
+        except Customer.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Quotation customer not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerSerializer(customer)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Quotation customer retrieved successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =========================
+    # POST
+    # =========================
+
+    def post(self, request):
+
+        serializer = CustomerSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+
+            customer = serializer.save(
+                source=Customer.Source.QUOTATION
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Quotation customer created successfully.",
+                    "data": CustomerSerializer(
+                        customer
+                    ).data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Customer validation failed.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # =========================
+    # PATCH
+    # =========================
+
+    def patch(self, request, pk=None):
+
+        if pk is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Customer ID is required "
+                        "for PATCH."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            customer = Customer.objects.get(
+                pk=pk,
+                source=Customer.Source.QUOTATION,
+            )
+
+        except Customer.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Quotation customer not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerSerializer(
+            customer,
+            data=request.data,
+            partial=True,
+        )
+
+        if serializer.is_valid():
+
+            customer = serializer.save(
+                source=Customer.Source.QUOTATION
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Quotation customer updated successfully.",
+                    "data": CustomerSerializer(
+                        customer
+                    ).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Customer validation failed.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+
+class QuotationCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def post(self, request):
+
+        with transaction.atomic():
+
+            data = request.data.copy()
+
+            # ==================================================
+            # 1. CHECK EXISTING QUOTATION
+            # ==================================================
+
+            incoming_quotation_number = str(
+                data.get("quotation_number", "")
+            ).strip()
+
+            existing_quotation = None
+
+            if incoming_quotation_number:
+
+                existing_quotation = (
+                    Quotation.objects
+                    .select_for_update()
+                    .filter(
+                        quotation_number=incoming_quotation_number
+                    )
+                    .first()
+                )
+
+            # ==================================================
+            # 2. GET CUSTOMER NAME
+            # ==================================================
+            #
+            # Frontend sends:
+            #
+            # "customer": "ABC Industries"
+            #
+            # We only find the existing customer.
+            # We DO NOT create or update customer here.
+            #
+            # ==================================================
+
+            customer_name = str(
+                data.get("customer", "")
+            ).strip()
+
+            if not customer_name:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Customer company name is required.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # ==================================================
+            # 3. FIND EXISTING QUOTATION CUSTOMER
+            # ==================================================
+
+            customer = (
+                Customer.objects
+                .filter(
+                    company_name__iexact=customer_name,
+                    source=Customer.Source.QUOTATION,
+                )
+                .first()
+            )
+
+            if customer is None:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Quotation customer not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # ==================================================
+            # 4. CONVERT CUSTOMER NAME TO CUSTOMER ID
+            # ==================================================
+
+            data["customer_id"] = customer.id
+
+            # Remove customer name because
+            # QuotationSerializer uses customer/customer_id
+            data.pop("customer", None)
+
+            # ==================================================
+            # 5. UPDATE EXISTING QUOTATION
+            # ==================================================
+
+            if existing_quotation is not None:
+
+                # Quotation number is only used
+                # to find the quotation.
+                #
+                # It must not be changed.
+
+                data.pop("quotation_number", None)
+
+                serializer = QuotationSerializer(
+                    existing_quotation,
+                    data=data,
+                    partial=True,
+                )
+
+                serializer.is_valid(
+                    raise_exception=True
+                )
+
+                quotation = serializer.save()
+
+                # ----------------------------------------------
+                # UPDATE RESPONSE
+                # ----------------------------------------------
+
+                response_serializer = QuotationSerializer(
+                    quotation
+                )
+
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Quotation updated successfully.",
+                        "data": response_serializer.data,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            # ==================================================
+            # 6. CREATE NEW QUOTATION
+            # ==================================================
+            #
+            # IMPORTANT:
+            #
+            # No quotation number generation here.
+            # No quotation number increment here.
+            #
+            # Another API will handle quotation number.
+            #
+            # ==================================================
+
+            # data.pop("quotation_number", None)
+
+            # ==================================================
+            # 7. VALIDATE QUOTATION
+            # ==================================================
+
+            serializer = QuotationSerializer(
+                data=data
+            )
+
+            serializer.is_valid(
+                raise_exception=True
+            )
+
+            # ==================================================
+            # 8. CREATE QUOTATION
+            # ==================================================
+
+            quotation = serializer.save(
+                customer=customer
+            )
+
+        # ==================================================
+        # 9. RESPONSE
+        # ==================================================
+
+        response_serializer = QuotationSerializer(
+            quotation
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Quotation created successfully.",
+                "data": response_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )

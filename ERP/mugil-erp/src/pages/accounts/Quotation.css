@@ -992,3 +992,171 @@
   }
 
 }
+
+
+/* ============================================================
+   CUSTOMER ACTION BAR
+   ============================================================ */
+
+.qt-customer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 8px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.qt-customer-actions__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.qt-customer-actions__info strong {
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+
+.qt-customer-actions__info span {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.qt-customer-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-customer-actions .btn {
+  white-space: nowrap;
+}
+
+.qt-customer-modified {
+  border-color: #f0c36d;
+  background: #fff8e5;
+}
+
+.qt-customer-modified .qt-customer-actions__info strong {
+  color: #7a5b00;
+}
+
+.qt-customer-modified .qt-customer-actions__info span {
+  color: #8a6d1a;
+}
+
+.qt-customer-error {
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.85rem;
+  border: 1px solid #fecaca;
+}
+
+
+/* ============================================================
+   CUSTOMER LOADING / ERROR  (matches PO styling)
+   ============================================================ */
+
+.qt-customer-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  margin-bottom: 12px;
+}
+
+.qt-customer-error {
+  padding: 14px 16px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.qt-customer-empty {
+  padding: 12px 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+/* Action bar */
+.qt-customer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 8px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.qt-customer-actions__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.qt-customer-actions__info strong {
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+
+.qt-customer-actions__info span {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.qt-customer-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-customer-actions .btn {
+  white-space: nowrap;
+}
+
+.qt-customer-modified {
+  border-color: #f0c36d;
+  background: #fff8e5;
+}
+
+.qt-customer-modified .qt-customer-actions__info strong {
+  color: #7a5b00;
+}
+
+.qt-customer-modified .qt-customer-actions__info span {
+  color: #8a6d1a;
+}
+
+.qt-customer-action-error {
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.85rem;
+  border: 1px solid #fecaca;
+}

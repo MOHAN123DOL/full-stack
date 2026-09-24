@@ -328,12 +328,11 @@ class PurchaseOrderNumberSettings(models.Model):
     def __str__(self):
         return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
 
-
-
 class Customer(models.Model):
 
     class Source(models.TextChoices):
         PURCHASE_ORDER = "purchase_order", "Purchase Order"
+        QUOTATION = "quotation", "Quotation"
         OTHER = "other", "Other"
 
     company_name = models.CharField(
@@ -388,3 +387,145 @@ class Customer(models.Model):
 
     def __str__(self):
         return self.company_name
+    
+
+class QuotationNumberSettings(models.Model):
+    prefix = models.CharField(
+        max_length=20,
+        default="QTN",
+    )
+
+    next_number = models.PositiveIntegerField(
+        default=1,
+    )
+
+    number_padding = models.PositiveIntegerField(
+        default=3,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
+
+
+class Quotation(models.Model):
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        PREVIEWED = "PREVIEWED", "Previewed"
+        CONFIRMED = "CONFIRMED", "Confirmed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    quotation_number = models.CharField(
+        max_length=50,
+        unique=True,
+    )
+
+    quotation_date = models.DateField()
+
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.PROTECT,
+        related_name="quotations",
+    )
+
+    subject = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+    )
+
+    intro = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # Quotation items
+    items = models.JSONField(
+        default=list,
+    )
+
+    # Technical sections
+    technical_details = models.JSONField(
+        default=list,
+    )
+
+    # Terms & conditions
+    terms = models.JSONField(
+        default=list,
+    )
+
+    # Signature information
+    signatures = models.JSONField(
+        default=dict,
+    )
+
+    # Company / designation
+    company_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    designation = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    # Amount information
+    subtotal = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    gst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+    )
+
+    gst_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    grand_total = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    pdf_file = models.FileField(
+    upload_to="quotations/",
+    blank=True,
+    null=True,
+)
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.quotation_number
