@@ -333,6 +333,7 @@ class Customer(models.Model):
     class Source(models.TextChoices):
         PURCHASE_ORDER = "purchase_order", "Purchase Order"
         QUOTATION = "quotation", "Quotation"
+        DELIVERY_CHALLAN = "delivery_challan", "Delivery Challan"
         OTHER = "other", "Other"
 
     company_name = models.CharField(
@@ -529,3 +530,179 @@ class Quotation(models.Model):
 
     def __str__(self):
         return self.quotation_number
+
+
+# for dc 
+
+class DeliveryChallanNumberSettings(models.Model):
+    prefix = models.CharField(
+        max_length=20,
+        default="DC",
+    )
+
+    next_number = models.PositiveIntegerField(
+        default=1,
+    )
+
+    number_padding = models.PositiveIntegerField(
+        default=3,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
+
+
+class DeliveryChallan(models.Model):
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        PREVIEWED = "PREVIEWED", "Previewed"
+        CONFIRMED = "CONFIRMED", "Confirmed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    # ==================================================
+    # Challan identity
+    # ==================================================
+
+    dc_number = models.CharField(
+        max_length=50,
+        unique=True,
+    )
+
+    dc_date = models.DateField()
+
+    # ==================================================
+    # Customer
+    # ==================================================
+
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.PROTECT,
+        related_name="delivery_challans",
+    )
+
+    # ==================================================
+    # Reference documents
+    # ==================================================
+
+    po_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    po_date = models.DateField(
+        blank=True,
+        null=True,
+    )
+
+    bill_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    bill_date = models.DateField(
+        blank=True,
+        null=True,
+    )
+
+    # ==================================================
+    # Delivery / dispatch
+    # ==================================================
+
+    delivery_at = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    company_address_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="unit1",
+    )
+
+    returnable = models.BooleanField(
+        default=False,
+    )
+
+    # ==================================================
+    # Items
+    # ==================================================
+    #
+    # Each item:
+    # {
+    #   "id": "...",
+    #   "description": "...",
+    #   "quantity": "10",
+    #   "rate": "250",
+    #   "remarks": "..."
+    # }
+    #
+    # ==================================================
+
+    items = models.JSONField(
+        default=list,
+    )
+
+    # ==================================================
+    # Amount in words (manually entered, same as form)
+    # ==================================================
+
+    amount_in_words = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Signature
+    # ==================================================
+
+    prepared_by = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    # ==================================================
+    # Status / PDF
+    # ==================================================
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+
+    pdf_file = models.FileField(
+        upload_to="delivery_challans/",
+        blank=True,
+        null=True,
+    )
+
+    # ==================================================
+    # Timestamps
+    # ==================================================
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.dc_number

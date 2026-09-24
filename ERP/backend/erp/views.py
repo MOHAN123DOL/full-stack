@@ -1914,3 +1914,839 @@ class QuotationCreateAPIView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class QuotationConfirmAPIView(APIView):
+
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, quotation_number):
+
+        with transaction.atomic():
+
+            # ============================================================
+            # 1. Session check (HttpOnly refresh cookie)
+            # ============================================================
+
+            refresh_token = request.COOKIES.get(
+                settings.REFRESH_COOKIE_NAME
+            )
+
+            if not refresh_token:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session not found. Please login again.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            try:
+                token = RefreshToken(refresh_token)
+                user_id = token.get("user_id")
+            except Exception:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session is invalid or expired.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session user no longer exists.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            # ============================================================
+            # 2. Accounts-department check (same rule as IsAccounts)
+            # ============================================================
+
+            if user.user_type != User.UserType.ACCOUNTS:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accounts access required.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            # ============================================================
+            # 3. Locate the Quotation (locked)
+            # ============================================================
+
+            try:
+                quotation = (
+                    Quotation.objects
+                    .select_for_update()
+                    .get(quotation_number=quotation_number)
+                )
+            except Quotation.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Quotation not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # ============================================================
+            # 4. Read the uploaded PDF
+            # ============================================================
+
+            pdf_file = request.FILES.get("pdf")
+
+            if not pdf_file:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No PDF file was uploaded.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # ============================================================
+            # 5. Save PDF under MEDIA/quotations/
+            # ============================================================
+
+            safe_qtn = (
+                str(quotation_number)
+                .replace("/", "-")
+                .replace("\\", "-")
+            )
+            filename = f"{safe_qtn}.pdf"
+
+            # Overwrite any previous file so re-printing stays clean.
+            if quotation.pdf_file:
+                try:
+                    quotation.pdf_file.delete(save=False)
+                except Exception:
+                    pass
+
+            quotation.pdf_file.save(
+                filename,
+                ContentFile(pdf_file.read()),
+                save=False,
+            )
+
+            # ============================================================
+            # 6. Flip status to confirmed
+            # ============================================================
+
+            was_already_confirmed = (
+                quotation.status
+                == Quotation.Status.CONFIRMED
+            )
+
+            quotation.status = Quotation.Status.CONFIRMED
+
+            quotation.save(
+                update_fields=[
+                    "pdf_file",
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+            # ============================================================
+            # 7. Advance the quotation number counter
+            # ------------------------------------------------------------
+            # Only on the first confirmation. Re-printing an
+            # already-confirmed quotation must NOT consume another number.
+            # ============================================================
+
+            if not was_already_confirmed:
+
+                settings_obj = (
+                    QuotationNumberSettings.objects
+                    .select_for_update()
+                    .filter(is_active=True)
+                    .first()
+                )
+
+                if settings_obj:
+
+                    settings_obj.next_number += 1
+
+                    settings_obj.save(
+                        update_fields=[
+                            "next_number",
+                            "updated_at",
+                        ]
+                    )
+
+            # ============================================================
+            # 8. Response
+            # ============================================================
+
+            serializer = QuotationSerializer(quotation)
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Quotation confirmed and PDF saved.",
+                    "data": serializer.data,
+                    "pdf_url": (
+                        request.build_absolute_uri(
+                            quotation.pdf_file.url
+                        )
+                        if quotation.pdf_file
+                        else None
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+#for dc
+
+
+from .models import (
+    Customer,
+    DeliveryChallan,
+    DeliveryChallanNumberSettings,
+)
+from .permissions import IsAccounts
+from .serializers import (
+    CustomerSerializer,
+    DeliveryChallanSerializer,
+)
+
+
+# ==================================================================
+# NEXT DC NUMBER
+# ==================================================================
+class DeliveryChallanNextNumberAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def get(self, request):
+
+        settings = (
+            DeliveryChallanNumberSettings.objects
+            .filter(is_active=True)
+            .first()
+        )
+
+        if not settings:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Delivery challan number settings "
+                        "have not been configured."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # 1. Generate current DC number
+        # ==================================================
+
+        dc_number = (
+            f"{settings.prefix}"
+            f"{settings.next_number:0{settings.number_padding}d}"
+        )
+
+        # ==================================================
+        # 2. Check whether current DC already exists
+        # ==================================================
+
+        existing_dc = (
+            DeliveryChallan.objects
+            .select_related("customer")
+            .filter(dc_number=dc_number)
+            .first()
+        )
+
+        # ==================================================
+        # 3. CURRENT DC EXISTS
+        # ==================================================
+
+        if existing_dc is not None:
+
+            serializer = DeliveryChallanSerializer(
+                existing_dc
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": False,
+                    "dc_number": dc_number,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # ==================================================
+        # 4. CURRENT DC DOES NOT EXIST
+        #    GET PREVIOUS DC
+        # ==================================================
+
+        previous_dc = (
+            DeliveryChallan.objects
+            .select_related("customer")
+            .order_by("-id")
+            .first()
+        )
+
+        # ==================================================
+        # 5. NO PREVIOUS DC
+        # ==================================================
+
+        if previous_dc is None:
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": True,
+                    "dc_number": dc_number,
+                    "data": None,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # ==================================================
+        # 6. CLONE PREVIOUS DC
+        # ==================================================
+
+        serializer = DeliveryChallanSerializer(
+            previous_dc
+        )
+
+        previous_data = serializer.data.copy()
+
+        previous_data["dc_number"] = dc_number
+
+        return Response(
+            {
+                "success": True,
+                "is_new": True,
+                "dc_number": dc_number,
+                "previous_dc_number": (
+                    previous_dc.dc_number
+                ),
+                "data": previous_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ==================================================================
+# DC CUSTOMERS (GET / POST / PATCH)
+# ==================================================================
+class DeliveryChallanCustomerAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    # =========================
+    # GET
+    # =========================
+
+    def get(self, request, pk=None):
+
+        # GET /delivery-challan-customers/
+        if pk is None:
+
+            customers = Customer.objects.filter(
+                source=Customer.Source.DELIVERY_CHALLAN
+            )
+
+            serializer = CustomerSerializer(
+                customers,
+                many=True,
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Delivery challan customers retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # GET /delivery-challan-customers/<id>/
+        try:
+            customer = Customer.objects.get(
+                pk=pk,
+                source=Customer.Source.DELIVERY_CHALLAN,
+            )
+
+        except Customer.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Delivery challan customer not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerSerializer(customer)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Delivery challan customer retrieved successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =========================
+    # POST
+    # =========================
+
+    def post(self, request):
+
+        serializer = CustomerSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+
+            customer = serializer.save(
+                source=Customer.Source.DELIVERY_CHALLAN
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Delivery challan customer created successfully.",
+                    "data": CustomerSerializer(
+                        customer
+                    ).data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Customer validation failed.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # =========================
+    # PATCH
+    # =========================
+
+    def patch(self, request, pk=None):
+
+        if pk is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Customer ID is required "
+                        "for PATCH."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            customer = Customer.objects.get(
+                pk=pk,
+                source=Customer.Source.DELIVERY_CHALLAN,
+            )
+
+        except Customer.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Delivery challan customer not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerSerializer(
+            customer,
+            data=request.data,
+            partial=True,
+        )
+
+        if serializer.is_valid():
+
+            customer = serializer.save(
+                source=Customer.Source.DELIVERY_CHALLAN
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Delivery challan customer updated successfully.",
+                    "data": CustomerSerializer(
+                        customer
+                    ).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Customer validation failed.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+# ==================================================================
+# CREATE / UPDATE DC
+# ==================================================================
+class DeliveryChallanCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def post(self, request):
+
+        with transaction.atomic():
+
+            data = request.data.copy()
+
+          
+
+            incoming_dc_number = str(
+                data.get("dc_number", "")
+            ).strip()
+
+            existing_dc = None
+
+            if incoming_dc_number:
+
+                existing_dc = (
+                    DeliveryChallan.objects
+                    .select_for_update()
+                    .filter(
+                        dc_number=incoming_dc_number
+                    )
+                    .first()
+                )
+
+           
+
+            customer_name = str(
+                data.get("customer", "")
+            ).strip()
+
+            if not customer_name:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Customer company name is required.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+
+            customer = (
+                Customer.objects
+                .filter(
+                    company_name__iexact=customer_name,
+                    source=Customer.Source.DELIVERY_CHALLAN,
+                )
+                .first()
+            )
+
+            if customer is None:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Delivery challan customer not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # ==================================================
+            # 4. CONVERT CUSTOMER NAME TO CUSTOMER ID
+            # ==================================================
+
+            data["customer_id"] = customer.id
+
+            # Remove customer name because
+            # DeliveryChallanSerializer uses customer/customer_id
+            data.pop("customer", None)
+
+            
+
+            if existing_dc is not None:
+
+              
+
+                data.pop("dc_number", None)
+
+                serializer = DeliveryChallanSerializer(
+                    existing_dc,
+                    data=data,
+                    partial=True,
+                )
+
+                serializer.is_valid(
+                    raise_exception=True
+                )
+
+                dc = serializer.save()
+
+                # ----------------------------------------------
+                # UPDATE RESPONSE
+                # ----------------------------------------------
+
+                response_serializer = DeliveryChallanSerializer(
+                    dc
+                )
+
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Delivery challan updated successfully.",
+                        "data": response_serializer.data,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            
+
+            # ==================================================
+            # 7. VALIDATE DC
+            # ==================================================
+
+            serializer = DeliveryChallanSerializer(
+                data=data
+            )
+
+            serializer.is_valid(
+                raise_exception=True
+            )
+
+            # ==================================================
+            # 8. CREATE DC
+            # ==================================================
+
+            dc = serializer.save(
+                customer=customer
+            )
+
+        # ==================================================
+        # 9. RESPONSE
+        # ==================================================
+
+        response_serializer = DeliveryChallanSerializer(
+            dc
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Delivery challan created successfully.",
+                "data": response_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class DeliveryChallanConfirmAPIView(APIView):
+
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, dc_number):
+
+        with transaction.atomic():
+
+            # ============================================================
+            # 1. Session check (HttpOnly refresh cookie)
+            # ============================================================
+
+            refresh_token = request.COOKIES.get(
+                settings.REFRESH_COOKIE_NAME
+            )
+
+            if not refresh_token:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session not found. Please login again.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            try:
+                token = RefreshToken(refresh_token)
+                user_id = token.get("user_id")
+            except Exception:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session is invalid or expired.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session user no longer exists.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            # ============================================================
+            # 2. Accounts-department check (same rule as IsAccounts)
+            # ============================================================
+
+            if user.user_type != User.UserType.ACCOUNTS:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accounts access required.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            # ============================================================
+            # 3. Locate the Delivery Challan (locked)
+            # ============================================================
+
+            try:
+                dc = (
+                    DeliveryChallan.objects
+                    .select_for_update()
+                    .get(dc_number=dc_number)
+                )
+            except DeliveryChallan.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Delivery Challan not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # ============================================================
+            # 4. Read the uploaded PDF
+            # ============================================================
+
+            pdf_file = request.FILES.get("pdf")
+
+            if not pdf_file:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No PDF file was uploaded.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # ============================================================
+            # 5. Save PDF under MEDIA/delivery_challans/
+            # ============================================================
+
+            safe_dc = (
+                str(dc_number)
+                .replace("/", "-")
+                .replace("\\", "-")
+            )
+            filename = f"{safe_dc}.pdf"
+
+            # Overwrite any previous file so re-printing stays clean.
+            if dc.pdf_file:
+                try:
+                    dc.pdf_file.delete(save=False)
+                except Exception:
+                    pass
+
+            dc.pdf_file.save(
+                filename,
+                ContentFile(pdf_file.read()),
+                save=False,
+            )
+
+            # ============================================================
+            # 6. Flip status to confirmed
+            # ============================================================
+
+            was_already_confirmed = (
+                dc.status
+                == DeliveryChallan.Status.CONFIRMED
+            )
+
+            dc.status = DeliveryChallan.Status.CONFIRMED
+
+            dc.save(
+                update_fields=[
+                    "pdf_file",
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+            # ============================================================
+            # 7. Advance the DC number counter
+            # ------------------------------------------------------------
+            # Only on the first confirmation. Re-printing an
+            # already-confirmed DC must NOT consume another number.
+            # ============================================================
+
+            if not was_already_confirmed:
+
+                settings_obj = (
+                    DeliveryChallanNumberSettings.objects
+                    .select_for_update()
+                    .filter(is_active=True)
+                    .first()
+                )
+
+                if settings_obj:
+
+                    settings_obj.next_number += 1
+
+                    settings_obj.save(
+                        update_fields=[
+                            "next_number",
+                            "updated_at",
+                        ]
+                    )
+
+            # ============================================================
+            # 8. Response
+            # ============================================================
+
+            serializer = DeliveryChallanSerializer(dc)
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Delivery Challan confirmed and PDF saved.",
+                    "data": serializer.data,
+                    "pdf_url": (
+                        request.build_absolute_uri(
+                            dc.pdf_file.url
+                        )
+                        if dc.pdf_file
+                        else None
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )

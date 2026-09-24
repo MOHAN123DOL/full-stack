@@ -554,3 +554,152 @@ class QuotationSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
+
+
+#for dc
+
+
+from .models import DeliveryChallan, Customer
+
+
+class DeliveryChallanSerializer(serializers.ModelSerializer):
+
+    customer_id = serializers.PrimaryKeyRelatedField(
+        source="customer",
+        queryset=Customer.objects.all(),
+        write_only=True,
+    )
+
+    customer = serializers.SerializerMethodField(
+        read_only=True,
+    )
+
+    class Meta:
+        model = DeliveryChallan
+
+        fields = [
+            "id",
+            "dc_number",
+            "dc_date",
+
+            "customer_id",
+            "customer",
+
+            "po_number",
+            "po_date",
+
+            "bill_number",
+            "bill_date",
+
+            "delivery_at",
+            "company_address_id",
+            "returnable",
+
+            "items",
+
+            "amount_in_words",
+            "prepared_by",
+
+            "status",
+            "pdf_file",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "customer",
+            "pdf_file",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_customer(self, obj):
+
+        customer = obj.customer
+
+        return {
+            "id": customer.id,
+            "company_name": customer.company_name,
+            "address": customer.address,
+            "contact_person": customer.contact_person,
+            "phone": customer.phone,
+            "email": customer.email,
+            "gst_number": customer.gst_number,
+        }
+
+    # ==========================================================
+    # FIELD VALIDATION
+    # ==========================================================
+
+    def validate_items(self, value):
+
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                "Items must be a list."
+            )
+
+        if not value:
+            raise serializers.ValidationError(
+                "At least one delivery challan item is required."
+            )
+
+        for index, item in enumerate(value, start=1):
+
+            if not isinstance(item, dict):
+                raise serializers.ValidationError(
+                    f"Item {index} must be an object."
+                )
+
+            description = str(
+                item.get("description", "") or ""
+            ).strip()
+
+            if not description:
+                raise serializers.ValidationError(
+                    f"Item {index}: description is required."
+                )
+
+            quantity = item.get("quantity", "")
+
+            if quantity not in ("", None):
+
+                try:
+                    qty_value = float(quantity)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError(
+                        f"Item {index}: quantity must be a number."
+                    )
+
+                if qty_value < 0:
+                    raise serializers.ValidationError(
+                        f"Item {index}: quantity cannot be negative."
+                    )
+
+            rate = item.get("rate", "")
+
+            if rate not in ("", None):
+
+                try:
+                    rate_value = float(rate)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError(
+                        f"Item {index}: rate must be a number."
+                    )
+
+                if rate_value < 0:
+                    raise serializers.ValidationError(
+                        f"Item {index}: rate cannot be negative."
+                    )
+
+        return value
+
+    def validate_dc_date(self, value):
+
+        if value is None:
+            raise serializers.ValidationError(
+                "Delivery challan date is required."
+            )
+
+        return value
