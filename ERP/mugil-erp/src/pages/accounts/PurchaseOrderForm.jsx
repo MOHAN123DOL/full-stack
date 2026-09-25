@@ -18,7 +18,7 @@ import "./PurchaseOrder.css";
 import "../../styles/form.css";
 import "../../styles/print.css";
 
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 
 import Header from "../../components/Header";
@@ -64,6 +64,18 @@ const makeUniqueColumnId = (label, existingColumns) => {
   while (ids.has(`${base}${n}`)) n += 1;
 
   return `${base}${n}`;
+};
+
+/* Format whatever the backend sent into a single readable string,
+   without paraphrasing or adding our own fallback text. */
+const formatBackendError = (err) => {
+  if (!err) return "Unknown error";
+  if (err.response?.data !== undefined) {
+    const data = err.response.data;
+    return typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  }
+  if (err.request) return "Unable to connect to the server.";
+  return err.message || "Unknown error";
 };
 
 // ============================================================
@@ -148,7 +160,6 @@ const vendorsAreEqual = (a, b) => {
 
 // ============================================================
 // BUILD FRESH DATA
-// Guarantees every controlled input gets a defined value.
 // ============================================================
 
 const buildFreshData = () => {
@@ -266,7 +277,22 @@ function loadPurchaseOrderPrintEngine() {
 
 export default function PurchaseOrderForm() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { accessToken } = useAuth();
+
+  // ==========================================================
+  // REPORT VIEW MODE
+  // ==========================================================
+
+  const reportMode = location.state?.mode;              // "view" | undefined
+  const reportNumber = location.state?.documentNumber;  // e.g. "PO1001"
+
+  // null   → not decided yet (banner shows)
+  // "existing" → user chose to keep the existing number
+  // "new"      → user chose a fresh number from the sequence
+  const [numberChoice, setNumberChoice] = useState(
+    reportMode === "view" && reportNumber ? null : "auto"
+  );
 
   // ==========================================================
   // MAIN FORM STATE
@@ -295,7 +321,6 @@ export default function PurchaseOrderForm() {
 
   // Customer action state
   const [customerAction, setCustomerAction] = useState(null);
-  // null | "create" | "update"
   const [customerActionError, setCustomerActionError] = useState("");
 
   // ==========================================================
@@ -432,18 +457,7 @@ export default function PurchaseOrderForm() {
       }
 
       setCustomers([]);
-
-      if (error.response) {
-        setCustomersError(
-          error.response.data?.message || "Unable to load customers."
-        );
-      } else if (error.request) {
-        setCustomersError("Unable to connect to the server.");
-      } else {
-        setCustomersError(
-          "Something went wrong while loading customers."
-        );
-      }
+      setCustomersError(formatBackendError(error));
     } finally {
       setCustomersLoading(false);
     }
@@ -506,10 +520,7 @@ export default function PurchaseOrderForm() {
           !responseData?.success ||
           !responseData?.po_number
         ) {
-          throw new Error(
-            responseData?.message ||
-              "Unable to get Purchase Order number."
-          );
+          throw { response: { data: responseData } };
         }
 
         const poNumber = responseData.po_number;
@@ -687,20 +698,31 @@ export default function PurchaseOrderForm() {
           console.error("Failed to load PO data:", error);
         }
 
-        const message = error.response
-          ? error.response.data?.message ||
-            "Unable to load Purchase Order data."
-          : error.request
-          ? "Unable to connect to the server while getting the Purchase Order."
-          : error.message || "Unable to load Purchase Order data.";
-
-        setPoNumberError(message);
+        setPoNumberError(formatBackendError(error));
       } finally {
         setPoNumberLoading(false);
       }
     },
     [syncSelectedCustomer]
   );
+
+  // ==========================================================
+  // REPORT-VIEW: NUMBER CHOICE HANDLERS
+  // ==========================================================
+
+  const handleUseExistingNumber = useCallback(() => {
+    // Keep the same number the user came in with.
+    setNumberChoice("existing");
+    setData((prev) => ({ ...prev, poNumber: reportNumber }));
+    setPoNumberError("");
+  }, [reportNumber]);
+
+  const handleUseNewNumber = useCallback(async () => {
+    setNumberChoice("new");
+    if (accessToken) {
+      await loadPONumber(accessToken);
+    }
+  }, [accessToken, loadPONumber]);
 
   // ==========================================================
   // CUSTOMER SELECTION
@@ -839,9 +861,7 @@ export default function PurchaseOrderForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.data) {
-        throw new Error(
-          responseData?.message || "Unable to create customer."
-        );
+        throw { response: { data: responseData } };
       }
 
       const newCustomer = responseData.data;
@@ -861,40 +881,7 @@ export default function PurchaseOrderForm() {
         console.error("Failed to create customer:", error);
       }
 
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setCustomerActionError(
-            errorMessages ||
-              responseData?.message ||
-              "Customer could not be created."
-          );
-        } else {
-          setCustomerActionError(
-            responseData?.message || "Customer could not be created."
-          );
-        }
-      } else if (error.request) {
-        setCustomerActionError(
-          "Unable to connect to the server."
-        );
-      } else {
-        setCustomerActionError(
-          error.message ||
-            "Something went wrong while creating the customer."
-        );
-      }
+      setCustomerActionError(formatBackendError(error));
     } finally {
       setCustomerAction(null);
     }
@@ -956,9 +943,7 @@ export default function PurchaseOrderForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.data) {
-        throw new Error(
-          responseData?.message || "Unable to update customer."
-        );
+        throw { response: { data: responseData } };
       }
 
       const updatedCustomer = responseData.data;
@@ -983,40 +968,7 @@ export default function PurchaseOrderForm() {
         console.error("Failed to update customer:", error);
       }
 
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setCustomerActionError(
-            errorMessages ||
-              responseData?.message ||
-              "Customer could not be updated."
-          );
-        } else {
-          setCustomerActionError(
-            responseData?.message || "Customer could not be updated."
-          );
-        }
-      } else if (error.request) {
-        setCustomerActionError(
-          "Unable to connect to the server."
-        );
-      } else {
-        setCustomerActionError(
-          error.message ||
-            "Something went wrong while updating the customer."
-        );
-      }
+      setCustomerActionError(formatBackendError(error));
     } finally {
       setCustomerAction(null);
     }
@@ -1062,8 +1014,25 @@ export default function PurchaseOrderForm() {
     lastTokenRef.current = accessToken;
 
     loadCustomers(accessToken);
-    loadPONumber(accessToken);
-  }, [accessToken, loadCustomers, loadPONumber]);
+
+    // If we came from Reports with an existing number,
+    // DO NOT auto-fetch the next number. Wait for the user's choice
+    // (banner "Use this number" vs "New number").
+    const cameFromReportWithNumber =
+      reportMode === "view" && !!reportNumber;
+
+    if (cameFromReportWithNumber) {
+      setData((prev) => ({ ...prev, poNumber: reportNumber }));
+    } else {
+      loadPONumber(accessToken);
+    }
+  }, [
+    accessToken,
+    loadCustomers,
+    loadPONumber,
+    reportMode,
+    reportNumber,
+  ]);
 
   // ==========================================================
   // BASIC SETTERS
@@ -1224,6 +1193,7 @@ export default function PurchaseOrderForm() {
     setCustomerActionError("");
     setSubmitError("");
     setIncludeAmountDetails(true);
+    setNumberChoice("auto");
 
     if (accessToken) {
       await loadPONumber(accessToken);
@@ -1311,22 +1281,13 @@ export default function PurchaseOrderForm() {
       );
 
       if (!response.data?.success) {
-        setSubmitError(
-          response.data?.message ||
-            "Purchase Order creation failed."
-        );
-
-        return;
+        throw { response: { data: response.data } };
       }
 
       const createdPO = response.data?.data;
 
       if (!createdPO) {
-        setSubmitError(
-          "Purchase Order was created, but the server returned invalid data."
-        );
-
-        return;
+        throw { response: { data: response.data } };
       }
 
       const confirmedPoNumber =
@@ -1374,49 +1335,7 @@ export default function PurchaseOrderForm() {
         console.error("Purchase Order creation failed:", error);
       }
 
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendMessage = responseData?.message;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setSubmitError(
-            errorMessages ||
-              backendMessage ||
-              "Please check the entered details."
-          );
-        } else {
-          setSubmitError(
-            backendMessage ||
-              "Purchase Order could not be created."
-          );
-        }
-
-        return;
-      }
-
-      if (error.request) {
-        setSubmitError(
-          "Unable to connect to the server. Please check whether the backend is running."
-        );
-
-        return;
-      }
-
-      setSubmitError(
-        error.message ||
-          "Something went wrong while creating the Purchase Order."
-      );
+      setSubmitError(formatBackendError(error));
     } finally {
       setSubmitting(false);
     }
@@ -1684,6 +1603,70 @@ export default function PurchaseOrderForm() {
             </div>
           </section>
 
+          {/* =================================================
+              NUMBER CHOICE BANNER
+              Only shown when opened from Reports with an
+              existing PO number and the user hasn't decided yet.
+              ================================================= */}
+          {reportMode === "view" &&
+            reportNumber &&
+            numberChoice === null && (
+              <div className="po-submit-error po-number-choice">
+                <div className="po-submit-error__content">
+                  <strong>
+                    This Purchase Order already exists: {reportNumber}
+                  </strong>
+                  <span>
+                    Do you want to edit the existing PO (same number), or
+                    create a new one with the next number in the sequence?
+                  </span>
+
+                  <div className="po-number-choice__actions">
+                    <button
+                      type="button"
+                      className="po-btn po-btn--primary po-btn--sm"
+                      onClick={handleUseExistingNumber}
+                    >
+                      Use this number (edit)
+                    </button>
+
+                    <button
+                      type="button"
+                      className="po-btn po-btn--secondary po-btn--sm"
+                      onClick={handleUseNewNumber}
+                    >
+                      New number
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          {reportMode === "view" && numberChoice === "existing" && (
+            <div className="po-submit-error po-number-info">
+              <div className="po-submit-error__content">
+                <strong>Editing existing PO {reportNumber}</strong>
+                <span>
+                  When you click Preview, the backend will not consume a
+                  new number.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {reportMode === "view" && numberChoice === "new" && (
+            <div className="po-submit-error po-number-info">
+              <div className="po-submit-error__content">
+                <strong>
+                  Creating a new PO: {data.poNumber || "Loading..."}
+                </strong>
+                <span>
+                  A fresh number from the current sequence will be used.
+                </span>
+              </div>
+            </div>
+          )}
+
           {Object.keys(errors).length > 0 && (
             <div className="po-validation">
               <div className="po-validation__title">
@@ -1705,7 +1688,9 @@ export default function PurchaseOrderForm() {
                 <strong>
                   Purchase Order could not be created
                 </strong>
-                <span>{submitError || poNumberError}</span>
+                <span style={{ whiteSpace: "pre-wrap" }}>
+                  {submitError || poNumberError}
+                </span>
               </div>
 
               {poNumberError && !poNumberLoading && (

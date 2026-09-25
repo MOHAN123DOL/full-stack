@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import "./TaxInvoice.css";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
@@ -15,6 +15,9 @@ import { useAuth } from "../../context/AuthContext";
 const TI_CUSTOMERS_ENDPOINT = "/erp/tax-invoice-customers/";
 const TI_NEXT_NUMBER_ENDPOINT = "/erp/tax-invoices/next-number/";
 const TI_SAVE_ENDPOINT = "/erp/tax-invoices/";
+
+/* Single generic error message for every failure. */
+const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 /* ============================================================
    PRINT ENGINE LOADER
@@ -200,7 +203,12 @@ function numberToWordsIndian(num) {
   return result.trim();
 }
 
-/* Convert a backend Customer record (snake_case) to our local party shape. */
+const round2 = (value) => {
+  const n = Number(value);
+  if (!isFinite(n)) return 0;
+  return Number(n.toFixed(2));
+};
+
 const backendToParty = (customer) => ({
   companyName: customer?.company_name || "",
   gst: customer?.gst_number || "",
@@ -211,7 +219,6 @@ const backendToParty = (customer) => ({
   email: customer?.email || "",
 });
 
-/* Convert our local party shape to the backend Customer payload (snake_case). */
 const partyToBackend = (party) => ({
   company_name: party?.companyName?.trim() || "",
   address: party?.address?.trim() || "",
@@ -223,8 +230,6 @@ const partyToBackend = (party) => ({
   state_code: party?.stateCode?.trim() || "",
 });
 
-/* Both sides compared — state and stateCode included so editing them
-   triggers the "Update Customer" action bar. */
 const partiesAreEqual = (a, b) => {
   if (!a || !b) return false;
   const keys = [
@@ -247,7 +252,17 @@ const partiesAreEqual = (a, b) => {
 
 export default function TaxInvoiceForm() {
   const { accessToken } = useAuth();
-  const navigate = useNavigate();
+  const location = useLocation();
+
+  // ============================================================
+  // REPORT VIEW MODE
+  // ============================================================
+  const reportMode = location.state?.mode;
+  const reportNumber = location.state?.documentNumber;
+
+  const [numberChoice, setNumberChoice] = useState(
+    reportMode === "view" && reportNumber ? null : "auto",
+  );
 
   const [formData, setFormData] = useState(defaultFormData);
   const [items, setItems] = useState([emptyItem()]);
@@ -279,6 +294,9 @@ export default function TaxInvoiceForm() {
      RESTORE WORKING DRAFT
      ============================================================ */
   useEffect(() => {
+    // Skip draft restore when opened from Reports
+    if (reportMode === "view" && reportNumber) return;
+
     try {
       const saved = localStorage.getItem(DRAFT_KEY);
       if (!saved) return;
@@ -289,7 +307,7 @@ export default function TaxInvoiceForm() {
     } catch (e) {
       console.error("Failed to restore draft", e);
     }
-  }, []);
+  }, [reportMode, reportNumber]);
 
   /* ============================================================
      AUTOSAVE WORKING DRAFT
@@ -338,20 +356,7 @@ export default function TaxInvoiceForm() {
     } catch (error) {
       console.error("Failed to load tax invoice customers:", error);
       setCustomers([]);
-
-      if (error.response) {
-        setCustomersError(
-          error.response.data?.message ||
-            "Unable to load tax invoice customers.",
-        );
-      } else if (error.request) {
-        setCustomersError("Unable to connect to the server.");
-      } else {
-        setCustomersError(
-          error.message ||
-            "Something went wrong while loading tax invoice customers.",
-        );
-      }
+      setCustomersError(GENERIC_ERROR);
       return [];
     } finally {
       setCustomersLoading(false);
@@ -375,9 +380,7 @@ export default function TaxInvoiceForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.invoice_number) {
-        throw new Error(
-          responseData?.message || "Unable to get invoice number.",
-        );
+        throw new Error("bad response");
       }
 
       const invoiceNumber = responseData.invoice_number;
@@ -443,16 +446,27 @@ export default function TaxInvoiceForm() {
       }
     } catch (error) {
       console.error("Failed to load invoice number:", error);
-      const message = error.response
-        ? error.response.data?.message || "Unable to load invoice number."
-        : error.request
-          ? "Unable to connect to the server while getting invoice number."
-          : error.message || "Unable to load invoice number.";
-      setInvoiceNumberError(message);
+      setInvoiceNumberError(GENERIC_ERROR);
     } finally {
       setInvoiceNumberLoading(false);
     }
   }, [accessToken]);
+
+  /* ============================================================
+     REPORT-VIEW: NUMBER CHOICE HANDLERS
+     ============================================================ */
+  const handleUseExistingNumber = useCallback(() => {
+    setNumberChoice("existing");
+    setFormData((prev) => ({ ...prev, invoiceNumber: reportNumber }));
+    setInvoiceNumberError("");
+  }, [reportNumber]);
+
+  const handleUseNewNumber = useCallback(async () => {
+    setNumberChoice("new");
+    if (accessToken) {
+      await loadInvoiceNumber();
+    }
+  }, [accessToken, loadInvoiceNumber]);
 
   /* ============================================================
      BOOTSTRAP
@@ -460,8 +474,16 @@ export default function TaxInvoiceForm() {
   useEffect(() => {
     if (!accessToken) return;
     loadCustomers();
-    loadInvoiceNumber();
-  }, [accessToken, loadCustomers, loadInvoiceNumber]);
+
+    const cameFromReportWithNumber =
+      reportMode === "view" && !!reportNumber;
+
+    if (cameFromReportWithNumber) {
+      setFormData((prev) => ({ ...prev, invoiceNumber: reportNumber }));
+    } else {
+      loadInvoiceNumber();
+    }
+  }, [accessToken, loadCustomers, loadInvoiceNumber, reportMode, reportNumber]);
 
   /* ============================================================
      BASIC SETTERS
@@ -616,7 +638,7 @@ export default function TaxInvoiceForm() {
   };
 
   /* ============================================================
-     RECEIVER — ACTION STATE (create/update)
+     RECEIVER — ACTION STATE
      ============================================================ */
   const receiverMatched = useMemo(() => {
     const name = formData.receiverDetails?.companyName?.trim().toLowerCase();
@@ -650,7 +672,7 @@ export default function TaxInvoiceForm() {
   ]);
 
   /* ============================================================
-     CONSIGNEE — ACTION STATE (create/update)
+     CONSIGNEE — ACTION STATE
      ============================================================ */
   const consigneeMatched = useMemo(() => {
     const name = formData.consigneeDetails?.companyName
@@ -697,9 +719,7 @@ export default function TaxInvoiceForm() {
 
     const responseData = response.data;
     if (!responseData?.success || !responseData?.data) {
-      throw new Error(
-        responseData?.message || "Unable to create customer.",
-      );
+      throw new Error("bad response");
     }
 
     const newCustomer = responseData.data;
@@ -716,9 +736,7 @@ export default function TaxInvoiceForm() {
 
     const responseData = response.data;
     if (!responseData?.success || !responseData?.data) {
-      throw new Error(
-        responseData?.message || "Unable to update customer.",
-      );
+      throw new Error("bad response");
     }
 
     const updated = responseData.data;
@@ -752,11 +770,7 @@ export default function TaxInvoiceForm() {
       setFormData((prev) => ({ ...prev, receiverDetails: fresh }));
     } catch (err) {
       console.error("Receiver create failed:", err);
-      setReceiverActionError(
-        err.response?.data?.message ||
-          err.message ||
-          "Could not create receiver.",
-      );
+      setReceiverActionError(GENERIC_ERROR);
     } finally {
       setReceiverAction(null);
     }
@@ -784,11 +798,7 @@ export default function TaxInvoiceForm() {
       setFormData((prev) => ({ ...prev, receiverDetails: fresh }));
     } catch (err) {
       console.error("Receiver update failed:", err);
-      setReceiverActionError(
-        err.response?.data?.message ||
-          err.message ||
-          "Could not update receiver.",
-      );
+      setReceiverActionError(GENERIC_ERROR);
     } finally {
       setReceiverAction(null);
     }
@@ -825,11 +835,7 @@ export default function TaxInvoiceForm() {
       setFormData((prev) => ({ ...prev, consigneeDetails: fresh }));
     } catch (err) {
       console.error("Consignee create failed:", err);
-      setConsigneeActionError(
-        err.response?.data?.message ||
-          err.message ||
-          "Could not create consignee.",
-      );
+      setConsigneeActionError(GENERIC_ERROR);
     } finally {
       setConsigneeAction(null);
     }
@@ -857,11 +863,7 @@ export default function TaxInvoiceForm() {
       setFormData((prev) => ({ ...prev, consigneeDetails: fresh }));
     } catch (err) {
       console.error("Consignee update failed:", err);
-      setConsigneeActionError(
-        err.response?.data?.message ||
-          err.message ||
-          "Could not update consignee.",
-      );
+      setConsigneeActionError(GENERIC_ERROR);
     } finally {
       setConsigneeAction(null);
     }
@@ -881,23 +883,32 @@ export default function TaxInvoiceForm() {
      ============================================================ */
   const itemsWithAmount = items.map((it) => ({
     ...it,
-    amount: (parseFloat(it.quantity) || 0) * (parseFloat(it.rate) || 0),
+    amount: round2(
+      (parseFloat(it.quantity) || 0) * (parseFloat(it.rate) || 0),
+    ),
   }));
 
-  const subtotal = itemsWithAmount.reduce((sum, it) => sum + it.amount, 0);
+  const subtotal = round2(
+    itemsWithAmount.reduce((sum, it) => sum + it.amount, 0),
+  );
 
-  const cgstAmount =
-    (subtotal * (parseFloat(formData.cgstPct) || 0)) / 100;
-  const sgstAmount =
-    (subtotal * (parseFloat(formData.sgstPct) || 0)) / 100;
-  const igstAmount =
-    (subtotal * (parseFloat(formData.igstPct) || 0)) / 100;
+  const cgstAmount = round2(
+    (subtotal * (parseFloat(formData.cgstPct) || 0)) / 100,
+  );
+  const sgstAmount = round2(
+    (subtotal * (parseFloat(formData.sgstPct) || 0)) / 100,
+  );
+  const igstAmount = round2(
+    (subtotal * (parseFloat(formData.igstPct) || 0)) / 100,
+  );
 
-  const beforeRounding = subtotal + cgstAmount + sgstAmount + igstAmount;
+  const beforeRounding = round2(
+    subtotal + cgstAmount + sgstAmount + igstAmount,
+  );
   const grandTotalRaw =
     beforeRounding + (parseFloat(formData.roundedOff) || 0);
   const grandTotal = Math.round(grandTotalRaw);
-  const roundedOffAuto = grandTotal - beforeRounding;
+  const roundedOffAuto = round2(grandTotal - beforeRounding);
 
   const amountInWords = numberToWordsIndian(grandTotal) + " Rupees Only";
 
@@ -969,15 +980,15 @@ export default function TaxInvoiceForm() {
 
       items: itemsWithAmount,
 
-      subtotal,
-      cgst_percent: parseFloat(formData.cgstPct) || 0,
-      cgst_amount: cgstAmount,
-      sgst_percent: parseFloat(formData.sgstPct) || 0,
-      sgst_amount: sgstAmount,
-      igst_percent: parseFloat(formData.igstPct) || 0,
-      igst_amount: igstAmount,
-      rounded_off: roundedOffAuto,
-      grand_total: grandTotal,
+      subtotal: round2(subtotal),
+      cgst_percent: round2(parseFloat(formData.cgstPct) || 0),
+      cgst_amount: round2(cgstAmount),
+      sgst_percent: round2(parseFloat(formData.sgstPct) || 0),
+      sgst_amount: round2(sgstAmount),
+      igst_percent: round2(parseFloat(formData.igstPct) || 0),
+      igst_amount: round2(igstAmount),
+      rounded_off: round2(roundedOffAuto),
+      grand_total: round2(grandTotal),
       amount_in_words: amountInWords,
 
       bank_name: formData.bankName || "",
@@ -1003,49 +1014,17 @@ export default function TaxInvoiceForm() {
       });
 
       if (!response.data?.success) {
-        setSubmitError(
-          response.data?.message || "Invoice creation failed.",
-        );
-        return null;
+        throw new Error("bad response");
       }
 
       const saved = response.data?.data;
       if (!saved) {
-        setSubmitError("Server returned invalid invoice data.");
-        return null;
+        throw new Error("bad response");
       }
       return saved;
     } catch (error) {
       console.error("Invoice creation failed:", error);
-
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const messages = Object.entries(backendErrors)
-            .map(([field, msgs]) => {
-              const m = Array.isArray(msgs)
-                ? msgs.join(", ")
-                : String(msgs);
-              return `${field}: ${m}`;
-            })
-            .join(" | ");
-          setSubmitError(
-            messages || responseData?.message || "Save failed.",
-          );
-        } else {
-          setSubmitError(responseData?.message || "Save failed.");
-        }
-      } else if (error.request) {
-        setSubmitError(
-          "Unable to connect to the server. Please check whether the backend is running.",
-        );
-      } else {
-        setSubmitError(
-          error.message || "Something went wrong while saving.",
-        );
-      }
+      setSubmitError(GENERIC_ERROR);
       return null;
     } finally {
       setSubmitting(false);
@@ -1127,12 +1106,78 @@ export default function TaxInvoiceForm() {
           </div>
         </div>
 
-        {submitError && (
+        {/* ---------- NUMBER CHOICE BANNER ---------- */}
+        {reportMode === "view" && reportNumber && numberChoice === null && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">?</div>
+            <div className="qt-alert__content">
+              <strong>This Tax Invoice already exists: {reportNumber}</strong>
+              <span>
+                Do you want to edit the existing invoice (same number), or
+                create a new one with the next number in the sequence?
+              </span>
+
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleUseExistingNumber}
+                >
+                  Use this number (edit)
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleUseNewNumber}
+                >
+                  New number
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {reportMode === "view" && numberChoice === "existing" && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">i</div>
+            <div className="qt-alert__content">
+              <strong>Editing existing invoice {reportNumber}</strong>
+              <span>
+                When you click Preview, the backend will not consume a new
+                number.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {reportMode === "view" && numberChoice === "new" && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">i</div>
+            <div className="qt-alert__content">
+              <strong>
+                Creating a new invoice: {formData.invoiceNumber || "Loading..."}
+              </strong>
+              <span>
+                A fresh number from the current sequence will be used.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {(submitError || invoiceNumberError) && (
           <div className="qt-alert">
             <div className="qt-alert__icon">!</div>
             <div className="qt-alert__content">
               <strong>Tax Invoice API Error</strong>
-              <span>{submitError}</span>
+              <span>{submitError || invoiceNumberError}</span>
             </div>
             {invoiceNumberError && !invoiceNumberLoading && (
               <button
@@ -1418,7 +1463,6 @@ export default function TaxInvoiceForm() {
                       </div>
                     </div>
 
-                    {/* Receiver customer action bar */}
                     <div
                       className={`qt-customer-actions ${
                         receiverAvailableAction === "update"

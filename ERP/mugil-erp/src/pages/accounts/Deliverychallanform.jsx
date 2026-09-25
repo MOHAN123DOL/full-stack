@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import "./Deliverychallanform.css";
 import Header from "../../components/Header";
@@ -13,6 +13,9 @@ const DRAFT_KEY = "mei-erp-delivery-challan-draft";
 const DC_CUSTOMERS_ENDPOINT = "/erp/delivery-challan-customers/";
 const DC_NEXT_NUMBER_ENDPOINT = "/erp/delivery-challans/next-number/";
 const DC_SAVE_ENDPOINT = "/erp/delivery-challans/";
+
+/* Single generic error message for every failure. */
+const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 /* ========================================================================
    COMPANY ADDRESSES
@@ -145,7 +148,6 @@ function numberToIndianWords(num) {
   if (num === 0) return "Zero";
 
   const integerPart = Math.floor(num);
-
   if (integerPart === 0) return "Zero";
 
   let n = integerPart;
@@ -270,6 +272,17 @@ const customersAreEqual = (a, b) => {
 export default function DeliveryChallanForm() {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // ============================================================
+  // REPORT VIEW MODE
+  // ============================================================
+  const reportMode = location.state?.mode;
+  const reportNumber = location.state?.documentNumber;
+
+  const [numberChoice, setNumberChoice] = useState(
+    reportMode === "view" && reportNumber ? null : "auto",
+  );
 
   const [data, setData] = useState(() =>
     normalizeFormData(createEmptyFormData()),
@@ -302,6 +315,9 @@ export default function DeliveryChallanForm() {
      LOAD LOCAL DRAFT
      ============================================================ */
   useEffect(() => {
+    // Skip draft restore when opened from Reports
+    if (reportMode === "view" && reportNumber) return;
+
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return;
 
@@ -309,13 +325,12 @@ export default function DeliveryChallanForm() {
       const parsed = JSON.parse(raw);
       setData(normalizeFormData(parsed));
       if (parsed?.amountInWords) {
-        // if the draft already had words, treat as manual
         setAmountInWordsManual(true);
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [reportMode, reportNumber]);
 
   /* ============================================================
      LOAD CUSTOMERS
@@ -347,20 +362,7 @@ export default function DeliveryChallanForm() {
     } catch (error) {
       console.error("Failed to load delivery challan customers:", error);
       setCustomers([]);
-
-      if (error.response) {
-        setCustomersError(
-          error.response.data?.message ||
-            "Unable to load delivery challan customers.",
-        );
-      } else if (error.request) {
-        setCustomersError("Unable to connect to the server.");
-      } else {
-        setCustomersError(
-          error.message ||
-            "Something went wrong while loading delivery challan customers.",
-        );
-      }
+      setCustomersError(GENERIC_ERROR);
       return [];
     } finally {
       setCustomersLoading(false);
@@ -384,9 +386,7 @@ export default function DeliveryChallanForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.dc_number) {
-        throw new Error(
-          responseData?.message || "Unable to get delivery challan number.",
-        );
+        throw new Error("bad response");
       }
 
       const dcNumber = responseData.dc_number;
@@ -405,8 +405,7 @@ export default function DeliveryChallanForm() {
             deliveryAt: serverData.delivery_at ?? previous.deliveryAt,
             companyAddressId:
               serverData.company_address_id ?? previous.companyAddressId,
-            amountInWords:
-              serverData.amount_in_words ?? previous.amountInWords,
+            amountInWords: serverData.amount_in_words ?? previous.amountInWords,
             preparedBy: serverData.prepared_by ?? previous.preparedBy,
             items: Array.isArray(serverData.items)
               ? serverData.items
@@ -438,19 +437,27 @@ export default function DeliveryChallanForm() {
       }
     } catch (error) {
       console.error("Failed to load delivery challan data:", error);
-
-      const message = error.response
-        ? error.response.data?.message ||
-          "Unable to load delivery challan data."
-        : error.request
-          ? "Unable to connect to the server while getting delivery challan data."
-          : error.message || "Unable to load delivery challan data.";
-
-      setDcNumberError(message);
+      setDcNumberError(GENERIC_ERROR);
     } finally {
       setDcNumberLoading(false);
     }
   }, [accessToken]);
+
+  /* ============================================================
+     REPORT-VIEW: NUMBER CHOICE HANDLERS
+     ============================================================ */
+  const handleUseExistingNumber = useCallback(() => {
+    setNumberChoice("existing");
+    setData((prev) => normalizeFormData({ ...prev, dcNumber: reportNumber }));
+    setDcNumberError("");
+  }, [reportNumber]);
+
+  const handleUseNewNumber = useCallback(async () => {
+    setNumberChoice("new");
+    if (accessToken) {
+      await loadDcNumber();
+    }
+  }, [accessToken, loadDcNumber]);
 
   /* ============================================================
      BOOTSTRAP
@@ -458,8 +465,15 @@ export default function DeliveryChallanForm() {
   useEffect(() => {
     if (!accessToken) return;
     loadCustomers();
-    loadDcNumber();
-  }, [accessToken, loadCustomers, loadDcNumber]);
+
+    const cameFromReportWithNumber = reportMode === "view" && !!reportNumber;
+
+    if (cameFromReportWithNumber) {
+      setData((prev) => normalizeFormData({ ...prev, dcNumber: reportNumber }));
+    } else {
+      loadDcNumber();
+    }
+  }, [accessToken, loadCustomers, loadDcNumber, reportMode, reportNumber]);
 
   /* ============================================================
      SYNC DROPDOWN AFTER CUSTOMERS LOAD
@@ -568,7 +582,10 @@ export default function DeliveryChallanForm() {
     if (!name) return null;
     return (
       customers.find(
-        (c) => String(c.company_name || "").trim().toLowerCase() === name,
+        (c) =>
+          String(c.company_name || "")
+            .trim()
+            .toLowerCase() === name,
       ) || null
     );
   }, [customers, data.customer?.companyName]);
@@ -670,8 +687,9 @@ export default function DeliveryChallanForm() {
 
     const alreadyExists = customers.some(
       (c) =>
-        String(c.company_name || "").trim().toLowerCase() ===
-        companyName.toLowerCase(),
+        String(c.company_name || "")
+          .trim()
+          .toLowerCase() === companyName.toLowerCase(),
     );
 
     if (alreadyExists) {
@@ -694,10 +712,7 @@ export default function DeliveryChallanForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.data) {
-        throw new Error(
-          responseData?.message ||
-            "Unable to create delivery challan customer.",
-        );
+        throw new Error("bad response");
       }
 
       const newCustomer = responseData.data;
@@ -719,38 +734,7 @@ export default function DeliveryChallanForm() {
       );
     } catch (error) {
       console.error("Failed to create delivery challan customer:", error);
-
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setCustomerActionError(
-            errorMessages ||
-              responseData?.message ||
-              "Customer could not be created.",
-          );
-        } else {
-          setCustomerActionError(
-            responseData?.message || "Customer could not be created.",
-          );
-        }
-      } else if (error.request) {
-        setCustomerActionError("Unable to connect to the server.");
-      } else {
-        setCustomerActionError(
-          error.message || "Something went wrong while creating the customer.",
-        );
-      }
+      setCustomerActionError(GENERIC_ERROR);
     } finally {
       setCustomerAction(null);
     }
@@ -781,8 +765,9 @@ export default function DeliveryChallanForm() {
     const nameClash = customers.some(
       (c) =>
         String(c.id) !== String(selectedCustomerId) &&
-        String(c.company_name || "").trim().toLowerCase() ===
-          companyName.toLowerCase(),
+        String(c.company_name || "")
+          .trim()
+          .toLowerCase() === companyName.toLowerCase(),
     );
 
     if (nameClash) {
@@ -805,10 +790,7 @@ export default function DeliveryChallanForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.data) {
-        throw new Error(
-          responseData?.message ||
-            "Unable to update delivery challan customer.",
-        );
+        throw new Error("bad response");
       }
 
       const updatedCustomer = responseData.data;
@@ -833,38 +815,7 @@ export default function DeliveryChallanForm() {
       );
     } catch (error) {
       console.error("Failed to update delivery challan customer:", error);
-
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setCustomerActionError(
-            errorMessages ||
-              responseData?.message ||
-              "Customer could not be updated.",
-          );
-        } else {
-          setCustomerActionError(
-            responseData?.message || "Customer could not be updated.",
-          );
-        }
-      } else if (error.request) {
-        setCustomerActionError("Unable to connect to the server.");
-      } else {
-        setCustomerActionError(
-          error.message || "Something went wrong while updating the customer.",
-        );
-      }
+      setCustomerActionError(GENERIC_ERROR);
     } finally {
       setCustomerAction(null);
     }
@@ -943,6 +894,7 @@ export default function DeliveryChallanForm() {
     setSubmitError("");
     setDcNumberError("");
     setAmountInWordsManual(false);
+    setNumberChoice("auto");
 
     if (accessToken) {
       await loadDcNumber();
@@ -992,61 +944,19 @@ export default function DeliveryChallanForm() {
       });
 
       if (!response.data?.success) {
-        setSubmitError(
-          response.data?.message || "Delivery challan creation failed.",
-        );
-        return null;
+        throw new Error("bad response");
       }
 
       const savedDc = response.data?.data;
 
       if (!savedDc) {
-        setSubmitError(
-          "Delivery challan was saved, but the server returned invalid data.",
-        );
-        return null;
+        throw new Error("bad response");
       }
 
       return savedDc;
     } catch (error) {
       console.error("Delivery challan creation failed:", error);
-
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendMessage = responseData?.message;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setSubmitError(
-            errorMessages ||
-              backendMessage ||
-              "Please check the entered details.",
-          );
-        } else {
-          setSubmitError(
-            backendMessage || "Delivery challan could not be created.",
-          );
-        }
-      } else if (error.request) {
-        setSubmitError(
-          "Unable to connect to the server. Please check whether the backend is running.",
-        );
-      } else {
-        setSubmitError(
-          error.message ||
-            "Something went wrong while creating the delivery challan.",
-        );
-      }
-
+      setSubmitError(GENERIC_ERROR);
       return null;
     } finally {
       setSubmitting(false);
@@ -1159,6 +1069,74 @@ export default function DeliveryChallanForm() {
           </button>
         </div>
 
+        {/* ---------- NUMBER CHOICE BANNER ---------- */}
+        {reportMode === "view" && reportNumber && numberChoice === null && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">?</div>
+            <div className="qt-alert__content">
+              <strong>
+                This Delivery Challan already exists: {reportNumber}
+              </strong>
+              <span>
+                Do you want to edit the existing challan (same number), or
+                create a new one with the next number in the sequence?
+              </span>
+
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleUseExistingNumber}
+                >
+                  Use this number (edit)
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleUseNewNumber}
+                >
+                  New number
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {reportMode === "view" && numberChoice === "existing" && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">i</div>
+            <div className="qt-alert__content">
+              <strong>Editing existing challan {reportNumber}</strong>
+              <span>
+                When you click Preview, the backend will not consume a new
+                number.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {reportMode === "view" && numberChoice === "new" && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">i</div>
+            <div className="qt-alert__content">
+              <strong>
+                Creating a new challan: {data.dcNumber || "Loading..."}
+              </strong>
+              <span>
+                A fresh number from the current sequence will be used.
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* VALIDATION ALERT */}
         {Object.keys(errors).length > 0 && (
           <div className="qt-alert">
@@ -1198,18 +1176,13 @@ export default function DeliveryChallanForm() {
         <section className="form-section">
           <h3 className="form-section-title">Delivery Challan Details</h3>
 
-          <div
-            className="form-grid"
-            style={{ gridTemplateColumns: "1fr 1fr" }}
-          >
+          <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <div className="form-group">
               <label className="form-label">DC Number</label>
               <input
                 type="text"
                 className="form-input form-input-readonly"
-                value={
-                  data.dcNumber || (dcNumberLoading ? "Loading..." : "")
-                }
+                value={data.dcNumber || (dcNumberLoading ? "Loading..." : "")}
                 readOnly
                 disabled
                 title="Auto-generated — cannot be edited"
@@ -1292,9 +1265,7 @@ export default function DeliveryChallanForm() {
               <select
                 className="form-input"
                 value={data.companyAddressId}
-                onChange={(e) =>
-                  set("companyAddressId", e.target.value)
-                }
+                onChange={(e) => set("companyAddressId", e.target.value)}
               >
                 {COMPANY_ADDRESSES.map((address) => (
                   <option key={address.id} value={address.id}>
@@ -1334,17 +1305,12 @@ export default function DeliveryChallanForm() {
                     <select
                       className="form-input"
                       value={selectedCustomerId}
-                      onChange={(e) =>
-                        handleCustomerChange(e.target.value)
-                      }
+                      onChange={(e) => handleCustomerChange(e.target.value)}
                     >
                       <option value="">Select Customer</option>
 
                       {customers.map((customer) => (
-                        <option
-                          key={customer.id}
-                          value={customer.id}
-                        >
+                        <option key={customer.id} value={customer.id}>
                           {customer.company_name}
                         </option>
                       ))}
@@ -1355,8 +1321,8 @@ export default function DeliveryChallanForm() {
 
               {customers.length === 0 && (
                 <div className="qt-customer-empty">
-                  No saved customers. You can enter customer details
-                  manually below.
+                  No saved customers. You can enter customer details manually
+                  below.
                 </div>
               )}
 
@@ -1439,9 +1405,7 @@ export default function DeliveryChallanForm() {
                         updateCustomerField("returnable", e.target.checked)
                       }
                     />
-                    <span>
-                      {data.customer.returnable ? "Yes" : "No"}
-                    </span>
+                    <span>{data.customer.returnable ? "Yes" : "No"}</span>
                   </label>
                 </div>
               </div>
@@ -1449,9 +1413,7 @@ export default function DeliveryChallanForm() {
               {/* CUSTOMER ACTION BAR */}
               <div
                 className={`qt-customer-actions ${
-                  availableAction === "update"
-                    ? "qt-customer-modified"
-                    : ""
+                  availableAction === "update" ? "qt-customer-modified" : ""
                 }`}
               >
                 <div className="qt-customer-actions__info">
@@ -1459,8 +1421,8 @@ export default function DeliveryChallanForm() {
                     <>
                       <strong>Customer details changed</strong>
                       <span>
-                        Save changes to the master customer record, or
-                        reset to the saved values.
+                        Save changes to the master customer record, or reset to
+                        the saved values.
                       </span>
                     </>
                   )}
@@ -1469,8 +1431,8 @@ export default function DeliveryChallanForm() {
                     <>
                       <strong>New customer</strong>
                       <span>
-                        No matching customer exists. Create it to
-                        reuse in future delivery challans.
+                        No matching customer exists. Create it to reuse in
+                        future delivery challans.
                       </span>
                     </>
                   )}
@@ -1621,11 +1583,7 @@ export default function DeliveryChallanForm() {
             </tbody>
           </table>
 
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={addRow}
-          >
+          <button type="button" className="btn btn-secondary" onClick={addRow}>
             + Add Row
           </button>
 

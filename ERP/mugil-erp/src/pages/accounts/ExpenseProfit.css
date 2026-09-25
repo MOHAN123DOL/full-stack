@@ -1,417 +1,669 @@
-/* =========================================================
-   EXPENSE & PROFIT
-========================================================= */
+/* ============================================================
+   PAGE LAYOUT
+   ============================================================ */
 
-.expense-profit-page {
-  min-height: calc(100vh - 80px);
+.journal-page {
+  min-height: 100vh;
   background: #f4f6f9;
-  padding: 32px 32px 60px;
+  padding: 24px 16px 60px;
 }
 
-.expense-profit-container {
-  width: 100%;
-  max-width: 1150px;
+.journal-container {
+  max-width: 1280px;
   margin: 0 auto;
 }
 
-/* HEADER */
-
-.expense-profit-heading {
-  position: relative;
-  text-align: center;
-  margin-bottom: 28px;
+.journal-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
-.expense-profit-heading h1 {
-  margin: 0 0 5px;
-  color: #111827;
-  font-size: 24px;
+.journal-heading h1 {
+  font-size: 26px;
   font-weight: 700;
-  line-height: 1.25;
+  color: #1a1f36;
+  margin: 0 0 4px;
 }
 
-.expense-profit-heading p {
-  margin: 0;
+.journal-heading p {
+  font-size: 14px;
   color: #6b7280;
-  font-size: 13.5px;
+  margin: 0;
 }
 
-.expense-profit-back {
-  position: absolute;
-  left: 0;
-  top: 2px;
-  padding: 7px 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #374151;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
+/* ============================================================
+   SUMMARY CARDS
+   ============================================================ */
 
-.expense-profit-back:hover {
-  background: #f9fafb;
-}
-
-/* SUMMARY */
-
-.expense-profit-summary {
+.journal-summary {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
-.expense-profit-summary-card {
-  padding: 20px;
+.summary-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  background: #fff;
+  border-radius: 12px;
   border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.summary-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
   border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+  flex-shrink: 0;
 }
 
-.summary-label {
-  display: block;
-  margin-bottom: 8px;
+.summary-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.summary-card__label {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: #6b7280;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
 }
 
-.summary-value {
-  display: block;
+.summary-card__value {
+  font-size: 22px;
+  font-weight: 700;
   color: #111827;
-  font-size: 24px;
-  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.profit-value {
+.summary-card--income .summary-card__icon {
+  background: #dcfce7;
   color: #15803d;
 }
+.summary-card--income .summary-card__value { color: #15803d; }
 
-.loss-value {
-  color: #dc2626;
+.summary-card--expense .summary-card__icon {
+  background: #fee2e2;
+  color: #b91c1c;
 }
+.summary-card--expense .summary-card__value { color: #b91c1c; }
 
-/* SECTIONS */
+.summary-card--profit .summary-card__icon {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.summary-card--profit .summary-card__value { color: #1d4ed8; }
 
-.expense-profit-section {
-  margin-bottom: 20px;
+.summary-card--loss .summary-card__icon {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.summary-card--loss .summary-card__value { color: #c2410c; }
+
+/* ============================================================
+   SECTION
+   ============================================================ */
+
+.journal-section {
+  background: #fff;
+  border-radius: 12px;
   border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   overflow: hidden;
 }
 
-.expense-profit-section-header {
+.journal-section__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 15px 18px;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 18px 22px;
+  border-bottom: 1px solid #f0f1f3;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.expense-profit-section-header h2 {
+.journal-section__header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1f36;
   margin: 0;
-  color: #111827;
-  font-size: 15px;
-  font-weight: 700;
 }
 
-/* TABLES */
+.journal-section__count {
+  font-size: 12px;
+  color: #6b7280;
+  margin-left: 8px;
+}
 
-.expense-summary-table-wrapper,
-.expense-profit-table-wrapper {
+.journal-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  background: #2563eb;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.journal-add-btn:hover {
+  background: #1d4ed8;
+}
+
+.journal-add-btn:active {
+  transform: scale(0.98);
+}
+
+/* ============================================================
+   FILTERS
+   ============================================================ */
+
+.journal-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+  border-bottom: 1px solid #f0f1f3;
+  background: #fafbfc;
+  flex-wrap: wrap;
+}
+
+.journal-search {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+  max-width: 420px;
+}
+
+.journal-search__icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.journal-search input {
   width: 100%;
+  padding: 9px 36px 9px 36px;
+  font-size: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.journal-search input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.journal-search__clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.journal-search__clear:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.journal-tabs {
+  display: inline-flex;
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.journal-tab {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #4b5563;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.journal-tab:hover {
+  color: #1f2937;
+}
+
+.journal-tab--active {
+  background: #fff;
+  color: #1a1f36;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* ============================================================
+   TABLE
+   ============================================================ */
+
+.journal-table-wrapper {
   overflow-x: auto;
 }
 
-.expense-summary-table,
-.expense-profit-table {
+.journal-table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 14px;
 }
 
-.expense-summary-table th,
-.expense-summary-table td,
-.expense-profit-table th,
-.expense-profit-table td {
-  padding: 11px 14px;
-  border-bottom: 1px solid #e5e7eb;
+.journal-table thead th {
   text-align: left;
-  font-size: 13px;
+  padding: 12px 16px;
+  background: #fafbfc;
+  color: #4b5563;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
 }
 
-.expense-summary-table th,
-.expense-profit-table th {
-  background: #f9fafb;
+.journal-table tbody td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f3f4f6;
   color: #374151;
-  font-weight: 700;
+  vertical-align: middle;
 }
 
-.expense-summary-table td,
-.expense-profit-table td {
+.journal-table tbody tr:hover {
+  background: #fafbfc;
+}
+
+.journal-table__num {
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+}
+
+.journal-table__desc {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.journal-table__amount {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.journal-table__amount--income { color: #15803d; }
+.journal-table__amount--expense { color: #b91c1c; }
+
+.journal-table__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
   color: #4b5563;
 }
 
-.expense-summary-table tbody tr:last-child td,
-.expense-profit-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-/* PROFIT SUMMARY */
-
-.profit-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.profit-summary-grid > div {
-  padding: 18px;
-  border-right: 1px solid #e5e7eb;
-}
-
-.profit-summary-grid > div:last-child {
-  border-right: none;
-}
-
-.profit-summary-grid span {
-  display: block;
-  margin-bottom: 6px;
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.profit-summary-grid strong {
-  color: #111827;
-  font-size: 18px;
-}
-
-/* ADD EXPENSE */
-
-.add-expense-button {
-  padding: 8px 14px;
-  border: none;
-  border-radius: 6px;
-  background: #111827;
-  color: #ffffff;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.add-expense-button:hover {
-  background: #1f2937;
-}
-
-/* TRANSACTION TYPE */
-
-.transaction-type {
+.journal-chip {
   display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
-.income-type {
+.journal-chip--income {
   background: #dcfce7;
-  color: #166534;
+  color: #15803d;
 }
 
-.expense-type {
+.journal-chip--expense {
   background: #fee2e2;
-  color: #991b1b;
+  color: #b91c1c;
 }
 
-/* TABLE ROW */
-
-.expense-profit-table tbody tr:hover,
-.expense-summary-table tbody tr:hover {
-  background: #f9fafb;
+.journal-category {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #374151;
 }
 
-/* TABLET */
-
-@media (max-width: 900px) {
-  .expense-profit-page {
-    padding: 28px 22px 50px;
-  }
-
-  .expense-profit-summary {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .expense-profit-summary-card:last-child {
-    grid-column: 1 / -1;
-  }
+.journal-empty {
+  text-align: center;
+  padding: 48px 16px !important;
+  color: #9ca3af;
+  font-size: 14px;
 }
 
-/* MOBILE */
+/* ============================================================
+   VIEW BUTTON
+   ============================================================ */
 
-@media (max-width: 560px) {
-  .expense-profit-page {
-    padding: 24px 16px 40px;
-  }
-
-  .expense-profit-heading {
-    padding-top: 42px;
-  }
-
-  .expense-profit-heading h1 {
-    font-size: 22px;
-  }
-
-  .expense-profit-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .expense-profit-summary-card:last-child {
-    grid-column: auto;
-  }
-
-  .profit-summary-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .profit-summary-grid > div {
-    border-right: none;
-    border-bottom: 1px solid #e5e7eb;
-  }
-
-  .profit-summary-grid > div:last-child {
-    border-bottom: none;
-  }
-
-  .expense-profit-section-header {
-    align-items: flex-start;
-    gap: 12px;
-  }
+.journal-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #4b5563;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
-/* =========================================================
-   ADD EXPENSE FORM
-========================================================= */
+.journal-view-btn:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
 
-.expense-form {
+.journal-view-btn:active {
+  transform: scale(0.95);
+}
+
+/* ============================================================
+   MODAL
+   ============================================================ */
+
+.journal-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 20px;
+  z-index: 1000;
+  animation: journal-fade-in 0.15s ease-out;
 }
 
-.expense-form-grid {
+@keyframes journal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.journal-modal__panel {
+  width: 100%;
+  max-width: 720px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  animation: journal-slide-up 0.2s ease-out;
+}
+
+@keyframes journal-slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.journal-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f1f3;
+}
+
+.journal-modal__header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1f36;
+}
+
+.journal-modal__close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #6b7280;
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+}
+
+.journal-modal__close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+/* ============================================================
+   FORM
+   ============================================================ */
+
+.journal-form {
+  padding: 20px 24px 24px;
+}
+
+.journal-form__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
 }
 
-.expense-form-field {
+.journal-field {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
 }
 
-.expense-form-field-wide {
+.journal-field--wide {
   grid-column: 1 / -1;
 }
 
-.expense-form-field span {
+.journal-field span {
+  font-size: 13px;
+  font-weight: 500;
   color: #374151;
-  font-size: 12.5px;
+}
+
+.journal-field span b {
+  color: #dc2626;
   font-weight: 600;
 }
 
-.expense-form-field span b {
-  color: #dc2626;
-}
-
-.expense-form-field input,
-.expense-form-field select,
-.expense-form-field textarea {
+.journal-field input,
+.journal-field select,
+.journal-field textarea {
   width: 100%;
-  box-sizing: border-box;
-  padding: 10px 11px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #111827;
+  padding: 10px 12px;
+  font-size: 14px;
   font-family: inherit;
-  font-size: 13px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
   outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
 }
 
-.expense-form-field input:focus,
-.expense-form-field select:focus,
-.expense-form-field textarea:focus {
-  border-color: #6b7280;
-  box-shadow: 0 0 0 2px rgba(107, 114, 128, 0.10);
-}
-
-.expense-form-field textarea {
+.journal-field textarea {
   resize: vertical;
+  min-height: 72px;
 }
 
-.expense-form-actions {
+.journal-field input:focus,
+.journal-field select:focus,
+.journal-field textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.journal-form__actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 22px;
-  padding-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  padding-top: 18px;
+  border-top: 1px solid #f0f1f3;
 }
 
-.expense-form-cancel,
-.expense-form-save {
-  padding: 8px 15px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
+/* ============================================================
+   DETAILS MODAL
+   ============================================================ */
+
+.journal-modal__panel--view {
+  max-width: 620px;
 }
 
-.expense-form-cancel {
-  border: 1px solid #d1d5db;
-  background: #ffffff;
-  color: #374151;
+.journal-view {
+  padding: 20px 24px 4px;
 }
 
-.expense-form-cancel:hover {
+.journal-view__banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
   background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  margin-bottom: 18px;
 }
 
-.expense-form-save {
-  border: 1px solid #111827;
-  background: #111827;
-  color: #ffffff;
+.journal-view__amount {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
-.expense-form-save:hover {
-  background: #1f2937;
+.journal-view__amount--income { color: #15803d; }
+.journal-view__amount--expense { color: #b91c1c; }
+
+.journal-view__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-/* MOBILE */
+.journal-view__row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f1f3;
+  border-right: 1px solid #f0f1f3;
+}
 
-@media (max-width: 560px) {
-  .expense-form-grid {
+.journal-view__row:nth-child(2n) {
+  border-right: none;
+}
+
+.journal-view__row--wide {
+  grid-column: 1 / -1;
+  border-right: none;
+}
+
+.journal-view__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.journal-view__value {
+  font-size: 14px;
+  color: #111827;
+  word-break: break-word;
+}
+
+.journal-view__value--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .journal-summary {
     grid-template-columns: 1fr;
   }
 
-  .expense-form-field-wide {
-    grid-column: auto;
-  }
-
-  .expense-form {
-    padding: 16px;
-  }
-
-  .expense-form-actions {
-    flex-direction: column;
-  }
-
-  .expense-form-cancel,
-  .expense-form-save {
-    width: 100%;
+  .journal-form__grid {
+    grid-template-columns: 1fr;
   }
 }
-  /**/
+
+@media (max-width: 640px) {
+  .journal-page {
+    padding: 16px 12px 40px;
+  }
+
+  .journal-heading h1 {
+    font-size: 22px;
+  }
+
+  .journal-section__header {
+    padding: 14px 16px;
+  }
+
+  .journal-filters {
+    padding: 12px 16px;
+  }
+
+  .journal-table thead th,
+  .journal-table tbody td {
+    padding: 10px 12px;
+  }
+
+  .journal-view__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .journal-view__row {
+    border-right: none;
+  }
+}

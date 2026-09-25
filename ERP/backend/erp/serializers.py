@@ -349,7 +349,6 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
 from rest_framework import serializers
 from .models import Customer
 
-
 class CustomerSerializer(serializers.ModelSerializer):
 
     class Meta:
@@ -363,6 +362,8 @@ class CustomerSerializer(serializers.ModelSerializer):
             "phone",
             "email",
             "gst_number",
+            "state",          # ← ADDED
+            "state_code",     # ← ADDED
             "source",
             "created_at",
             "updated_at",
@@ -374,7 +375,6 @@ class CustomerSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-
 from rest_framework import serializers
 
 from .models import Quotation, Customer
@@ -917,3 +917,318 @@ class TaxInvoiceSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+
+#for perfoma
+
+from .models import ProformaInvoice
+
+
+class ProformaInvoiceSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ProformaInvoice
+
+        fields = [
+            "id",
+            "proforma_no",
+            "date",
+            "valid_until",
+            "payment_terms",
+
+            "reference_no",
+            "customer_po_no",
+            "po_date",
+            "place_of_supply",
+
+            "receiver_details",
+            "receiver_gst",
+            "receiver_address_option_id",
+
+            "consignee_details",
+            "consignee_gst",
+            "consignee_address_option_id",
+
+            "company_address_id",
+
+            "items",
+
+            "subtotal",
+            "cgst_percent",
+            "cgst_amount",
+            "sgst_percent",
+            "sgst_amount",
+            "igst_percent",
+            "igst_amount",
+            "rounded_off",
+            "grand_total",
+            "amount_in_words",
+
+            "bank_name",
+            "account_number",
+            "branch",
+            "ifsc",
+            "pan",
+
+            "declaration",
+            "enclosure_text",
+
+            "document_data",
+
+            "status",
+            "pdf_file",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "pdf_file",
+            "created_at",
+            "updated_at",
+        ]
+
+    # ==========================================================
+    # FIELD VALIDATION
+    # ==========================================================
+
+    def validate_proforma_no(self, value):
+
+        value = str(value or "").strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Proforma number is required."
+            )
+
+        return value
+
+    def validate_items(self, value):
+
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                "Items must be a list."
+            )
+
+        if not value:
+            raise serializers.ValidationError(
+                "At least one proforma item is required."
+            )
+
+        for index, item in enumerate(value, start=1):
+
+            if not isinstance(item, dict):
+                raise serializers.ValidationError(
+                    f"Item {index} must be an object."
+                )
+
+            description = str(
+                item.get("description", "") or ""
+            ).strip()
+
+            if not description:
+                raise serializers.ValidationError(
+                    f"Item {index}: description is required."
+                )
+
+            quantity = item.get("quantity", "")
+
+            if quantity not in ("", None):
+
+                try:
+                    qty_value = float(quantity)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError(
+                        f"Item {index}: quantity must be a number."
+                    )
+
+                if qty_value < 0:
+                    raise serializers.ValidationError(
+                        f"Item {index}: quantity cannot be negative."
+                    )
+
+            rate = item.get("rate", "")
+
+            if rate not in ("", None):
+
+                try:
+                    rate_value = float(rate)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError(
+                        f"Item {index}: rate must be a number."
+                    )
+
+                if rate_value < 0:
+                    raise serializers.ValidationError(
+                        f"Item {index}: rate cannot be negative."
+                    )
+
+        return value
+
+    def validate_receiver_details(self, value):
+
+        if value is None:
+            return {}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Receiver details must be an object."
+            )
+
+        return value
+
+    def validate_consignee_details(self, value):
+
+        if value is None:
+            return {}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Consignee details must be an object."
+            )
+
+        return value
+
+    def validate_cgst_percent(self, value):
+
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                "CGST percentage cannot be negative."
+            )
+
+        return value
+
+    def validate_sgst_percent(self, value):
+
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                "SGST percentage cannot be negative."
+            )
+
+        return value
+
+    def validate_igst_percent(self, value):
+
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                "IGST percentage cannot be negative."
+            )
+
+        return value
+
+
+# for reports
+from rest_framework import serializers
+
+
+# ============================================================
+# ACCOUNTS REPORT
+# ------------------------------------------------------------
+# Unified row shape used by the Reports page. A row can come
+# from any of the 5 document models (PO, QO, DC, TI, PI).
+#
+# This is a plain Serializer — NOT a ModelSerializer — because
+# rows are hand-built by services/accounts_report.py and don't
+# map 1-to-1 to any single model.
+# ============================================================
+
+
+class AccountsReportRowSerializer(serializers.Serializer):
+    """
+    One row on the Reports table.
+
+    Field contract (must match services.accounts_report._build_row):
+
+        id               "PO-12"  (unique across all document types)
+        type             "Purchase Order"
+        short            "PO"
+        document_number  "PO1001"
+        payment_status   "Paid" | "Pending" | "N/A"
+        delivery_status  "Delivered" | "Pending" | "N/A"
+        path             "/accounts/po"
+        document_data    { ... }  full blob for View / Print
+    """
+
+    id = serializers.CharField()
+
+    type = serializers.CharField()
+
+    short = serializers.CharField()
+
+    document_number = serializers.CharField(
+        allow_blank=True,
+    )
+
+    payment_status = serializers.CharField()
+
+    delivery_status = serializers.CharField()
+
+    path = serializers.CharField()
+
+    document_data = serializers.DictField(
+        child=serializers.JSONField(),
+        allow_empty=True,
+    )
+
+class StatusUpdateSerializer(serializers.Serializer):
+    """
+    Payload for PATCH /erp/accounts-report/<short>/<id>/status/
+
+    Both fields optional — send only the one you want to change.
+    """
+
+    payment_status = serializers.ChoiceField(
+        choices=["Paid", "Pending", "N/A"],
+        required=False,
+    )
+
+    delivery_status = serializers.ChoiceField(
+        choices=["Delivered", "Pending", "N/A"],
+        required=False,
+    )
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                "Provide at least one of payment_status or delivery_status."
+            )
+        return attrs
+
+#for expense
+
+from .models import JournalEntry
+
+
+class JournalEntrySerializer(serializers.ModelSerializer):
+    """
+    One row on the Journal / Expense & Profit page.
+    """
+
+    class Meta:
+        model = JournalEntry
+        fields = [
+            "id",
+            "record_number",
+            "date",
+            "type",
+            "category",
+            "description",
+            "amount",
+            "payment_mode",
+            "document_number",
+            "document",
+            "notes",
+            "source_type",
+            "source_id",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "record_number",
+            "created_at",
+            "updated_at",
+        ]
+

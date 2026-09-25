@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import VendorDetails from "../../components/VendorDetails";
 import OrderItemsTable from "../../components/OrderItemsTable";
@@ -6,7 +5,7 @@ import AmountSummary from "../../components/AmountSummary";
 import TermsEditor from "../../components/TermsEditor";
 import { initialQuoteData } from "../../utils/initialData";
 import "./Quotation.css";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
@@ -19,6 +18,9 @@ const DRAFT_KEY = "mei-erp-quotation-draft";
 const QUOTATION_CUSTOMERS_ENDPOINT = "/erp/quotation-customers/";
 const QUOTATION_NEXT_NUMBER_ENDPOINT = "/erp/quotations/next-number/";
 const QUOTATION_SAVE_ENDPOINT = "/erp/quotations/";
+
+/* Single generic error message for every failure. */
+const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 // ---------------------------------------------------------------------------
 // Print engine loader
@@ -224,7 +226,18 @@ const vendorsAreEqual = (a, b) => {
 };
 
 export default function QuotationForm() {
+  const location = useLocation();
   const { accessToken } = useAuth();
+
+  // ============================================================
+  // REPORT VIEW MODE
+  // ============================================================
+  const reportMode = location.state?.mode;
+  const reportNumber = location.state?.documentNumber;
+
+  const [numberChoice, setNumberChoice] = useState(
+    reportMode === "view" && reportNumber ? null : "auto",
+  );
 
   const [data, setData] = useState(() => {
     const initial = initialQuoteData();
@@ -260,6 +273,9 @@ export default function QuotationForm() {
   // LOAD LOCAL DRAFT
   // ============================================================
   useEffect(() => {
+    // Skip draft restore when opened from Reports
+    if (reportMode === "view" && reportNumber) return;
+
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return;
 
@@ -269,7 +285,7 @@ export default function QuotationForm() {
     } catch {
       // ignore
     }
-  }, []);
+  }, [reportMode, reportNumber]);
 
   // ============================================================
   // LOAD CUSTOMERS
@@ -301,20 +317,7 @@ export default function QuotationForm() {
     } catch (error) {
       console.error("Failed to load quotation customers:", error);
       setCustomers([]);
-
-      if (error.response) {
-        setCustomersError(
-          error.response.data?.message ||
-            "Unable to load quotation customers.",
-        );
-      } else if (error.request) {
-        setCustomersError("Unable to connect to the server.");
-      } else {
-        setCustomersError(
-          error.message ||
-            "Something went wrong while loading quotation customers.",
-        );
-      }
+      setCustomersError(GENERIC_ERROR);
       return [];
     } finally {
       setCustomersLoading(false);
@@ -338,9 +341,7 @@ export default function QuotationForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.quotation_number) {
-        throw new Error(
-          responseData?.message || "Unable to get quotation number.",
-        );
+        throw new Error("bad response");
       }
 
       const quotationNumber = responseData.quotation_number;
@@ -395,27 +396,54 @@ export default function QuotationForm() {
       }
     } catch (error) {
       console.error("Failed to load quotation data:", error);
-
-      const message = error.response
-        ? error.response.data?.message || "Unable to load quotation data."
-        : error.request
-          ? "Unable to connect to the server while getting quotation data."
-          : error.message || "Unable to load quotation data.";
-
-      setQuotationNumberError(message);
+      setQuotationNumberError(GENERIC_ERROR);
     } finally {
       setQuotationNumberLoading(false);
     }
   }, [accessToken]);
 
   // ============================================================
+  // REPORT-VIEW: NUMBER CHOICE HANDLERS
+  // ============================================================
+  const handleUseExistingNumber = useCallback(() => {
+    setNumberChoice("existing");
+    setData((prev) =>
+      normalizeQuoteData({ ...prev, quotationNumber: reportNumber }),
+    );
+    setQuotationNumberError("");
+  }, [reportNumber]);
+
+  const handleUseNewNumber = useCallback(async () => {
+    setNumberChoice("new");
+    if (accessToken) {
+      await loadQuotationNumber();
+    }
+  }, [accessToken, loadQuotationNumber]);
+
+  // ============================================================
   // BOOTSTRAP
   // ============================================================
   useEffect(() => {
     if (!accessToken) return;
+
     loadCustomers();
-    loadQuotationNumber();
-  }, [accessToken, loadCustomers, loadQuotationNumber]);
+
+    const cameFromReportWithNumber = reportMode === "view" && !!reportNumber;
+
+    if (cameFromReportWithNumber) {
+      setData((prev) =>
+        normalizeQuoteData({ ...prev, quotationNumber: reportNumber }),
+      );
+    } else {
+      loadQuotationNumber();
+    }
+  }, [
+    accessToken,
+    loadCustomers,
+    loadQuotationNumber,
+    reportMode,
+    reportNumber,
+  ]);
 
   // ============================================================
   // SYNC DROPDOWN AFTER CUSTOMERS LOAD
@@ -436,9 +464,7 @@ export default function QuotationForm() {
     if (customer) {
       setSelectedCustomerId(String(customer.id));
 
-      setOriginalVendor((prev) =>
-        prev ? prev : customerToVendor(customer),
-      );
+      setOriginalVendor((prev) => (prev ? prev : customerToVendor(customer)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers]);
@@ -588,9 +614,7 @@ export default function QuotationForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.data) {
-        throw new Error(
-          responseData?.message || "Unable to create quotation customer.",
-        );
+        throw new Error("bad response");
       }
 
       const newCustomer = responseData.data;
@@ -609,38 +633,7 @@ export default function QuotationForm() {
       );
     } catch (error) {
       console.error("Failed to create quotation customer:", error);
-
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setCustomerActionError(
-            errorMessages ||
-              responseData?.message ||
-              "Customer could not be created.",
-          );
-        } else {
-          setCustomerActionError(
-            responseData?.message || "Customer could not be created.",
-          );
-        }
-      } else if (error.request) {
-        setCustomerActionError("Unable to connect to the server.");
-      } else {
-        setCustomerActionError(
-          error.message || "Something went wrong while creating the customer.",
-        );
-      }
+      setCustomerActionError(GENERIC_ERROR);
     } finally {
       setCustomerAction(null);
     }
@@ -695,9 +688,7 @@ export default function QuotationForm() {
       const responseData = response.data;
 
       if (!responseData?.success || !responseData?.data) {
-        throw new Error(
-          responseData?.message || "Unable to update quotation customer.",
-        );
+        throw new Error("bad response");
       }
 
       const updatedCustomer = responseData.data;
@@ -719,38 +710,7 @@ export default function QuotationForm() {
       );
     } catch (error) {
       console.error("Failed to update quotation customer:", error);
-
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setCustomerActionError(
-            errorMessages ||
-              responseData?.message ||
-              "Customer could not be updated.",
-          );
-        } else {
-          setCustomerActionError(
-            responseData?.message || "Customer could not be updated.",
-          );
-        }
-      } else if (error.request) {
-        setCustomerActionError("Unable to connect to the server.");
-      } else {
-        setCustomerActionError(
-          error.message || "Something went wrong while updating the customer.",
-        );
-      }
+      setCustomerActionError(GENERIC_ERROR);
     } finally {
       setCustomerAction(null);
     }
@@ -847,6 +807,7 @@ export default function QuotationForm() {
     setCustomerActionError("");
     setSubmitError("");
     setQuotationNumberError("");
+    setNumberChoice("auto");
 
     if (accessToken) {
       await loadQuotationNumber();
@@ -889,61 +850,19 @@ export default function QuotationForm() {
       });
 
       if (!response.data?.success) {
-        setSubmitError(
-          response.data?.message || "Quotation creation failed.",
-        );
-        return null;
+        throw new Error("bad response");
       }
 
       const savedQuotation = response.data?.data;
 
       if (!savedQuotation) {
-        setSubmitError(
-          "Quotation was saved, but the server returned invalid data.",
-        );
-        return null;
+        throw new Error("bad response");
       }
 
       return savedQuotation;
     } catch (error) {
       console.error("Quotation creation failed:", error);
-
-      if (error.response) {
-        const responseData = error.response.data;
-        const backendMessage = responseData?.message;
-        const backendErrors = responseData?.errors;
-
-        if (backendErrors) {
-          const errorMessages = Object.entries(backendErrors)
-            .map(([field, messages]) => {
-              const message = Array.isArray(messages)
-                ? messages.join(", ")
-                : String(messages);
-              return `${field}: ${message}`;
-            })
-            .join(" | ");
-
-          setSubmitError(
-            errorMessages ||
-              backendMessage ||
-              "Please check the entered details.",
-          );
-        } else {
-          setSubmitError(
-            backendMessage || "Quotation could not be created.",
-          );
-        }
-      } else if (error.request) {
-        setSubmitError(
-          "Unable to connect to the server. Please check whether the backend is running.",
-        );
-      } else {
-        setSubmitError(
-          error.message ||
-            "Something went wrong while creating the quotation.",
-        );
-      }
-
+      setSubmitError(GENERIC_ERROR);
       return null;
     } finally {
       setSubmitting(false);
@@ -1092,6 +1011,72 @@ export default function QuotationForm() {
           </div>
         </div>
 
+        {/* ---------- NUMBER CHOICE BANNER ---------- */}
+        {reportMode === "view" && reportNumber && numberChoice === null && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">?</div>
+            <div className="qt-alert__content">
+              <strong>This Quotation already exists: {reportNumber}</strong>
+              <span>
+                Do you want to edit the existing quotation (same number), or
+                create a new one with the next number in the sequence?
+              </span>
+
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleUseExistingNumber}
+                >
+                  Use this number (edit)
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleUseNewNumber}
+                >
+                  New number
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {reportMode === "view" && numberChoice === "existing" && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">i</div>
+            <div className="qt-alert__content">
+              <strong>Editing existing quotation {reportNumber}</strong>
+              <span>
+                When you click Preview, the backend will not consume a new
+                number.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {reportMode === "view" && numberChoice === "new" && (
+          <div className="qt-alert">
+            <div className="qt-alert__icon">i</div>
+            <div className="qt-alert__content">
+              <strong>
+                Creating a new quotation: {data.quotationNumber || "Loading..."}
+              </strong>
+              <span>
+                A fresh number from the current sequence will be used.
+              </span>
+            </div>
+          </div>
+        )}
+
         {Object.keys(errors).length > 0 && (
           <div className="qt-alert">
             <div className="qt-alert__icon">!</div>
@@ -1180,21 +1165,18 @@ export default function QuotationForm() {
             </div>
           </div>
 
-          {/* LOADING */}
           {customersLoading && (
             <div className="qt-customer-loading">
               <Loading />
             </div>
           )}
 
-          {/* ERROR */}
           {!customersLoading && customersError && (
             <div className="qt-customer-error">
               <Error onRetry={loadCustomers} />
             </div>
           )}
 
-          {/* CONTENT (only after loading succeeds) */}
           {!customersLoading && !customersError && (
             <>
               {customers.length > 0 && (
@@ -1207,17 +1189,12 @@ export default function QuotationForm() {
                     <select
                       className="qt-input"
                       value={selectedCustomerId}
-                      onChange={(e) =>
-                        handleCustomerChange(e.target.value)
-                      }
+                      onChange={(e) => handleCustomerChange(e.target.value)}
                     >
                       <option value="">Select Customer</option>
 
                       {customers.map((customer) => (
-                        <option
-                          key={customer.id}
-                          value={customer.id}
-                        >
+                        <option key={customer.id} value={customer.id}>
                           {customer.company_name}
                         </option>
                       ))}
@@ -1228,8 +1205,8 @@ export default function QuotationForm() {
 
               {customers.length === 0 && (
                 <div className="qt-customer-empty">
-                  No saved customers. You can enter customer details
-                  manually below.
+                  No saved customers. You can enter customer details manually
+                  below.
                 </div>
               )}
 
@@ -1237,19 +1214,14 @@ export default function QuotationForm() {
                 mode="form"
                 vendor={data.vendor}
                 onChange={(value) =>
-                  setData((d) =>
-                    normalizeQuoteData({ ...d, vendor: value }),
-                  )
+                  setData((d) => normalizeQuoteData({ ...d, vendor: value }))
                 }
                 heading=""
               />
 
-              {/* ACTION BAR */}
               <div
                 className={`qt-customer-actions ${
-                  availableAction === "update"
-                    ? "qt-customer-modified"
-                    : ""
+                  availableAction === "update" ? "qt-customer-modified" : ""
                 }`}
               >
                 <div className="qt-customer-actions__info">
@@ -1257,8 +1229,8 @@ export default function QuotationForm() {
                     <>
                       <strong>Customer details changed</strong>
                       <span>
-                        Save changes to the master customer record, or
-                        reset to the saved values.
+                        Save changes to the master customer record, or reset
+                        to the saved values.
                       </span>
                     </>
                   )}
@@ -1267,8 +1239,8 @@ export default function QuotationForm() {
                     <>
                       <strong>New customer</strong>
                       <span>
-                        No matching customer exists. Create it to
-                        reuse in future quotations.
+                        No matching customer exists. Create it to reuse in
+                        future quotations.
                       </span>
                     </>
                   )}

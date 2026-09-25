@@ -1,13 +1,24 @@
+from django.db import models
 from django.shortcuts import render
 from django.db import transaction
 from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import F
+from .serializers import (
+    CustomerSerializer,
+    DeliveryChallanSerializer,
+    ProformaInvoiceSerializer,
+    PurchaseOrderSerializer,
+    QuotationSerializer,
+    TaxInvoiceSerializer,
+)
 from .models import (
     Customer,
     DeliveryChallan,
     DeliveryChallanNumberSettings,
+    ProformaInvoice,
+    ProformaInvoiceNumberSettings,
     PurchaseOrder,
     PurchaseOrderNumberSettings,
     Quotation,
@@ -15,13 +26,6 @@ from .models import (
     TaxInvoice,
     TaxInvoiceNumberSettings,
     User,
-)
-from .serializers import (
-    CustomerSerializer,
-    DeliveryChallanSerializer,
-    PurchaseOrderSerializer,
-    QuotationSerializer,
-    TaxInvoiceSerializer,
 )
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -57,7 +61,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.conf import settings
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, get_user_model
 from django.middleware.csrf import get_token
 
 from rest_framework.views import APIView
@@ -3060,6 +3064,7 @@ class TaxInvoiceCustomerAPIView(APIView):
 # ==================================================================
 # CREATE / UPDATE TAX INVOICE
 # ==================================================================
+@method_decorator(csrf_protect, name="dispatch")
 class TaxInvoiceCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsAccounts]
 
@@ -3375,3 +3380,1274 @@ class TaxInvoiceConfirmAPIView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
+
+#for perfoma
+
+
+class ProformaInvoiceNextNumberAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def get(self, request):
+
+        settings = (
+            ProformaInvoiceNumberSettings.objects
+            .filter(is_active=True)
+            .first()
+        )
+
+        if not settings:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Proforma invoice number settings "
+                        "have not been configured."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # 1. Generate current proforma number
+        # ==================================================
+
+        proforma_no = (
+            f"{settings.prefix}"
+            f"{settings.next_number:0{settings.number_padding}d}"
+        )
+
+        # ==================================================
+        # 2. Check whether current proforma already exists
+        # ==================================================
+
+        existing_proforma = (
+            ProformaInvoice.objects
+            .filter(proforma_no=proforma_no)
+            .first()
+        )
+
+        # ==================================================
+        # 3. CURRENT PROFORMA EXISTS
+        # ==================================================
+
+        if existing_proforma is not None:
+
+            serializer = ProformaInvoiceSerializer(
+                existing_proforma
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": False,
+                    "proforma_no": proforma_no,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # ==================================================
+        # 4. CURRENT PROFORMA DOES NOT EXIST
+        #    GET PREVIOUS PROFORMA
+        # ==================================================
+
+        previous_proforma = (
+            ProformaInvoice.objects
+            .order_by("-id")
+            .first()
+        )
+
+        # ==================================================
+        # 5. NO PREVIOUS PROFORMA
+        # ==================================================
+
+        if previous_proforma is None:
+
+            return Response(
+                {
+                    "success": True,
+                    "is_new": True,
+                    "proforma_no": proforma_no,
+                    "data": None,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # ==================================================
+        # 6. CLONE PREVIOUS PROFORMA
+        # ==================================================
+
+        serializer = ProformaInvoiceSerializer(
+            previous_proforma
+        )
+
+        previous_data = serializer.data.copy()
+
+        previous_data["proforma_no"] = proforma_no
+
+        return Response(
+            {
+                "success": True,
+                "is_new": True,
+                "proforma_no": proforma_no,
+                "previous_proforma_no": (
+                    previous_proforma.proforma_no
+                ),
+                "data": previous_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ==================================================================
+# PROFORMA INVOICE CUSTOMERS (GET / POST / PATCH)
+# ------------------------------------------------------------------
+# Shares the same Customer pool as Tax Invoice (source=TAX_INVOICE)
+# so both modules see one consistent customer master. Change the
+# source constant if you want a separate pool.
+# ==================================================================
+class ProformaInvoiceCustomerAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    # =========================
+    # GET
+    # =========================
+
+    def get(self, request, pk=None):
+
+        # GET /proforma-invoice-customers/
+        if pk is None:
+
+            customers = Customer.objects.filter(
+                source=Customer.Source.TAX_INVOICE
+            )
+
+            serializer = CustomerSerializer(
+                customers,
+                many=True,
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Proforma invoice customers retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # GET /proforma-invoice-customers/<id>/
+        try:
+            customer = Customer.objects.get(
+                pk=pk,
+                source=Customer.Source.TAX_INVOICE,
+            )
+
+        except Customer.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Proforma invoice customer not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerSerializer(customer)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Proforma invoice customer retrieved successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =========================
+    # POST
+    # =========================
+
+    def post(self, request):
+
+        serializer = CustomerSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+
+            customer = serializer.save(
+                source=Customer.Source.TAX_INVOICE
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Proforma invoice customer created successfully.",
+                    "data": CustomerSerializer(
+                        customer
+                    ).data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Customer validation failed.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # =========================
+    # PATCH
+    # =========================
+
+    def patch(self, request, pk=None):
+
+        if pk is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Customer ID is required "
+                        "for PATCH."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            customer = Customer.objects.get(
+                pk=pk,
+                source=Customer.Source.TAX_INVOICE,
+            )
+
+        except Customer.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Proforma invoice customer not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerSerializer(
+            customer,
+            data=request.data,
+            partial=True,
+        )
+
+        if serializer.is_valid():
+
+            customer = serializer.save(
+                source=Customer.Source.TAX_INVOICE
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Proforma invoice customer updated successfully.",
+                    "data": CustomerSerializer(
+                        customer
+                    ).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Customer validation failed.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+# ==================================================================
+# CREATE / UPDATE PROFORMA INVOICE
+# ==================================================================
+class ProformaInvoiceCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def post(self, request):
+
+        with transaction.atomic():
+
+            data = request.data.copy()
+
+            # ==================================================
+            # 1. CHECK EXISTING PROFORMA
+            # ==================================================
+
+            incoming_proforma_no = str(
+                data.get("proforma_no", "")
+            ).strip()
+
+            existing_proforma = None
+
+            if incoming_proforma_no:
+
+                existing_proforma = (
+                    ProformaInvoice.objects
+                    .select_for_update()
+                    .filter(
+                        proforma_no=incoming_proforma_no
+                    )
+                    .first()
+                )
+
+            # ==================================================
+            # 2. UPDATE EXISTING PROFORMA
+            # ==================================================
+
+            if existing_proforma is not None:
+
+                # Proforma number is only used to find the proforma.
+                # It must not be changed by an update.
+                data.pop("proforma_no", None)
+
+                serializer = ProformaInvoiceSerializer(
+                    existing_proforma,
+                    data=data,
+                    partial=True,
+                )
+
+                serializer.is_valid(
+                    raise_exception=True
+                )
+
+                proforma = serializer.save()
+
+                response_serializer = ProformaInvoiceSerializer(
+                    proforma
+                )
+
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Proforma invoice updated successfully.",
+                        "data": response_serializer.data,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            # ==================================================
+            # 3. CREATE NEW PROFORMA
+            # ==================================================
+
+            serializer = ProformaInvoiceSerializer(
+                data=data
+            )
+
+            serializer.is_valid(
+                raise_exception=True
+            )
+
+            proforma = serializer.save()
+
+        response_serializer = ProformaInvoiceSerializer(proforma)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Proforma invoice created successfully.",
+                "data": response_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ==================================================================
+# CONFIRM PROFORMA INVOICE (PDF SAVE + STATUS FLIP)
+# ==================================================================
+@method_decorator(csrf_protect, name="dispatch")
+class ProformaInvoiceConfirmAPIView(APIView):
+
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, proforma_no):
+
+        with transaction.atomic():
+
+            # ============================================================
+            # 1. Session check (HttpOnly refresh cookie)
+            # ============================================================
+
+            refresh_token = request.COOKIES.get(
+                settings.REFRESH_COOKIE_NAME
+            )
+
+            if not refresh_token:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session not found. Please login again.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            try:
+                token = RefreshToken(refresh_token)
+                user_id = token.get("user_id")
+            except Exception:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session is invalid or expired.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Session user no longer exists.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            # ============================================================
+            # 2. Accounts-department check
+            # ============================================================
+
+            if user.user_type != User.UserType.ACCOUNTS:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accounts access required.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            # ============================================================
+            # 3. Locate the Proforma Invoice (locked)
+            # ============================================================
+
+            try:
+                proforma = (
+                    ProformaInvoice.objects
+                    .select_for_update()
+                    .get(proforma_no=proforma_no)
+                )
+            except ProformaInvoice.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Proforma invoice not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # ============================================================
+            # 4. Read the uploaded PDF
+            # ============================================================
+
+            pdf_file = request.FILES.get("pdf")
+
+            if not pdf_file:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No PDF file was uploaded.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # ============================================================
+            # 5. Save PDF under MEDIA/proforma_invoices/pdf/
+            # ============================================================
+
+            safe_pf = (
+                str(proforma_no)
+                .replace("/", "-")
+                .replace("\\", "-")
+            )
+            filename = f"{safe_pf}.pdf"
+
+            if proforma.pdf_file:
+                try:
+                    proforma.pdf_file.delete(save=False)
+                except Exception:
+                    pass
+
+            proforma.pdf_file.save(
+                filename,
+                ContentFile(pdf_file.read()),
+                save=False,
+            )
+
+            # ============================================================
+            # 6. Flip status to confirmed
+            # ============================================================
+
+            was_already_confirmed = (
+                proforma.status
+                == ProformaInvoice.Status.CONFIRMED
+            )
+
+            proforma.status = ProformaInvoice.Status.CONFIRMED
+
+            proforma.save(
+                update_fields=[
+                    "pdf_file",
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+            # ============================================================
+            # 7. Advance the proforma number counter
+            # ------------------------------------------------------------
+            # Only on the first confirmation.
+            # ============================================================
+
+            if not was_already_confirmed:
+
+                settings_obj = (
+                    ProformaInvoiceNumberSettings.objects
+                    .select_for_update()
+                    .filter(is_active=True)
+                    .first()
+                )
+
+                if settings_obj:
+
+                    settings_obj.next_number += 1
+
+                    settings_obj.save(
+                        update_fields=[
+                            "next_number",
+                            "updated_at",
+                        ]
+                    )
+
+            # ============================================================
+            # 8. Response
+            # ============================================================
+
+            serializer = ProformaInvoiceSerializer(proforma)
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Proforma invoice confirmed and PDF saved.",
+                    "data": serializer.data,
+                    "pdf_url": (
+                        request.build_absolute_uri(
+                            proforma.pdf_file.url
+                        )
+                        if proforma.pdf_file
+                        else None
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+#for reports
+from .serializers import AccountsReportRowSerializer
+
+User = get_user_model()
+# ============================================================
+# ACCOUNTS REPORT
+# ------------------------------------------------------------
+# Unified list of every accounting document (PO, QO, DC, TI, PI)
+# for the Reports page.
+#
+# Everything is inline in the view — no service layer.
+# ============================================================
+
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect
+
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from .models import (
+    PurchaseOrder,
+    Quotation,
+    DeliveryChallan,
+    TaxInvoice,
+    ProformaInvoice,
+)
+from .serializers import AccountsReportRowSerializer
+
+User = get_user_model()
+
+
+# ============================================================
+# SMALL HELPERS (used only by the report view)
+# ============================================================
+
+def _iso(d):
+    """Date → ISO string, or "" if None."""
+    return d.isoformat() if d else ""
+
+
+def _customer_block(customer):
+    """Flatten a Customer FK into a plain dict for document_data."""
+    if not customer:
+        return {}
+    return {
+        "companyName": customer.company_name or "",
+        "address": customer.address or "",
+        "contactPerson": customer.contact_person or "",
+        "phone": customer.phone or "",
+        "email": customer.email or "",
+        "gst": customer.gst_number or "",
+        "state": customer.state or "",
+        "stateCode": customer.state_code or "",
+    }
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class AccountsReportAPIView(APIView):
+    """
+    GET /erp/accounts-report/
+    GET /erp/accounts-report/?type=PO   (optional filter)
+    """
+
+    permission_classes = [AllowAny]   # session cookie is the real gate
+
+    def get(self, request, document_type=None):
+
+        # ============================================================
+        # 1. Session check (HttpOnly refresh cookie)
+        # ============================================================
+        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+
+        if not refresh_token:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Session not found. Please login again.",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            user_id = token.get("user_id")
+        except Exception:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Session is invalid or expired.",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Session user no longer exists.",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # ============================================================
+        # 2. Accounts-department check
+        # ============================================================
+        if user.user_type != User.UserType.ACCOUNTS:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accounts access required.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # ============================================================
+        # 3. Optional filter by document type
+        # ============================================================
+        type_filter = (document_type or request.query_params.get("type") or "ALL").upper()
+
+        def want(short):
+            return type_filter == "ALL" or type_filter == short
+
+        rows = []
+
+        # ============================================================
+        # 4. PURCHASE ORDERS
+        # ============================================================
+        if want("PO"):
+            for po in PurchaseOrder.objects.all().order_by("-created_at"):
+                doc_data = po.document_data or {
+                    "poNumber": po.po_number,
+                    "poDate": _iso(po.po_date),
+                    "refQuoteNumber": po.ref_quote_number,
+                    "refDate": _iso(po.ref_date),
+                    "subject": po.subject,
+                    "preparedBy": po.prepared_by,
+                    "vendor": po.vendor,
+                    "introText": po.intro_text,
+                    "items": po.items,
+                    "columns": po.columns,
+                    "includeAmountDetails": po.include_amount_details,
+                    "subtotal": float(po.subtotal),
+                    "gstPercent": float(po.gst_percent),
+                    "gstAmount": float(po.gst_amount),
+                    "grandTotal": float(po.grand_total),
+                    "delivery": po.delivery,
+                    "payment": po.payment,
+                    "terms": po.terms,
+                    "notes": po.notes,
+                    "signatures": po.signatures,
+                }
+
+                rows.append({
+                    "id": f"PO-{po.id}",
+                    "type": "Purchase Order",
+                    "short": "PO",
+                    "document_number": po.po_number,
+                    "payment_status": po.payment_status or "Pending",
+                    "delivery_status": po.delivery_status or "Pending",
+                    "path": "/accounts/po",
+                    "document_data": doc_data,
+                })
+
+        # ============================================================
+        # 5. QUOTATIONS
+        # ============================================================
+        if want("QO"):
+            qs = (
+                Quotation.objects
+                .select_related("customer")
+                .all()
+                .order_by("-created_at")
+            )
+            for qo in qs:
+                doc_data = {
+                    "quotationNumber": qo.quotation_number,
+                    "quotationDate": _iso(qo.quotation_date),
+                    "customer": _customer_block(qo.customer),
+                    "subject": qo.subject,
+                    "intro": qo.intro,
+                    "items": qo.items,
+                    "technicalDetails": qo.technical_details,
+                    "terms": qo.terms,
+                    "signatures": qo.signatures,
+                    "companyName": qo.company_name,
+                    "designation": qo.designation,
+                    "subtotal": float(qo.subtotal),
+                    "gstPercent": float(qo.gst_percent),
+                    "gstAmount": float(qo.gst_amount),
+                    "grandTotal": float(qo.grand_total),
+                }
+
+                rows.append({
+                    "id": f"QO-{qo.id}",
+                    "type": "Quotation",
+                    "short": "QO",
+                    "document_number": qo.quotation_number,
+                    "payment_status": qo.payment_status or "Pending",
+                    "delivery_status": qo.delivery_status or "Pending",
+                    "path": "/accounts/qo",
+                    "document_data": doc_data,
+                })
+
+        # ============================================================
+        # 6. DELIVERY CHALLANS
+        # ============================================================
+        if want("DC"):
+            qs = (
+                DeliveryChallan.objects
+                .select_related("customer")
+                .all()
+                .order_by("-created_at")
+            )
+            for dc in qs:
+                doc_data = {
+                    "dcNumber": dc.dc_number,
+                    "dcDate": _iso(dc.dc_date),
+                    "customer": _customer_block(dc.customer),
+                    "poNumber": dc.po_number,
+                    "poDate": _iso(dc.po_date),
+                    "billNumber": dc.bill_number,
+                    "billDate": _iso(dc.bill_date),
+                    "deliveryAt": dc.delivery_at,
+                    "companyAddressId": dc.company_address_id,
+                    "returnable": dc.returnable,
+                    "items": dc.items,
+                    "amountInWords": dc.amount_in_words,
+                    "preparedBy": dc.prepared_by,
+                }
+
+                rows.append({
+                    "id": f"DC-{dc.id}",
+                    "type": "Delivery Challan",
+                    "short": "DC",
+                    "document_number": dc.dc_number,
+                    "payment_status": dc.payment_status or "N/A",
+                    "delivery_status": dc.delivery_status or "Delivered",
+                    "path": "/accounts/DeliveryChallan",
+                    "document_data": doc_data,
+                })
+
+        # ============================================================
+        # 7. TAX INVOICES
+        # ============================================================
+        if want("TI"):
+            for ti in TaxInvoice.objects.all().order_by("-created_at"):
+                doc_data = ti.document_data or {
+                    "invoiceNumber": ti.invoice_number,
+                    "invoiceDate": _iso(ti.invoice_date),
+                    "dateOfSupply": _iso(ti.date_of_supply),
+                    "receiverDetails": ti.receiver_details,
+                    "consigneeDetails": ti.consignee_details,
+                    "items": ti.items,
+                    "subtotal": float(ti.subtotal),
+                    "grandTotal": float(ti.grand_total),
+                    "amountInWords": ti.amount_in_words,
+                }
+
+                rows.append({
+                    "id": f"TI-{ti.id}",
+                    "type": "Tax Invoice",
+                    "short": "TI",
+                    "document_number": ti.invoice_number,
+                    "payment_status": ti.payment_status or "Pending",
+                    "delivery_status": ti.delivery_status or "Pending",
+                    "path": "/accounts/TaxInvoice",
+                    "document_data": doc_data,
+                })
+
+        # ============================================================
+        # 8. PROFORMA INVOICES
+        # ============================================================
+        if want("PI"):
+            for pi in ProformaInvoice.objects.all().order_by("-created_at"):
+                doc_data = pi.document_data or {
+                    "proformaNo": pi.proforma_no,
+                    "date": _iso(pi.date),
+                    "validUntil": _iso(pi.valid_until),
+                    "receiverDetails": pi.receiver_details,
+                    "consigneeDetails": pi.consignee_details,
+                    "items": pi.items,
+                    "subtotal": float(pi.subtotal),
+                    "grandTotal": float(pi.grand_total),
+                    "amountInWords": pi.amount_in_words,
+                }
+
+                rows.append({
+                    "id": f"PI-{pi.id}",
+                    "type": "Proforma Invoice",
+                    "short": "PI",
+                    "document_number": pi.proforma_no,
+                    "payment_status": pi.payment_status or "Pending",
+                    "delivery_status": pi.delivery_status or "Pending",
+                    "path": "/accounts/ProformaInvoice",
+                    "document_data": doc_data,
+                })
+
+        # ============================================================
+        # 9. Global newest-first ordering
+        # ============================================================
+        rows.sort(key=lambda r: r["document_number"], reverse=True)
+
+        # ============================================================
+        # 10. Serialize + return
+        # ============================================================
+        serializer = AccountsReportRowSerializer(rows, many=True)
+
+        return Response(
+            {
+                "success": True,
+                "count": len(rows),
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# Map short codes to models — keep this in sync with the
+# DOCUMENT_TYPES list on the frontend.
+_STATUS_MODEL_MAP = {
+    "PO": PurchaseOrder,
+    "QO": Quotation,
+    "DC": DeliveryChallan,
+    "TI": TaxInvoice,
+    "PI": ProformaInvoice,
+}
+from .serializers import (
+    AccountsReportRowSerializer,
+    StatusUpdateSerializer,
+)
+
+@method_decorator(csrf_protect, name="dispatch")
+class AccountsReportStatusAPIView(APIView):
+    """
+    PATCH /erp/accounts-report/<short>/<id>/status/
+    """
+
+    permission_classes = [AllowAny]
+
+    def patch(self, request, short, pk):
+
+        # ============================================================
+        # 1. Session check (same as report view)
+        # ============================================================
+        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+
+        if not refresh_token:
+            return Response(
+                {"success": False, "message": "Session not found. Please login again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            user_id = token.get("user_id")
+        except Exception:
+            return Response(
+                {"success": False, "message": "Session is invalid or expired."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Session user no longer exists."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # ============================================================
+        # 2. Accounts-department check
+        # ============================================================
+        if user.user_type != User.UserType.ACCOUNTS:
+            return Response(
+                {"success": False, "message": "Accounts access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # ============================================================
+        # 3. Resolve model from short code
+        # ============================================================
+        short_upper = (short or "").upper()
+        model = _STATUS_MODEL_MAP.get(short_upper)
+
+        if not model:
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Unknown document type: {short}",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ============================================================
+        # 4. Locate the document
+        # ============================================================
+        try:
+            obj = model.objects.get(pk=pk)
+        except model.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Document not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ============================================================
+        # 5. Validate payload
+        # ============================================================
+        serializer = StatusUpdateSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid status update.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ============================================================
+        # 6. Apply changes
+        # ============================================================
+        updated_fields = []
+
+        if "payment_status" in serializer.validated_data:
+            obj.payment_status = serializer.validated_data["payment_status"]
+            updated_fields.append("payment_status")
+
+        if "delivery_status" in serializer.validated_data:
+            obj.delivery_status = serializer.validated_data["delivery_status"]
+            updated_fields.append("delivery_status")
+
+        obj.save(update_fields=updated_fields + ["updated_at"])
+
+        # ============================================================
+        # 7. Respond
+        # ============================================================
+        return Response(
+            {
+                "success": True,
+                "message": "Status updated.",
+                "data": {
+                    "id": f"{short_upper}-{obj.id}",
+                    "payment_status": obj.payment_status,
+                    "delivery_status": obj.delivery_status,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+#for expense
+
+from decimal import Decimal
+
+from .models import JournalEntry
+from .serializers import JournalEntrySerializer
+
+
+def _generate_journal_number(entry_type):
+    """
+    EXP1001, EXP1002, ...
+    INC1001, INC1002, ...
+    """
+    prefix = "EXP" if entry_type == JournalEntry.EntryType.EXPENSE else "INC"
+
+    # Find the highest existing suffix for this prefix
+    last = (
+        JournalEntry.objects
+        .filter(record_number__startswith=prefix)
+        .order_by("-record_number")
+        .values_list("record_number", flat=True)
+        .first()
+    )
+
+    if not last:
+        return f"{prefix}1001"
+
+    # last looks like "EXP1001"
+    try:
+        suffix = int(last[len(prefix):])
+    except (ValueError, TypeError):
+        suffix = 1000
+
+    return f"{prefix}{suffix + 1}"
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class JournalAPIView(APIView):
+    """
+    GET  /erp/journal/  → list entries + totals
+    POST /erp/journal/  → create one entry
+    """
+
+    permission_classes = [AllowAny]
+
+    # ========================================================
+    # AUTH HELPERS (same pattern as the rest of the app)
+    # ========================================================
+    def _get_user(self, request):
+        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+        if not refresh_token:
+            return None, Response(
+                {"success": False, "message": "Session not found. Please login again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            user_id = token.get("user_id")
+        except Exception:
+            return None, Response(
+                {"success": False, "message": "Session is invalid or expired."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return None, Response(
+                {"success": False, "message": "Session user no longer exists."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if user.user_type != User.UserType.ACCOUNTS:
+            return None, Response(
+                {"success": False, "message": "Accounts access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return user, None
+
+    # ========================================================
+    # GET — list + totals
+    # ========================================================
+    def get(self, request):
+        user, err = self._get_user(request)
+        if err:
+            return err
+
+        # Optional filters
+        entry_type = request.query_params.get("type")  # "Expense" | "Income"
+        qs = JournalEntry.objects.all().order_by("-date", "-created_at")
+
+        if entry_type in ("Expense", "Income"):
+            qs = qs.filter(type=entry_type)
+
+        serializer = JournalEntrySerializer(qs, many=True)
+
+        # Compute totals over the *unfiltered* set so the page
+        # always shows overall income/expense/profit.
+        total_expense = (
+            JournalEntry.objects
+            .filter(type=JournalEntry.EntryType.EXPENSE)
+            .aggregate(total=models.Sum("amount"))["total"]
+            or Decimal("0")
+        )
+
+        total_income = (
+            JournalEntry.objects
+            .filter(type=JournalEntry.EntryType.INCOME)
+            .aggregate(total=models.Sum("amount"))["total"]
+            or Decimal("0")
+        )
+
+        net_profit = total_income - total_expense
+
+        return Response(
+            {
+                "success": True,
+                "count": len(serializer.data),
+                "data": serializer.data,
+                "totals": {
+                    "total_income": float(total_income),
+                    "total_expense": float(total_expense),
+                    "net_profit": float(net_profit),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # ========================================================
+    # POST — create
+    # ========================================================
+    def post(self, request):
+        user, err = self._get_user(request)
+        if err:
+            return err
+
+        serializer = JournalEntrySerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid journal entry.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        validated = serializer.validated_data
+        entry_type = validated.get("type", JournalEntry.EntryType.EXPENSE)
+
+        record_number = _generate_journal_number(entry_type)
+
+        entry = JournalEntry.objects.create(
+            record_number=record_number,
+            **validated,
+        )
+
+        out = JournalEntrySerializer(entry)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Journal entry created.",
+                "data": out.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+# ============================================================
+# DELETE A JOURNAL ENTRY
+# ------------------------------------------------------------
+# DELETE /erp/journal/<id>/
+# ============================================================
+
+@method_decorator(csrf_protect, name="dispatch")
+class JournalDetailAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def _get_user(self, request):
+        # same helper as JournalAPIView — copy it inline or
+        # extract to a mixin if you prefer.
+        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+        if not refresh_token:
+            return None, Response(
+                {"success": False, "message": "Session not found. Please login again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            user_id = token.get("user_id")
+        except Exception:
+            return None, Response(
+                {"success": False, "message": "Session is invalid or expired."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return None, Response(
+                {"success": False, "message": "Session user no longer exists."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if user.user_type != User.UserType.ACCOUNTS:
+            return None, Response(
+                {"success": False, "message": "Accounts access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return user, None
+
+    # --------------------------------------------------------
+    # DELETE
+    # --------------------------------------------------------
+    def delete(self, request, pk):
+        user, err = self._get_user(request)
+        if err:
+            return err
+
+        try:
+            entry = JournalEntry.objects.get(pk=pk)
+        except JournalEntry.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Journal entry not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        entry.delete()
+
+        return Response(
+            {"success": True, "message": "Journal entry deleted."},
+            status=status.HTTP_200_OK,
+        )

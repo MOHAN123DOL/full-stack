@@ -1,8 +1,8 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, ChangePasswordAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, ChangePasswordAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, JournalAPIView, JournalDetailAPIView, 
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView,
-                      NextPurchaseOrderNumberAPIView, ProfileAPIView, PurchaseOrderConfirmAPIView,
+                      NextPurchaseOrderNumberAPIView, ProfileAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, PurchaseOrderConfirmAPIView,
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
                           QuotationNextNumberAPIView, RefreshTokenAPIView, TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
                           UserProfileListCreateAPIView)
@@ -86,32 +86,78 @@ urlpatterns = [
 ),
 #for tax invoice
 
-path(
-    "tax-invoices/next-number/",
-    TaxInvoiceNextNumberAPIView.as_view(),
-    name="tax-invoice-next-number",
-),
-path(
-    "tax-invoice-customers/",
-    TaxInvoiceCustomerAPIView.as_view(),
-    name="tax-invoice-customers",
-),
-path(
-    "tax-invoice-customers/<int:pk>/",
-    TaxInvoiceCustomerAPIView.as_view(),
-    name="tax-invoice-customer-detail",
-),
-path(
-    "tax-invoices/",
-    TaxInvoiceCreateAPIView.as_view(),
-    name="tax-invoice-create",
-),
-path(
-    "tax-invoices/<str:invoice_number>/confirm/",
-    TaxInvoiceConfirmAPIView.as_view(),
-    name="tax-invoice-confirm",
-),
+        path(
+            "tax-invoices/next-number/",
+            TaxInvoiceNextNumberAPIView.as_view(),
+            name="tax-invoice-next-number",
+        ),
+        path(
+            "tax-invoice-customers/",
+            TaxInvoiceCustomerAPIView.as_view(),
+            name="tax-invoice-customers",
+        ),
+        path(
+            "tax-invoice-customers/<int:pk>/",
+            TaxInvoiceCustomerAPIView.as_view(),
+            name="tax-invoice-customer-detail",
+        ),
+        path(
+            "tax-invoices/",
+            TaxInvoiceCreateAPIView.as_view(),
+            name="tax-invoice-create",
+        ),
+        path(
+            "tax-invoices/<str:invoice_number>/confirm/",
+            TaxInvoiceConfirmAPIView.as_view(),
+            name="tax-invoice-confirm",
+        ),
+        path(
+            "proforma-invoices/next-number/",
+            ProformaInvoiceNextNumberAPIView.as_view(),
+            name="proforma-invoice-next-number",
+        ),
+        path(
+            "proforma-invoice-customers/",
+            ProformaInvoiceCustomerAPIView.as_view(),
+            name="proforma-invoice-customers",
+        ),
+        path(
+            "proforma-invoice-customers/<int:pk>/",
+            ProformaInvoiceCustomerAPIView.as_view(),
+            name="proforma-invoice-customer-detail",
+        ),
+        path(
+            "proforma-invoices/",
+            ProformaInvoiceCreateAPIView.as_view(),
+            name="proforma-invoice-create",
+        ),
+        path(
+            "proforma-invoices/<str:proforma_no>/confirm/",
+            ProformaInvoiceConfirmAPIView.as_view(),
+            name="proforma-invoice-confirm",
+        ),
 
+        #for report 
+        path(
+        "accounts-report/",
+        AccountsReportAPIView.as_view(),
+        name="accounts-report",
+    ),
+
+    # Filtered by type
+    path(
+        "accounts-report/<str:document_type>/",
+        AccountsReportAPIView.as_view(),
+        name="accounts-report-by-type",
+    ),
+
+    path(
+        "accounts-report/<str:short>/<int:pk>/status/",
+        AccountsReportStatusAPIView.as_view(),
+        name="accounts-report-status",
+    ),
+     path("journal/", JournalAPIView.as_view(), name="journal"),
+    path("journal/<int:pk>/", JournalDetailAPIView.as_view(), name="journal-detail"),
 
 
 
