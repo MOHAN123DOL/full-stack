@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
     # Third-party
+     "django_extensions",
     "rest_framework",
     "corsheaders",
     "rest_framework_simplejwt.token_blacklist",

@@ -1,30 +1,22 @@
 import {
-  createContext,
-  useContext,
-  useMemo,
   useState,
+  useEffect,
   useCallback,
+  useRef,
 } from "react";
-import { useEmployees } from "./Employees.jsx";
 import {
-  useAttendance,
-  summarizeRange,
-  monthRange,
   currentMonthStr,
   formatINR,
   formatHours,
 } from "./Attendancewages.jsx";
+import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
 import {
-  useSalaryPayments,
-  useAdvances,
   PaymentStatusBadge,
   AdvanceStatusBadge,
   Banner,
   ConfirmDialog,
-  FilterBar,
   ExportBar,
-  useRecordFilters,
-  formatFilterSummary,
   salaryMonthLabel,
   exportToCSV,
   exportToExcel,
@@ -36,102 +28,97 @@ import {
   ADVANCE_STATUS_LABELS,
   formatDisplayDate,
 } from "./Payroll.jsx";
+import { useSalaryApi } from "./salaryApi.js";
 import "./Salary.css";
 import "./Payroll.css";
+import Header from "../../components/Header";
+import Loading from "../../components/loading";
+import Error from "../../components/error";
 
 /* ==========================================================================
-   NOTE ON SCOPE
-   --------------------------------------------------------------------------
-   No Employee Salary page or salary data model existed in the codebase this
-   was built against, so this file introduces a minimal one rather than
-   guessing at an architecture that isn't there. It defines a small,
-   editable set of salary components (allowances / PF / ESI / tax / other
-   deductions / advance deduction) per employee per month, kept in-memory
-   the same way the Employees and Attendance modules are. If a real payroll
-   backend/module already exists elsewhere in the app, wire that in here
-   instead of this local SalaryAdjustmentsProvider.
-
-   Salary payment records ("Save Salary") and employee advances live in the
-   sibling Payroll.jsx module (PayrollProvider), which must be mounted
-   alongside AttendanceProvider / SalaryAdjustmentsProvider — see that
-   file's header comment.
+   CONSTANTS — values match Django choices (Title Case)
    ========================================================================== */
 
-function blankAdjustments() {
-  return {
-    allowances: 0,
-    overtime: 0,
-    pf: 0,
-    esi: 0,
-    tax: 0,
-    otherDeductions: 0,
-    advanceDeduction: 0,
-  };
+const DEPARTMENTS = [
+  { value: "", label: "All Departments" },
+  { value: "Engineering", label: "Engineering" },
+  { value: "Production", label: "Production" },
+  { value: "HR", label: "HR" },
+  { value: "Sales", label: "Sales" },
+  { value: "Accounts", label: "Accounts" },
+];
+
+const EMPLOYMENT_TYPES = [
+  { value: "", label: "All Types" },
+  { value: "Permanent", label: "Permanent" },
+  { value: "Probation", label: "Probation" },
+  { value: "Contract", label: "Contract" },
+  { value: "Temporary", label: "Temporary" },
+  { value: "Intern", label: "Intern" },
+  { value: "Consultant", label: "Consultant" },
+];
+
+const BRANCHES = [
+  { value: "", label: "All Branches" },
+  { value: "Trichy", label: "Trichy" },
+  { value: "Chennai", label: "Chennai" },
+  { value: "Coimbatore", label: "Coimbatore" },
+  { value: "Madurai", label: "Madurai" },
+];
+
+const WORK_LOCATIONS = [
+  { value: "", label: "All Locations" },
+  { value: "Trichy", label: "Trichy" },
+  { value: "Chennai", label: "Chennai" },
+  { value: "Coimbatore", label: "Coimbatore" },
+  { value: "Madurai", label: "Madurai" },
+];
+
+const TABS = [
+  { key: "calculator", label: "Salary" },
+  { key: "history", label: "Salary History" },
+  { key: "advances", label: "Advance Management" },
+];
+
+/* ==========================================================================
+   HELPERS
+   ========================================================================== */
+
+function useDebounce(value, delay = 400) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
 }
 
-const SalaryContext = createContext(null);
-
-export function useSalaryAdjustments() {
-  const ctx = useContext(SalaryContext);
-  if (!ctx)
-    throw new Error(
-      "useSalaryAdjustments must be used within SalaryAdjustmentsProvider",
-    );
-  return ctx;
+function monthLabel(monthStr) {
+  return salaryMonthLabel(monthStr);
 }
 
-export function SalaryAdjustmentsProvider({ children }) {
-  const [store, setStore] = useState({});
+// "2026-09" → "2026-09-01"  (Django DateField expects the 1st)
+function toBackendMonth(yyyyMm) {
+  if (!yyyyMm) return "";
+  return yyyyMm.length === 7 ? `${yyyyMm}-01` : yyyyMm;
+}
 
-  function key(employeeId, month) {
-    return `${employeeId}__${month}`;
+function extractError(err, fallback = "Something went wrong.") {
+  const d = err?.response?.data;
+  if (!d) return err?.message || fallback;
+  if (typeof d === "string") return d;
+  if (d.detail) return String(d.detail);
+  for (const key of Object.keys(d)) {
+    const v = d[key];
+    if (Array.isArray(v) && v.length) return String(v[0]);
+    if (typeof v === "string") return v;
   }
-
-  const getAdjustments = useCallback(
-    (employeeId, month) => store[key(employeeId, month)] || blankAdjustments(),
-    [store],
-  );
-
-  const setAdjustments = useCallback((employeeId, month, updates) => {
-    setStore((prev) => ({
-      ...prev,
-      [key(employeeId, month)]: {
-        ...blankAdjustments(),
-        ...prev[key(employeeId, month)],
-        ...updates,
-      },
-    }));
-  }, []);
-
-  const value = useMemo(
-    () => ({ getAdjustments, setAdjustments }),
-    [getAdjustments, setAdjustments],
-  );
-
-  return (
-    <SalaryContext.Provider value={value}>{children}</SalaryContext.Provider>
-  );
+  return fallback;
 }
 
 /* ==========================================================================
-   SMALL SHARED UI PIECES
+   SMALL UI PIECES
    ========================================================================== */
-
-function EmployeeSelect({ value, onChange, employees }) {
-  return (
-    <select
-      className="sal-select"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {employees.map((e) => (
-        <option key={e.id} value={e.id}>
-          {e.firstName} {e.lastName} — {e.id}
-        </option>
-      ))}
-    </select>
-  );
-}
 
 function NumberField({ label, value, onChange, hint, error }) {
   return (
@@ -151,18 +138,389 @@ function NumberField({ label, value, onChange, hint, error }) {
   );
 }
 
-function monthLabel(monthStr) {
-  return salaryMonthLabel(monthStr);
-}
+function FilterControls({ filters, onChange, onClear }) {
+  const dirty =
+    filters.department ||
+    filters.branch ||
+    filters.employment_type ||
+    filters.work_location;
 
-function employeeName(employees, id) {
-  const e = employees.find((emp) => emp.id === id);
-  return e ? `${e.firstName} ${e.lastName}` : id;
+  function set(field, value) {
+    onChange({ ...filters, [field]: value });
+  }
+
+  return (
+    <div className="sal-toolbar" style={{ marginTop: 0 }}>
+      <label className="sal-field">
+        <span className="sal-field-label">Department</span>
+        <select
+          className="sal-select"
+          value={filters.department}
+          onChange={(e) => set("department", e.target.value)}
+        >
+          {DEPARTMENTS.map((d) => (
+            <option key={d.value} value={d.value}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="sal-field">
+        <span className="sal-field-label">Branch</span>
+        <select
+          className="sal-select"
+          value={filters.branch}
+          onChange={(e) => set("branch", e.target.value)}
+        >
+          {BRANCHES.map((b) => (
+            <option key={b.value} value={b.value}>
+              {b.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="sal-field">
+        <span className="sal-field-label">Employment Type</span>
+        <select
+          className="sal-select"
+          value={filters.employment_type}
+          onChange={(e) => set("employment_type", e.target.value)}
+        >
+          {EMPLOYMENT_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="sal-field">
+        <span className="sal-field-label">Work Location</span>
+        <select
+          className="sal-select"
+          value={filters.work_location}
+          onChange={(e) => set("work_location", e.target.value)}
+        >
+          {WORK_LOCATIONS.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {dirty && (
+        <button
+          type="button"
+          className="pll-btn-outline pll-btn-sm"
+          onClick={onClear}
+          style={{ alignSelf: "flex-end" }}
+        >
+          Clear Filters
+        </button>
+      )}
+    </div>
+  );
 }
 
 /* ==========================================================================
-   SALARY CALCULATOR TAB (Employee + Period → Overview → Attendance/Base →
-   Components → Advance Summary → Calculation → Save)
+   EMPLOYEE SEARCH SELECT (server-side, debounced, paginated)
+   ========================================================================== */
+
+function EmployeeSearchSelect({
+  value,
+  onChange,
+  filters,
+  placeholder = "Search employee by name or ID…",
+}) {
+  const { getSalaryEmployees } = useSalaryApi();
+
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const debouncedSearch = useDebounce(search, 400);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const data = await getSalaryEmployees({
+          search: debouncedSearch,
+          department: filters.department,
+          branch: filters.branch,
+          employment_type: filters.employment_type,
+          work_location: filters.work_location,
+          page,
+          page_size: 25,
+        });
+        if (!cancelled) {
+          setResults(data.results || []);
+          setTotalPages(data.total_pages || 1);
+          setTotalCount(data.count || 0);
+        }
+      } catch (err) {
+        if (!cancelled) setError(extractError(err, "Failed to load employees."));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    debouncedSearch,
+    filters.department,
+    filters.branch,
+    filters.employment_type,
+    filters.work_location,
+    page,
+    reloadKey,
+    getSalaryEmployees,
+  ]);
+
+  useEffect(() => {
+    function onDoc(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  // Hydrate selected when parent sets `value`
+  useEffect(() => {
+    if (!value) {
+      setSelected(null);
+      return;
+    }
+    if (selected && String(selected.id) === String(value)) return;
+
+    const found = results.find((r) => String(r.id) === String(value));
+    if (found) {
+      setSelected(found);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getSalaryEmployees({
+          search: "",
+          page: 1,
+          page_size: 100,
+        });
+        if (cancelled) return;
+        const hit = (data.results || []).find(
+          (r) => String(r.id) === String(value)
+        );
+        if (hit) setSelected(hit);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [value, results, selected, getSalaryEmployees]);
+
+  const displayValue = selected
+    ? `${selected.employee_id} - ${selected.name}`
+    : "";
+
+  function pick(emp) {
+    setSelected(emp);
+    onChange(String(emp.id));
+    setOpen(false);
+    setSearch("");
+  }
+
+  function clearPick() {
+    setSelected(null);
+    onChange("");
+    setSearch("");
+    setPage(1);
+  }
+
+  return (
+    <div
+      className="sal-field"
+      ref={wrapRef}
+      style={{ position: "relative", minWidth: 280 }}
+    >
+      <span className="sal-field-label">Employee</span>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          className="sal-input"
+          type="text"
+          value={open ? search : displayValue}
+          placeholder={placeholder}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+            setOpen(true);
+          }}
+          onFocus={() => {
+            setOpen(true);
+            setSearch("");
+            setPage(1);
+          }}
+          style={{ flex: 1 }}
+        />
+        {selected && (
+          <button
+            type="button"
+            className="pll-btn-outline pll-btn-sm"
+            onClick={clearPick}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            marginTop: 4,
+            background: "#fff",
+            border: "1px solid var(--sal-border)",
+            borderRadius: "var(--sal-radius-sm)",
+            boxShadow: "var(--sal-shadow)",
+            maxHeight: 340,
+            overflowY: "auto",
+            zIndex: 200,
+          }}
+        >
+          {loading && (
+            <div style={{ padding: 14, textAlign: "center" }}>
+              <Loading />
+            </div>
+          )}
+
+          {!loading && error && (
+            <div style={{ padding: 12 }}>
+              <Error onRetry={() => setReloadKey((k) => k + 1)} />
+              <div style={{ marginTop: 6, fontSize: 13, color: "#a52626" }}>
+                {error}
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && results.length === 0 && (
+            <div
+              style={{
+                padding: 14,
+                textAlign: "center",
+                color: "var(--sal-text-muted)",
+                fontSize: 13,
+              }}
+            >
+              No employees found.
+            </div>
+          )}
+
+          {!loading &&
+            !error &&
+            results.map((emp) => {
+              const isActive = String(emp.id) === String(value);
+              return (
+                <div
+                  key={emp.id}
+                  onClick={() => pick(emp)}
+                  style={{
+                    padding: "10px 12px",
+                    cursor: "pointer",
+                    borderBottom: "1px solid var(--sal-border-light)",
+                    background: isActive ? "var(--sal-accent-glow)" : "#fff",
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "var(--sal-bg)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = isActive
+                      ? "var(--sal-accent-glow)"
+                      : "#fff")
+                  }
+                >
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>
+                    {emp.employee_id} - {emp.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--sal-text-muted)",
+                      marginTop: 2,
+                    }}
+                  >
+                    {emp.designation || "—"} · {emp.department || "—"} ·{" "}
+                    {emp.branch || "—"}
+                  </div>
+                </div>
+              );
+            })}
+
+          {!loading && !error && totalPages > 1 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "8px 12px",
+                background: "var(--sal-bg)",
+                borderTop: "1px solid var(--sal-border-light)",
+              }}
+            >
+              <button
+                type="button"
+                className="pll-btn-outline pll-btn-sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Prev
+              </button>
+              <span style={{ fontSize: 12, color: "var(--sal-text-muted)" }}>
+                {page} / {totalPages}
+                {totalCount ? ` · ${totalCount} total` : ""}
+              </span>
+              <button
+                type="button"
+                className="pll-btn-outline pll-btn-sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ==========================================================================
+   SALARY CALCULATOR TAB
    ========================================================================== */
 
 function SalaryCalculatorTab({
@@ -170,147 +528,331 @@ function SalaryCalculatorTab({
   setEmployeeId,
   month,
   setMonth,
-  activeEmployees,
   onSaved,
   onViewExisting,
+  onRefreshCounts,
 }) {
-  const { getWageConfig } = useAttendance();
-  const { records } = useAttendance();
-  const { getAdjustments, setAdjustments } = useSalaryAdjustments();
-  const { getOutstandingAdvance } = useAdvances();
-  const { getSalaryPayment, saveSalaryPayment } = useSalaryPayments();
+  const {
+    getSalaryEmployees,
+    getSalaryPayments,
+    createSalaryPayment,
+    updateSalaryPayment,
+    getAdvances,
+  } = useSalaryApi();
 
-  const [saveDialog, setSaveDialog] = useState(null); // { mode: 'duplicate' | 'confirm', existing? }
+  const { accessToken } = useAuth();
+  const authHeaders = useCallback(
+    () => ({ Authorization: `Bearer ${accessToken}` }),
+    [accessToken]
+  );
+
+  const [filters, setFilters] = useState({
+    department: "",
+    branch: "",
+    employment_type: "",
+    work_location: "",
+  });
+
+  const [employeeInfo, setEmployeeInfo] = useState(null);
+  const [wageConfig, setWageConfig] = useState(null);
+  const [monthSummary, setMonthSummary] = useState(null);
+  const [loadingCalc, setLoadingCalc] = useState(false);
+
+  const [components, setComponents] = useState({
+    allowances: 0,
+    overtime: 0,
+    pf: 0,
+    esi: 0,
+    tax: 0,
+    otherDeductions: 0,
+    advanceDeduction: 0,
+  });
+
+  const [outstandingAdvance, setOutstandingAdvance] = useState(0);
+  const [loadingAdvance, setLoadingAdvance] = useState(false);
+
+  const [saveDialog, setSaveDialog] = useState(null);
   const [statusChoice, setStatusChoice] = useState("PAID");
   const [remarksInput, setRemarksInput] = useState("");
   const [negativeAck, setNegativeAck] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
-  const employee = activeEmployees.find((e) => e.id === employeeId);
-  const config = getWageConfig(employeeId);
-  const { start, end } = monthRange(month);
-  const summary = summarizeRange(records, start, end, employeeId)[
-    employeeId
-  ] || {
-    daysWorked: 0,
-    totalHours: 0,
-    totalWage: 0,
-    statusCounts: {},
+  // Resolve selected employee display info
+  useEffect(() => {
+    if (!employeeId) {
+      setEmployeeInfo(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getSalaryEmployees({
+          search: "",
+          page: 1,
+          page_size: 100,
+        });
+        const found = (data.results || []).find(
+          (e) => String(e.id) === String(employeeId)
+        );
+        if (!cancelled) setEmployeeInfo(found || null);
+      } catch {
+        if (!cancelled) setEmployeeInfo(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeId, getSalaryEmployees]);
+
+  // Fetch wage config + month attendance summary from backend
+  useEffect(() => {
+    if (!employeeId || !month) {
+      setWageConfig(null);
+      setMonthSummary(null);
+      return;
+    }
+    let cancelled = false;
+
+    (async () => {
+      setLoadingCalc(true);
+      try {
+        const empCode = employeeInfo?.employee_id || "";
+
+        const [cfgRes, summaryRes] = await Promise.all([
+          empCode
+            ? api.get(
+                `/erp/wage-config/?employee_id=${empCode}`,
+                { headers: authHeaders() }
+              )
+            : Promise.resolve({ data: [] }),
+          api.get(
+            `/erp/attendance/monthly-summary/?month=${month}&employee=${employeeId}`,
+            { headers: authHeaders() }
+          ),
+        ]);
+
+        const cfgList = Array.isArray(cfgRes.data)
+          ? cfgRes.data
+          : cfgRes.data?.results || [];
+        const cfg = cfgList[0] || null;
+
+        const monthData = summaryRes.data || {};
+        const monthRow =
+          Array.isArray(monthData.results) && monthData.results.length
+            ? monthData.results[0]
+            : null;
+
+        if (!cancelled) {
+          setWageConfig(cfg);
+          setMonthSummary(monthRow);
+        }
+      } catch {
+        if (!cancelled) {
+          setWageConfig(null);
+          setMonthSummary(null);
+        }
+      } finally {
+        if (!cancelled) setLoadingCalc(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeId, month, employeeInfo, authHeaders]);
+
+  // Outstanding advance for selected employee
+  useEffect(() => {
+    if (!employeeId || !employeeInfo) {
+      setOutstandingAdvance(0);
+      return;
+    }
+    let cancelled = false;
+
+    (async () => {
+      setLoadingAdvance(true);
+      try {
+        const data = await getAdvances({
+          search: employeeInfo.employee_id || "",
+          status: "OUTSTANDING",
+          page: 1,
+          page_size: 100,
+        });
+        if (!cancelled) {
+          const total = (data.results || [])
+            .filter((a) => String(a.employee) === String(employeeId))
+            .reduce(
+              (sum, a) => sum + Number(a.outstanding_amount || 0),
+              0
+            );
+          setOutstandingAdvance(total);
+        }
+      } catch {
+        if (!cancelled) setOutstandingAdvance(0);
+      } finally {
+        if (!cancelled) setLoadingAdvance(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeId, employeeInfo, getAdvances]);
+
+  const salaryType = wageConfig?.salary_type || "MONTHLY";
+  const isHourly = salaryType === "HOURLY";
+  const hourlyRate = Number(wageConfig?.hourly_rate || 0);
+  const monthlySalary = Number(wageConfig?.monthly_salary || 0);
+
+  const summary = {
+    daysWorked: monthSummary?.days_worked || 0,
+    totalHours: Number(monthSummary?.total_hours || 0),
+    totalWage: Number(monthSummary?.total_wage || 0),
+    statusCounts: monthSummary?.status_counts || {},
   };
 
-  const isHourly = config.salaryType === "HOURLY";
-  const baseAmount = isHourly
-    ? summary.totalWage
-    : Number(config.monthlySalary) || 0;
+  const baseAmount = isHourly ? summary.totalWage : monthlySalary;
 
-  const draft = getAdjustments(employeeId, month);
-  const outstandingAdvance = getOutstandingAdvance(employeeId);
-
-  function updateDraft(field, value) {
-    setAdjustments(employeeId, month, {
-      [field]: value === "" ? 0 : Number(value),
-    });
-  }
-
-  const allowances = Number(draft.allowances) || 0;
-  const overtime = Number(draft.overtime) || 0;
-  const pf = Number(draft.pf) || 0;
-  const esi = Number(draft.esi) || 0;
-  const tax = Number(draft.tax) || 0;
-  const otherDeductions = Number(draft.otherDeductions) || 0;
-  const advanceDeduction = Number(draft.advanceDeduction) || 0;
+  const allowances = Number(components.allowances) || 0;
+  const overtime = Number(components.overtime) || 0;
+  const pf = Number(components.pf) || 0;
+  const esi = Number(components.esi) || 0;
+  const tax = Number(components.tax) || 0;
+  const otherDeductions = Number(components.otherDeductions) || 0;
+  const advanceDeduction = Number(components.advanceDeduction) || 0;
 
   const grossEarnings = baseAmount + allowances + overtime;
   const normalDeductions = pf + esi + tax + otherDeductions;
   const totalDeductions = normalDeductions + advanceDeduction;
   const netSalary = grossEarnings - totalDeductions;
 
-  const advanceExceedsOutstanding = advanceDeduction > outstandingAdvance;
-  const remainingAfterDeduction = Math.max(
-    0,
-    outstandingAdvance - advanceDeduction,
-  );
+  const advanceExceeds = advanceDeduction > outstandingAdvance;
+  const remainingAfter = Math.max(0, outstandingAdvance - advanceDeduction);
 
-  function buildPayload(paymentStatus, paidDate, remarks) {
-    return {
-      employeeId,
-      salaryMonth: month,
-      baseSalary: isHourly ? 0 : baseAmount,
-      attendanceWage: isHourly ? baseAmount : 0,
-      allowances,
-      overtime,
-      grossEarnings,
-      pf,
-      esi,
-      tax,
-      otherDeductions,
-      advanceDeduction,
-      totalDeductions,
-      netSalary,
-      paymentStatus,
-      paidDate,
-      remarks,
-    };
+  function updateComponent(field, value) {
+    setComponents((prev) => ({
+      ...prev,
+      [field]: value === "" ? 0 : Number(value),
+    }));
   }
 
-  function openSaveFlow() {
-    if (!employee) {
-      alert("Select an employee before saving salary.");
+  async function openSaveFlow() {
+    if (!employeeId) {
+      alert("Select an employee first.");
       return;
     }
     if (!month) {
-      alert("Select a salary month before saving salary.");
+      alert("Select a salary month first.");
       return;
     }
-    if (advanceExceedsOutstanding) {
+    if (advanceExceeds) {
       alert(
-        `Advance deduction (${formatINR(advanceDeduction)}) cannot exceed the outstanding advance (${formatINR(outstandingAdvance)}).`,
+        `Advance deduction (${formatINR(advanceDeduction)}) cannot exceed outstanding advance (${formatINR(outstandingAdvance)}).`
       );
       return;
     }
-    const existing = getSalaryPayment(employeeId, month);
-    setStatusChoice(existing?.paymentStatus || "PAID");
-    setRemarksInput(existing?.remarks || "");
-    setNegativeAck(false);
-    if (existing) {
-      setSaveDialog({ mode: "duplicate", existing });
-    } else {
+
+    try {
+      const data = await getSalaryPayments({
+        month,
+        page: 1,
+        page_size: 100,
+      });
+      const existing = (data.salary_records || []).find(
+        (r) => String(r.employee) === String(employeeId)
+      );
+
+      setStatusChoice(existing?.payment_status || "PAID");
+      setRemarksInput(existing?.remarks || "");
+      setNegativeAck(false);
+
+      if (existing) {
+        setSaveDialog({ mode: "duplicate", existing });
+      } else {
+        setSaveDialog({ mode: "confirm" });
+      }
+    } catch {
       setSaveDialog({ mode: "confirm" });
     }
   }
 
-  function confirmSave(isUpdate) {
-    const paidDate = statusChoice === "PAID" ? new Date().toISOString().slice(0, 10) : null;
-    const payload = buildPayload(statusChoice, paidDate, remarksInput);
-    const result = saveSalaryPayment(payload, { allowUpdate: isUpdate });
-    if (result.status === "duplicate") {
-      // Race: someone else saved between our check and now — surface it.
-      setSaveDialog({ mode: "duplicate", existing: result.existing });
-      return;
+  async function confirmSave(isUpdate) {
+    setSaving(true);
+    setSaveError("");
+
+    try {
+      const payload = {
+        employee: Number(employeeId),
+        salary_month: toBackendMonth(month),
+        base_salary: isHourly ? 0 : monthlySalary,
+        attendance_wage: isHourly ? summary.totalWage : 0,
+        allowances,
+        overtime,
+        pf,
+        esi,
+        tax,
+        other_deductions: otherDeductions,
+        advance_deduction: advanceDeduction,
+        payment_status: statusChoice,
+        paid_date:
+          statusChoice === "PAID"
+            ? new Date().toISOString().slice(0, 10)
+            : null,
+        remarks: remarksInput,
+      };
+
+      let saved;
+      if (isUpdate && saveDialog?.existing) {
+        saved = await updateSalaryPayment(saveDialog.existing.id, payload);
+      } else {
+        saved = await createSalaryPayment(payload);
+      }
+
+      setSaveDialog(null);
+      setFlash(true);
+      setTimeout(() => setFlash(false), 3500);
+
+      setComponents({
+        allowances: 0,
+        overtime: 0,
+        pf: 0,
+        esi: 0,
+        tax: 0,
+        otherDeductions: 0,
+        advanceDeduction: 0,
+      });
+
+      onSaved?.(saved);
+      onRefreshCounts?.();
+    } catch (err) {
+      setSaveError(extractError(err, "Failed to save salary."));
+    } finally {
+      setSaving(false);
     }
-    setSaveDialog(null);
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 3500);
-    onSaved?.(result.record);
   }
 
   return (
     <div>
-      {savedFlash && (
-        <Banner kind="success" onClose={() => setSavedFlash(false)}>
+      {flash && (
+        <Banner kind="success" onClose={() => setFlash(false)}>
           Salary saved successfully.
         </Banner>
       )}
 
+      {saveError && (
+        <Banner kind="danger" onClose={() => setSaveError("")}>
+          {saveError}
+        </Banner>
+      )}
+
       <div className="sal-toolbar">
-        <label className="sal-field">
-          <span className="sal-field-label">Employee</span>
-          <EmployeeSelect
-            value={employeeId}
-            onChange={setEmployeeId}
-            employees={activeEmployees}
-          />
-        </label>
+        <EmployeeSearchSelect
+          value={employeeId}
+          onChange={setEmployeeId}
+          filters={filters}
+        />
         <label className="sal-field">
           <span className="sal-field-label">Salary Period</span>
           <input
@@ -322,25 +864,43 @@ function SalaryCalculatorTab({
         </label>
       </div>
 
-      {employee && (
-        <div className="sal-card">
+      <FilterControls
+        filters={filters}
+        onChange={setFilters}
+        onClear={() =>
+          setFilters({
+            department: "",
+            branch: "",
+            employment_type: "",
+            work_location: "",
+          })
+        }
+      />
+
+      {employeeId && (
+        <div className="sal-card" style={{ marginTop: 16 }}>
           <div className="sal-card-head">
             <div>
-              <h2>
-                {employee.firstName} {employee.lastName}
-              </h2>
+              <h2>{employeeInfo ? employeeInfo.name : "Selected employee"}</h2>
               <span className="sal-hint">
-                {employee.id} · {employee.designation} · {monthLabel(month)}
+                {employeeInfo?.employee_id || employeeId} ·{" "}
+                {employeeInfo?.designation || "—"} · {monthLabel(month)}
               </span>
             </div>
             <span
-              className={`sal-type-pill ${isHourly ? "sal-type-hourly" : "sal-type-monthly"}`}
+              className={`sal-type-pill ${
+                isHourly ? "sal-type-hourly" : "sal-type-monthly"
+              }`}
             >
               {isHourly ? "Hourly Wage" : "Monthly Salary"}
             </span>
           </div>
 
-          {isHourly ? (
+          {loadingCalc ? (
+            <div style={{ padding: 30, textAlign: "center" }}>
+              <Loading />
+            </div>
+          ) : isHourly ? (
             <div className="sal-section">
               <h3>Attendance Summary</h3>
               <div className="sal-attendance-grid">
@@ -356,9 +916,7 @@ function SalaryCalculatorTab({
                 </div>
                 <div>
                   <span className="sal-mini-label">Hourly Wage</span>
-                  <span className="sal-mini-value">
-                    ₹{config.hourlyRate || 0}
-                  </span>
+                  <span className="sal-mini-value">₹{hourlyRate}</span>
                 </div>
                 <div>
                   <span className="sal-mini-label">Attendance Wage</span>
@@ -367,13 +925,6 @@ function SalaryCalculatorTab({
                   </span>
                 </div>
               </div>
-              <p className="sal-hint">
-                Calculated from each day's stored attendance and the hourly rate
-                snapshotted on that record — not the current rate — so past
-                months stay correct even if the rate has since changed. Edit or
-                add records on the <strong>HR Attendance &amp; Wages</strong>{" "}
-                page.
-              </p>
             </div>
           ) : (
             <div className="sal-section">
@@ -382,15 +933,10 @@ function SalaryCalculatorTab({
                 <div>
                   <span className="sal-mini-label">Monthly Salary</span>
                   <span className="sal-mini-value">
-                    {formatINR(config.monthlySalary)}
+                    {formatINR(monthlySalary)}
                   </span>
                 </div>
               </div>
-              <p className="sal-hint">
-                This employee is on a fixed monthly salary, so attendance does
-                not change the base amount. Configure the rate on the HR
-                Attendance &amp; Wages → Wage Rates tab.
-              </p>
             </div>
           )}
 
@@ -399,77 +945,74 @@ function SalaryCalculatorTab({
             <div className="sal-components-grid">
               <NumberField
                 label="Allowances"
-                value={draft.allowances}
-                onChange={(v) => updateDraft("allowances", v)}
+                value={components.allowances}
+                onChange={(v) => updateComponent("allowances", v)}
               />
               <NumberField
                 label="Overtime"
-                value={draft.overtime}
-                onChange={(v) => updateDraft("overtime", v)}
-                hint="No existing overtime system was found to integrate with — entered manually for now."
+                value={components.overtime}
+                onChange={(v) => updateComponent("overtime", v)}
               />
               <NumberField
                 label="PF Deduction"
-                value={draft.pf}
-                onChange={(v) => updateDraft("pf", v)}
+                value={components.pf}
+                onChange={(v) => updateComponent("pf", v)}
               />
               <NumberField
                 label="ESI Deduction"
-                value={draft.esi}
-                onChange={(v) => updateDraft("esi", v)}
+                value={components.esi}
+                onChange={(v) => updateComponent("esi", v)}
               />
               <NumberField
                 label="Tax (TDS)"
-                value={draft.tax}
-                onChange={(v) => updateDraft("tax", v)}
+                value={components.tax}
+                onChange={(v) => updateComponent("tax", v)}
               />
               <NumberField
                 label="Other Deductions"
-                value={draft.otherDeductions}
-                onChange={(v) => updateDraft("otherDeductions", v)}
+                value={components.otherDeductions}
+                onChange={(v) => updateComponent("otherDeductions", v)}
               />
             </div>
           </div>
 
           <div className="pll-section">
             <h3>Advance Summary</h3>
-            <div className="pll-advance-summary">
-              <div className="pll-advance-summary-row">
-                <span>Outstanding Advance</span>
-                <strong>{formatINR(outstandingAdvance)}</strong>
+            {loadingAdvance ? (
+              <Loading />
+            ) : (
+              <div className="pll-advance-summary">
+                <div className="pll-advance-summary-row">
+                  <span>Outstanding Advance</span>
+                  <strong>{formatINR(outstandingAdvance)}</strong>
+                </div>
+                <div className="pll-advance-summary-row">
+                  <span>This Month Deduction</span>
+                  <strong>{formatINR(advanceDeduction)}</strong>
+                </div>
+                <div className="pll-advance-summary-row pll-advance-remaining">
+                  <span>Remaining After Deduction</span>
+                  <strong>{formatINR(remainingAfter)}</strong>
+                </div>
               </div>
-              <div className="pll-advance-summary-row">
-                <span>This Month Deduction</span>
-                <strong>{formatINR(advanceDeduction)}</strong>
-              </div>
-              <div className="pll-advance-summary-row pll-advance-remaining">
-                <span>Remaining After Deduction</span>
-                <strong>{formatINR(remainingAfterDeduction)}</strong>
-              </div>
-            </div>
+            )}
             <div className="sal-components-grid" style={{ marginTop: 12 }}>
               <NumberField
                 label="Advance Deduction"
-                value={draft.advanceDeduction}
-                onChange={(v) => updateDraft("advanceDeduction", v)}
+                value={components.advanceDeduction}
+                onChange={(v) => updateComponent("advanceDeduction", v)}
                 hint={
                   outstandingAdvance > 0
                     ? `Up to ${formatINR(outstandingAdvance)} outstanding.`
                     : "No outstanding advance for this employee."
                 }
                 error={
-                  advanceExceedsOutstanding
-                    ? `Cannot exceed outstanding advance of ${formatINR(outstandingAdvance)}.`
+                  advanceExceeds
+                    ? `Cannot exceed ${formatINR(outstandingAdvance)}.`
                     : undefined
                 }
               />
             </div>
-            <p className="sal-hint">
-              The advance received was already paid to the employee earlier and is
-              not part of gross earnings. Only the deduction entered here reduces
-              this month's net salary, and it reduces the employee's outstanding
-              advance once saved.
-            </p>
           </div>
 
           <div className="sal-totals">
@@ -486,7 +1029,7 @@ function SalaryCalculatorTab({
               <span>{formatINR(grossEarnings)}</span>
             </div>
             <div className="sal-totals-row">
-              <span>PF + ESI + Tax + Other Deductions</span>
+              <span>PF + ESI + Tax + Other</span>
               <span>− {formatINR(normalDeductions)}</span>
             </div>
             <div className="sal-totals-row">
@@ -499,15 +1042,20 @@ function SalaryCalculatorTab({
             </div>
             {netSalary < 0 && (
               <Banner kind="warning">
-                Deductions exceed earnings — net salary is negative. You'll need
-                to confirm this explicitly to save.
+                Deductions exceed earnings — net salary is negative. You'll
+                need to confirm explicitly to save.
               </Banner>
             )}
           </div>
 
           <div className="sal-section" style={{ textAlign: "right" }}>
-            <button type="button" className="pll-btn-primary" onClick={openSaveFlow}>
-              Save Salary
+            <button
+              type="button"
+              className="pll-btn-primary"
+              onClick={openSaveFlow}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save Salary"}
             </button>
           </div>
         </div>
@@ -516,19 +1064,28 @@ function SalaryCalculatorTab({
       {saveDialog?.mode === "duplicate" && (
         <ConfirmDialog
           title="Salary already saved"
-          message={`Salary already saved for this employee for ${monthLabel(month)}.`}
+          message={`Salary already saved for this employee for ${monthLabel(
+            month
+          )}.`}
           confirmLabel="Update Salary"
           cancelLabel="Cancel"
           onCancel={() => setSaveDialog(null)}
-          onConfirm={() => setSaveDialog({ mode: "confirm", existing: saveDialog.existing, isUpdate: true })}
+          onConfirm={() =>
+            setSaveDialog({
+              mode: "confirm",
+              existing: saveDialog.existing,
+              isUpdate: true,
+            })
+          }
         >
           <button
             type="button"
             className="pll-btn-outline pll-btn-sm"
             style={{ marginBottom: 10 }}
             onClick={() => {
+              const ex = saveDialog.existing;
               setSaveDialog(null);
-              onViewExisting?.(saveDialog.existing);
+              onViewExisting?.(ex);
             }}
           >
             View Saved Salary
@@ -539,8 +1096,13 @@ function SalaryCalculatorTab({
       {saveDialog?.mode === "confirm" && (
         <ConfirmDialog
           title={saveDialog.isUpdate ? "Update saved salary?" : "Save salary?"}
-          message={`${saveDialog.isUpdate ? "Update" : "Save"} salary for ${employee?.firstName} ${employee?.lastName} for ${monthLabel(month)}?`}
+          message={`${
+            saveDialog.isUpdate ? "Update" : "Save"
+          } salary for ${employeeInfo?.name || "this employee"} for ${monthLabel(
+            month
+          )}?`}
           confirmLabel={saveDialog.isUpdate ? "Update Salary" : "Save Salary"}
+          busy={saving}
           onCancel={() => setSaveDialog(null)}
           onConfirm={() => {
             if (netSalary < 0 && !negativeAck) return;
@@ -573,13 +1135,22 @@ function SalaryCalculatorTab({
             </label>
           </div>
           {netSalary < 0 && (
-            <label className="pll-hint" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+            <label
+              className="pll-hint"
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginTop: 8,
+              }}
+            >
               <input
                 type="checkbox"
                 checked={negativeAck}
                 onChange={(e) => setNegativeAck(e.target.checked)}
               />
-              I understand net salary for this record is negative and want to save it anyway.
+              I understand net salary for this record is negative and want to
+              save it anyway.
             </label>
           )}
         </ConfirmDialog>
@@ -589,41 +1160,574 @@ function SalaryCalculatorTab({
 }
 
 /* ==========================================================================
-   VIEW SALARY MODAL (read-only, exact saved snapshot)
+   SALARY HISTORY TAB
    ========================================================================== */
 
-function ViewSalaryModal({ record, employees, onClose, onPrint }) {
+function SalaryHistoryTab({ onEdit, onView }) {
+  const { getSalaryPayments, deleteSalaryPayment } = useSalaryApi();
+
+  const [filters, setFilters] = useState({
+    month: currentMonthStr(),
+    search: "",
+    department: "",
+    branch: "",
+    employment_type: "",
+    work_location: "",
+    payment_status: "",
+  });
+
+  const [data, setData] = useState({
+    total_employees: 0,
+    saved_entries: 0,
+    missing_entries: 0,
+    missing_employees: [],
+    salary_records: [],
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [showMissing, setShowMissing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const debouncedSearch = useDebounce(filters.search, 400);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await getSalaryPayments({
+        month: filters.month,
+        search: debouncedSearch,
+        department: filters.department,
+        branch: filters.branch,
+        employment_type: filters.employment_type,
+        work_location: filters.work_location,
+        payment_status: filters.payment_status,
+        page: 1,
+        page_size: 200,
+      });
+      setData({
+        total_employees: result.total_employees || 0,
+        saved_entries: result.saved_entries || 0,
+        missing_entries: result.missing_entries || 0,
+        missing_employees: result.missing_employees || [],
+        salary_records: result.salary_records || [],
+      });
+    } catch (err) {
+      setError(extractError(err, "Failed to load salary data."));
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    filters.month,
+    debouncedSearch,
+    filters.department,
+    filters.branch,
+    filters.employment_type,
+    filters.work_location,
+    filters.payment_status,
+    reloadKey,
+    getSalaryPayments,
+  ]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  function setFilter(field, value) {
+    setFilters((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function clearFilters() {
+    setFilters({
+      month: currentMonthStr(),
+      search: "",
+      department: "",
+      branch: "",
+      employment_type: "",
+      work_location: "",
+      payment_status: "",
+    });
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteSalaryPayment(deleteTarget.id);
+      setDeleteTarget(null);
+      fetchData();
+    } catch (err) {
+      setError(extractError(err, "Failed to delete salary record."));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const records = data.salary_records || [];
+
+  const totals = records.reduce(
+    (acc, r) => ({
+      gross: acc.gross + Number(r.gross_earnings || 0),
+      advance: acc.advance + Number(r.advance_deduction || 0),
+      other:
+        acc.other +
+        Number(r.pf || 0) +
+        Number(r.esi || 0) +
+        Number(r.tax || 0) +
+        Number(r.other_deductions || 0),
+      net: acc.net + Number(r.net_salary || 0),
+    }),
+    { gross: 0, advance: 0, other: 0, net: 0 }
+  );
+
+  const exportHeaders = [
+    "Employee",
+    "Employee ID",
+    "Salary Month",
+    "Gross Salary",
+    "Advance Deduction",
+    "Other Deductions",
+    "Net Salary",
+    "Payment Status",
+    "Paid Date",
+  ];
+
+  function exportRows() {
+    return records.map((r) => [
+      r.employee_name,
+      r.employee_code,
+      salaryMonthLabel(r.salary_month?.slice(0, 7)),
+      r.gross_earnings,
+      r.advance_deduction,
+      Number(r.pf || 0) +
+        Number(r.esi || 0) +
+        Number(r.tax || 0) +
+        Number(r.other_deductions || 0),
+      r.net_salary,
+      PAYMENT_STATUS_LABELS[r.payment_status] || r.payment_status,
+      formatDisplayDate(r.paid_date),
+    ]);
+  }
+
+  return (
+    <div>
+      <div className="pll-summary-grid">
+        <div className="pll-summary-card">
+          <span className="pll-summary-label">Total Employees</span>
+          <span className="pll-summary-value">{data.total_employees}</span>
+        </div>
+        <div className="pll-summary-card">
+          <span className="pll-summary-label">Salary Saved</span>
+          <span className="pll-summary-value">{data.saved_entries}</span>
+        </div>
+        <div className="pll-summary-card">
+          <span className="pll-summary-label">Missing Salary</span>
+          <span
+            className="pll-summary-value"
+            style={{ color: "var(--sal-danger)" }}
+          >
+            {data.missing_entries}
+          </span>
+        </div>
+      </div>
+
+      {data.missing_entries > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <button
+            type="button"
+            className="pll-btn-outline pll-btn-sm"
+            onClick={() => setShowMissing(true)}
+          >
+            View Missing Employees ({data.missing_entries})
+          </button>
+        </div>
+      )}
+
+      <div className="pll-filter-bar">
+        <div className="pll-filter-row">
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Salary Month</span>
+            <input
+              className="pll-input"
+              type="month"
+              value={filters.month}
+              onChange={(e) => setFilter("month", e.target.value)}
+            />
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Employee Search</span>
+            <input
+              className="pll-input"
+              type="text"
+              placeholder="Name / ID…"
+              value={filters.search}
+              onChange={(e) => setFilter("search", e.target.value)}
+            />
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Department</span>
+            <select
+              className="pll-select"
+              value={filters.department}
+              onChange={(e) => setFilter("department", e.target.value)}
+            >
+              {DEPARTMENTS.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Branch</span>
+            <select
+              className="pll-select"
+              value={filters.branch}
+              onChange={(e) => setFilter("branch", e.target.value)}
+            >
+              {BRANCHES.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Employment Type</span>
+            <select
+              className="pll-select"
+              value={filters.employment_type}
+              onChange={(e) => setFilter("employment_type", e.target.value)}
+            >
+              {EMPLOYMENT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Work Location</span>
+            <select
+              className="pll-select"
+              value={filters.work_location}
+              onChange={(e) => setFilter("work_location", e.target.value)}
+            >
+              {WORK_LOCATIONS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Payment Status</span>
+            <select
+              className="pll-select"
+              value={filters.payment_status}
+              onChange={(e) => setFilter("payment_status", e.target.value)}
+            >
+              <option value="">All</option>
+              {PAYMENT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {PAYMENT_STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            className="pll-btn-outline pll-btn-sm"
+            onClick={clearFilters}
+          >
+            Clear Filters
+          </button>
+        </div>
+      </div>
+
+      <ExportBar
+        onExportExcel={() =>
+          exportToExcel("salary-history.xls", exportHeaders, exportRows())
+        }
+        onExportCsv={() =>
+          exportToCSV("salary-history.csv", exportHeaders, exportRows())
+        }
+        onExportPdf={() =>
+          exportToPDF({
+            title: "Salary Payment History",
+            meta: [
+              `Month: ${salaryMonthLabel(filters.month)}`,
+              `Records: ${records.length}`,
+            ],
+            headers: exportHeaders,
+            rows: exportRows(),
+          })
+        }
+        onPrint={() =>
+          printRecords({
+            title: "Salary Payment History",
+            headers: exportHeaders,
+            rows: exportRows(),
+          })
+        }
+      />
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center" }}>
+          <Loading />
+        </div>
+      ) : error ? (
+        <div style={{ padding: 24 }}>
+          <Error onRetry={() => setReloadKey((k) => k + 1)} />
+          <div style={{ marginTop: 8, fontSize: 13, color: "#a52626" }}>
+            {error}
+          </div>
+        </div>
+      ) : (
+        <div className="pll-table-wrap">
+          <table className="pll-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Employee ID</th>
+                <th>Salary Month</th>
+                <th className="pll-num">Gross Salary</th>
+                <th className="pll-num">Advance Deduction</th>
+                <th className="pll-num">Other Deductions</th>
+                <th className="pll-num">Net Salary</th>
+                <th>Payment Status</th>
+                <th>Paid Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="pll-empty-row">
+                    No salary payment records match this filter.
+                  </td>
+                </tr>
+              )}
+              {records.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.employee_name}</td>
+                  <td>{r.employee_code}</td>
+                  <td>{salaryMonthLabel(r.salary_month?.slice(0, 7))}</td>
+                  <td className="pll-num">{formatINR(r.gross_earnings)}</td>
+                  <td className="pll-num">{formatINR(r.advance_deduction)}</td>
+                  <td className="pll-num">
+                    {formatINR(
+                      Number(r.pf || 0) +
+                        Number(r.esi || 0) +
+                        Number(r.tax || 0) +
+                        Number(r.other_deductions || 0)
+                    )}
+                  </td>
+                  <td className="pll-num">{formatINR(r.net_salary)}</td>
+                  <td>
+                    <PaymentStatusBadge status={r.payment_status} />
+                  </td>
+                  <td>{formatDisplayDate(r.paid_date)}</td>
+                  <td className="pll-row-actions">
+                    <button
+                      type="button"
+                      className="pll-link-btn"
+                      onClick={() => onView(r)}
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      className="pll-link-btn"
+                      onClick={() => onEdit(r)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="pll-link-btn pll-link-danger"
+                      onClick={() => setDeleteTarget(r)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {records.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td colSpan={3}>Totals</td>
+                  <td className="pll-num">{formatINR(totals.gross)}</td>
+                  <td className="pll-num">{formatINR(totals.advance)}</td>
+                  <td className="pll-num">{formatINR(totals.other)}</td>
+                  <td className="pll-num">{formatINR(totals.net)}</td>
+                  <td colSpan={3}></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete salary record?"
+          message={`This permanently removes the ${salaryMonthLabel(
+            deleteTarget.salary_month?.slice(0, 7)
+          )} salary record for ${deleteTarget.employee_name}.`}
+          confirmLabel="Delete"
+          danger
+          busy={deleting}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleDelete}
+        />
+      )}
+
+      {showMissing && (
+        <div
+          className="pll-modal-overlay"
+          onClick={() => setShowMissing(false)}
+        >
+          <div
+            className="pll-modal pll-modal-wide"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <h3>Missing Salary Employees</h3>
+            <p className="pll-modal-message">
+              {data.missing_entries} employees have no salary record for{" "}
+              {salaryMonthLabel(filters.month)}.
+            </p>
+            <div
+              className="pll-table-wrap"
+              style={{ maxHeight: 420, overflowY: "auto" }}
+            >
+              <table className="pll-table">
+                <thead>
+                  <tr>
+                    <th>Employee ID</th>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Designation</th>
+                    <th>Branch</th>
+                    <th>Type</th>
+                    <th>Location</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.missing_employees.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="pll-empty-row">
+                        No missing employees.
+                      </td>
+                    </tr>
+                  )}
+                  {data.missing_employees.map((emp) => (
+                    <tr key={emp.id}>
+                      <td>{emp.employee_id}</td>
+                      <td>{emp.name}</td>
+                      <td>{emp.department}</td>
+                      <td>{emp.designation}</td>
+                      <td>{emp.branch}</td>
+                      <td>{emp.employment_type}</td>
+                      <td>{emp.work_location}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="pll-modal-actions">
+              <button
+                type="button"
+                className="pll-btn-primary"
+                onClick={() => setShowMissing(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ==========================================================================
+   VIEW SALARY MODAL
+   ========================================================================== */
+
+function ViewSalaryModal({ record, onClose }) {
   if (!record) return null;
   return (
     <div className="pll-modal-overlay" onClick={onClose}>
-      <div className="pll-modal pll-modal-wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <div
+        className="pll-modal pll-modal-wide"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
         <h3>
-          {employeeName(employees, record.employeeId)} — {salaryMonthLabel(record.salaryMonth)}
+          {record.employee_name} —{" "}
+          {salaryMonthLabel(record.salary_month?.slice(0, 7))}
         </h3>
         <p className="pll-modal-message">
-          Saved payroll snapshot. These values are frozen at the time of payment and do not
-          change if wage rates or attendance are edited later.
+          Saved payroll snapshot. Values are frozen at time of payment and
+          don't change if wage rates or attendance are edited later.
         </p>
         <dl className="pll-view-grid">
-          <dt>Base Salary</dt><dd>{formatINR(record.baseSalary)}</dd>
-          <dt>Attendance Wage</dt><dd>{formatINR(record.attendanceWage)}</dd>
-          <dt>Allowances</dt><dd>{formatINR(record.allowances)}</dd>
-          <dt>Overtime</dt><dd>{formatINR(record.overtime)}</dd>
-          <dt>Gross Earnings</dt><dd>{formatINR(record.grossEarnings)}</dd>
-          <dt>PF</dt><dd>{formatINR(record.pf)}</dd>
-          <dt>ESI</dt><dd>{formatINR(record.esi)}</dd>
-          <dt>Tax</dt><dd>{formatINR(record.tax)}</dd>
-          <dt>Other Deductions</dt><dd>{formatINR(record.otherDeductions)}</dd>
-          <dt>Advance Deduction</dt><dd>{formatINR(record.advanceDeduction)}</dd>
-          <dt>Total Deductions</dt><dd>{formatINR(record.totalDeductions)}</dd>
-          <dt>Net Salary</dt><dd>{formatINR(record.netSalary)}</dd>
-          <dt>Payment Status</dt><dd><PaymentStatusBadge status={record.paymentStatus} /></dd>
-          <dt>Paid Date</dt><dd>{formatDisplayDate(record.paidDate)}</dd>
-          {record.remarks && (<><dt>Remarks</dt><dd>{record.remarks}</dd></>)}
+          <dt>Base Salary</dt>
+          <dd>{formatINR(record.base_salary)}</dd>
+          <dt>Attendance Wage</dt>
+          <dd>{formatINR(record.attendance_wage)}</dd>
+          <dt>Allowances</dt>
+          <dd>{formatINR(record.allowances)}</dd>
+          <dt>Overtime</dt>
+          <dd>{formatINR(record.overtime)}</dd>
+          <dt>Gross Earnings</dt>
+          <dd>{formatINR(record.gross_earnings)}</dd>
+          <dt>PF</dt>
+          <dd>{formatINR(record.pf)}</dd>
+          <dt>ESI</dt>
+          <dd>{formatINR(record.esi)}</dd>
+          <dt>Tax</dt>
+          <dd>{formatINR(record.tax)}</dd>
+          <dt>Other Deductions</dt>
+          <dd>{formatINR(record.other_deductions)}</dd>
+          <dt>Advance Deduction</dt>
+          <dd>{formatINR(record.advance_deduction)}</dd>
+          <dt>Total Deductions</dt>
+          <dd>{formatINR(record.total_deductions)}</dd>
+          <dt>Net Salary</dt>
+          <dd>{formatINR(record.net_salary)}</dd>
+          <dt>Payment Status</dt>
+          <dd>
+            <PaymentStatusBadge status={record.payment_status} />
+          </dd>
+          <dt>Paid Date</dt>
+          <dd>{formatDisplayDate(record.paid_date)}</dd>
+          {record.remarks && (
+            <>
+              <dt>Remarks</dt>
+              <dd>{record.remarks}</dd>
+            </>
+          )}
         </dl>
         <div className="pll-modal-actions">
-          <button type="button" className="pll-btn-outline" onClick={() => onPrint(record)}>Print</button>
-          <button type="button" className="pll-btn-primary" onClick={onClose}>Close</button>
+          <button type="button" className="pll-btn-primary" onClick={onClose}>
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -631,198 +1735,326 @@ function ViewSalaryModal({ record, employees, onClose, onPrint }) {
 }
 
 /* ==========================================================================
-   SALARY HISTORY TAB
+   ADVANCE — CREATE MODAL
    ========================================================================== */
 
-function printSingleSalary(record, employees) {
-  printRecords({
-    title: "Salary Payment Slip",
-    meta: [
-      `Employee: ${employeeName(employees, record.employeeId)} (${record.employeeId})`,
-      `Salary Month: ${salaryMonthLabel(record.salaryMonth)}`,
-      `Payment Status: ${PAYMENT_STATUS_LABELS[record.paymentStatus] || record.paymentStatus}`,
-      `Paid Date: ${formatDisplayDate(record.paidDate)}`,
-      `Generated: ${formatDisplayDate(new Date().toISOString().slice(0, 10))}`,
-    ],
-    headers: ["Component", "Amount"],
-    rows: [
-      ["Base Salary", formatINR(record.baseSalary)],
-      ["Attendance Wage", formatINR(record.attendanceWage)],
-      ["Allowances", formatINR(record.allowances)],
-      ["Overtime", formatINR(record.overtime)],
-      ["Gross Earnings", formatINR(record.grossEarnings)],
-      ["PF", formatINR(record.pf)],
-      ["ESI", formatINR(record.esi)],
-      ["Tax", formatINR(record.tax)],
-      ["Other Deductions", formatINR(record.otherDeductions)],
-      ["Advance Deduction", formatINR(record.advanceDeduction)],
-      ["Total Deductions", formatINR(record.totalDeductions)],
-    ],
-    totals: ["Net Salary", formatINR(record.netSalary)],
+function AdvanceFormModal({ onClose, onSaved }) {
+  const { createAdvance } = useSalaryApi();
+
+  const [form, setForm] = useState({
+    employeeId: "",
+    advanceDate: new Date().toISOString().slice(0, 10),
+    amount: "",
+    reason: "",
+    remarks: "",
   });
-}
+  const [employeeFilters, setEmployeeFilters] = useState({
+    department: "",
+    branch: "",
+    employment_type: "",
+    work_location: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-function SalaryHistoryTab({ employees, onEdit, onView }) {
-  const { getSalaryHistory, deleteSalaryPayment } = useSalaryPayments();
-  const f = useRecordFilters();
-  const [deleteTarget, setDeleteTarget] = useState(null);
-
-  const rows = getSalaryHistory(f.filters);
-  const years = useMemo(() => {
-    const s = new Set(rows.map((r) => r.salaryYear));
-    const currentYear = new Date().getFullYear();
-    s.add(currentYear);
-    return Array.from(s).sort((a, b) => b - a);
-  }, [rows]);
-
-  const totals = rows.reduce(
-    (acc, r) => ({
-      gross: acc.gross + r.grossEarnings,
-      advance: acc.advance + r.advanceDeduction,
-      other: acc.other + r.otherDeductions,
-      net: acc.net + r.netSalary,
-    }),
-    { gross: 0, advance: 0, other: 0, net: 0 },
-  );
-
-  const exportHeaders = [
-    "Employee", "Employee ID", "Salary Month", "Salary Year", "Gross Salary",
-    "Advance Deduction", "PF", "ESI", "Tax", "Other Deductions",
-    "Total Deductions", "Net Salary", "Payment Status", "Paid Date",
-  ];
-
-  function exportRows() {
-    return rows.map((r) => [
-      employeeName(employees, r.employeeId), r.employeeId, salaryMonthLabel(r.salaryMonth), r.salaryYear,
-      r.grossEarnings, r.advanceDeduction, r.pf, r.esi, r.tax, r.otherDeductions,
-      r.totalDeductions, r.netSalary, PAYMENT_STATUS_LABELS[r.paymentStatus] || r.paymentStatus,
-      formatDisplayDate(r.paidDate),
-    ]);
+  function set(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  function totalsRow() {
-    const t = new Array(exportHeaders.length).fill("");
-    t[0] = "TOTAL";
-    t[4] = formatINR(totals.gross);
-    t[5] = formatINR(totals.advance);
-    t[9] = formatINR(totals.other);
-    t[11] = formatINR(totals.net);
-    return t;
-  }
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const amount = Number(form.amount);
+    if (!form.employeeId) return setError("Employee is required.");
+    if (!amount || amount <= 0)
+      return setError("Advance amount must be greater than 0.");
 
-  function handleExportExcel() {
-    exportToExcel("salary-history.xls", exportHeaders, exportRows());
-  }
-  function handleExportCsv() {
-    exportToCSV("salary-history.csv", exportHeaders, exportRows());
-  }
-  function handleExportPdf() {
-    exportToPDF({
-      title: "Salary Payment History — Payroll",
-      meta: [
-        `Filters: ${formatFilterSummary(f.filters)}`,
-        `Generated: ${formatDisplayDate(new Date().toISOString().slice(0, 10))}`,
-        `Records: ${rows.length}`,
-      ],
-      headers: exportHeaders,
-      rows: exportRows(),
-      totals: totalsRow(),
-    });
-  }
-  function handlePrint() {
-    handleExportPdf();
+    setSaving(true);
+    setError("");
+    try {
+      await createAdvance({
+        employee: Number(form.employeeId),
+        advance_date: form.advanceDate,
+        amount,
+        reason: form.reason,
+        remarks: form.remarks,
+      });
+      onSaved?.();
+    } catch (err) {
+      setError(extractError(err, "Failed to create advance."));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <div>
-      <FilterBar
-        employees={employees}
-        employeeId={f.employeeId}
-        onEmployeeChange={f.setEmployeeId}
-        year={f.year}
-        onYearChange={f.setYear}
-        years={years}
-        month={f.month}
-        onMonthChange={f.setMonth}
-        status={f.status}
-        onStatusChange={f.setStatus}
-        statusOptions={PAYMENT_STATUSES.map((s) => ({ value: s, label: PAYMENT_STATUS_LABELS[s] }))}
-        quick={f.quick}
-        onQuickChange={f.setQuick}
-        onClear={f.clear}
-        resultCount={rows.length}
-      />
-
-      <ExportBar
-        onExportExcel={handleExportExcel}
-        onExportCsv={handleExportCsv}
-        onExportPdf={handleExportPdf}
-        onPrint={handlePrint}
-      />
-
-      <div className="pll-table-wrap">
-        <table className="pll-table">
-          <thead>
-            <tr>
-              <th>Employee</th><th>Employee ID</th><th>Salary Month</th><th>Salary Year</th>
-              <th className="pll-num">Gross Salary</th><th className="pll-num">Advance Deduction</th>
-              <th className="pll-num">Other Deductions</th><th className="pll-num">Net Salary</th>
-              <th>Payment Status</th><th>Paid Date</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={11} className="pll-empty-row">No salary payment records match this filter.</td></tr>
-            )}
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td>{employeeName(employees, r.employeeId)}</td>
-                <td>{r.employeeId}</td>
-                <td>{salaryMonthLabel(r.salaryMonth)}</td>
-                <td>{r.salaryYear}</td>
-                <td className="pll-num">{formatINR(r.grossEarnings)}</td>
-                <td className="pll-num">{formatINR(r.advanceDeduction)}</td>
-                <td className="pll-num">{formatINR(r.otherDeductions)}</td>
-                <td className="pll-num">{formatINR(r.netSalary)}</td>
-                <td><PaymentStatusBadge status={r.paymentStatus} /></td>
-                <td>{formatDisplayDate(r.paidDate)}</td>
-                <td className="pll-row-actions">
-                  <button type="button" className="pll-link-btn" onClick={() => onView(r)}>View</button>
-                  <button type="button" className="pll-link-btn" onClick={() => onEdit(r)}>Edit</button>
-                  <button type="button" className="pll-link-btn" onClick={() => printSingleSalary(r, employees)}>Print</button>
-                  <button type="button" className="pll-link-btn pll-link-danger" onClick={() => setDeleteTarget(r)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot>
-              <tr>
-                <td colSpan={4}>Totals</td>
-                <td className="pll-num">{formatINR(totals.gross)}</td>
-                <td className="pll-num">{formatINR(totals.advance)}</td>
-                <td className="pll-num">{formatINR(totals.other)}</td>
-                <td className="pll-num">{formatINR(totals.net)}</td>
-                <td colSpan={3}></td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
+    <div className="pll-modal-overlay" onClick={onClose}>
+      <div
+        className="pll-modal pll-modal-wide"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <h3>Give Advance</h3>
+        <form onSubmit={handleSubmit}>
+          <div className="pll-modal-form-grid">
+            <div className="pll-modal-field-wide">
+              <EmployeeSearchSelect
+                value={form.employeeId}
+                onChange={(id) => set("employeeId", id)}
+                filters={employeeFilters}
+              />
+            </div>
+            <div className="pll-modal-field-wide">
+              <FilterControls
+                filters={employeeFilters}
+                onChange={setEmployeeFilters}
+                onClear={() =>
+                  setEmployeeFilters({
+                    department: "",
+                    branch: "",
+                    employment_type: "",
+                    work_location: "",
+                  })
+                }
+              />
+            </div>
+            <label className="pll-field">
+              <span className="pll-field-label">
+                Advance Date<span className="pll-required">*</span>
+              </span>
+              <input
+                className="pll-input"
+                type="date"
+                value={form.advanceDate}
+                onChange={(e) => set("advanceDate", e.target.value)}
+              />
+            </label>
+            <label className="pll-field">
+              <span className="pll-field-label">
+                Advance Amount (₹)<span className="pll-required">*</span>
+              </span>
+              <input
+                className="pll-input"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={form.amount}
+                onChange={(e) => set("amount", e.target.value)}
+              />
+            </label>
+            <label className="pll-field pll-modal-field-wide">
+              <span className="pll-field-label">Reason</span>
+              <input
+                className="pll-input"
+                type="text"
+                value={form.reason}
+                onChange={(e) => set("reason", e.target.value)}
+                placeholder="e.g. Medical emergency"
+              />
+            </label>
+            <label className="pll-field pll-modal-field-wide">
+              <span className="pll-field-label">Remarks</span>
+              <input
+                className="pll-input"
+                type="text"
+                value={form.remarks}
+                onChange={(e) => set("remarks", e.target.value)}
+                placeholder="Optional"
+              />
+            </label>
+          </div>
+          {error && <span className="pll-error">{error}</span>}
+          <div className="pll-modal-actions">
+            <button
+              type="button"
+              className="pll-btn-outline"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="pll-btn-primary"
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save Advance"}
+            </button>
+          </div>
+        </form>
       </div>
+    </div>
+  );
+}
 
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete salary record?"
-          message={`This permanently removes the ${salaryMonthLabel(deleteTarget.salaryMonth)} salary record for ${employeeName(employees, deleteTarget.employeeId)}. Any advance deduction it recorded will be reversed and the outstanding advance restored.`}
-          confirmLabel="Delete"
-          danger
-          onCancel={() => setDeleteTarget(null)}
-          onConfirm={() => {
-            deleteSalaryPayment(deleteTarget.id);
-            setDeleteTarget(null);
-          }}
-        />
-      )}
+/* ==========================================================================
+   ADVANCE — EDIT MODAL
+   ========================================================================== */
+
+function EditAdvanceModal({ advance, onClose, onSaved }) {
+  const { updateAdvance } = useSalaryApi();
+  const [form, setForm] = useState({
+    advanceDate: advance.advance_date,
+    amount: advance.amount,
+    reason: advance.reason || "",
+    remarks: advance.remarks || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const locked = Number(advance.total_repaid || 0) > 0;
+
+  function set(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await updateAdvance(advance.id, {
+        advance_date: form.advanceDate,
+        amount: locked ? advance.amount : Number(form.amount),
+        reason: form.reason,
+        remarks: form.remarks,
+      });
+      onSaved?.();
+    } catch (err) {
+      setError(extractError(err, "Failed to update advance."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="pll-modal-overlay" onClick={onClose}>
+      <div
+        className="pll-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <h3>Edit Advance</h3>
+        {locked && (
+          <p className="pll-modal-message">
+            ₹{advance.total_repaid} has already been repaid against this
+            advance, so the amount is locked. You can still update date,
+            reason, and remarks.
+          </p>
+        )}
+        <form onSubmit={handleSubmit}>
+          <div className="pll-modal-form-grid">
+            <label className="pll-field">
+              <span className="pll-field-label">Advance Date</span>
+              <input
+                className="pll-input"
+                type="date"
+                value={form.advanceDate}
+                onChange={(e) => set("advanceDate", e.target.value)}
+              />
+            </label>
+            <label className="pll-field">
+              <span className="pll-field-label">Advance Amount (₹)</span>
+              <input
+                className="pll-input"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={form.amount}
+                disabled={locked}
+                onChange={(e) => set("amount", e.target.value)}
+              />
+            </label>
+            <label className="pll-field pll-modal-field-wide">
+              <span className="pll-field-label">Reason</span>
+              <input
+                className="pll-input"
+                type="text"
+                value={form.reason}
+                onChange={(e) => set("reason", e.target.value)}
+              />
+            </label>
+            <label className="pll-field pll-modal-field-wide">
+              <span className="pll-field-label">Remarks</span>
+              <input
+                className="pll-input"
+                type="text"
+                value={form.remarks}
+                onChange={(e) => set("remarks", e.target.value)}
+              />
+            </label>
+          </div>
+          {error && <span className="pll-error">{error}</span>}
+          <div className="pll-modal-actions">
+            <button
+              type="button"
+              className="pll-btn-outline"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="pll-btn-primary"
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   ADVANCE — VIEW MODAL
+   ========================================================================== */
+
+function AdvanceDetailModal({ advance, onClose }) {
+  return (
+    <div className="pll-modal-overlay" onClick={onClose}>
+      <div
+        className="pll-modal pll-modal-wide"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <h3>
+          {advance.employee_name} — Advance on{" "}
+          {formatDisplayDate(advance.advance_date)}
+        </h3>
+        <dl className="pll-view-grid">
+          <dt>Advance Amount</dt>
+          <dd>{formatINR(advance.amount)}</dd>
+          <dt>Total Repaid</dt>
+          <dd>{formatINR(advance.total_repaid)}</dd>
+          <dt>Outstanding</dt>
+          <dd>{formatINR(advance.outstanding_amount)}</dd>
+          <dt>Status</dt>
+          <dd>
+            <AdvanceStatusBadge status={advance.status} />
+          </dd>
+          {advance.reason && (
+            <>
+              <dt>Reason</dt>
+              <dd>{advance.reason}</dd>
+            </>
+          )}
+          {advance.remarks && (
+            <>
+              <dt>Remarks</dt>
+              <dd>{advance.remarks}</dd>
+            </>
+          )}
+        </dl>
+        <div className="pll-modal-actions">
+          <button type="button" className="pll-btn-primary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -831,351 +2063,426 @@ function SalaryHistoryTab({ employees, onEdit, onView }) {
    ADVANCE MANAGEMENT TAB
    ========================================================================== */
 
-function blankAdvanceForm(activeEmployees) {
-  return {
-    employeeId: activeEmployees[0]?.id || "",
-    advanceDate: new Date().toISOString().slice(0, 10),
-    amount: "",
-    reason: "",
-    plannedDeduction: "",
-    remarks: "",
-  };
-}
+function AdvanceManagementTab() {
+  const { getAdvances, deleteAdvance } = useSalaryApi();
 
-function AdvanceFormModal({ activeEmployees, onClose, onSaved }) {
-  const { createAdvance } = useAdvances();
-  const [form, setForm] = useState(() => blankAdvanceForm(activeEmployees));
-  const [error, setError] = useState("");
-
-  function set(field, value) {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  }
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    const amount = Number(form.amount);
-    if (!form.employeeId) return setError("Employee is required.");
-    if (!amount || amount <= 0) return setError("Advance amount must be greater than 0.");
-
-    // "Repayment/Deduction Amount" on this form is a planning note only —
-    // actual deductions only ever happen through Salary/Payroll (spec §13),
-    // so it's folded into remarks rather than added as a new financial field.
-    const plannedNote = form.plannedDeduction
-      ? `Planned deduction per salary cycle: ₹${form.plannedDeduction}.`
-      : "";
-    const remarks = [form.remarks, plannedNote].filter(Boolean).join(" ");
-
-    try {
-      createAdvance({
-        employeeId: form.employeeId,
-        advanceDate: form.advanceDate,
-        amount,
-        reason: form.reason,
-        remarks,
-      });
-      onSaved?.();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  return (
-    <div className="pll-modal-overlay" onClick={onClose}>
-      <div className="pll-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <h3>Give Advance</h3>
-        <form onSubmit={handleSubmit}>
-          <div className="pll-modal-form-grid">
-            <label className="pll-field">
-              <span className="pll-field-label">Employee<span className="pll-required">*</span></span>
-              <select className="pll-select" value={form.employeeId} onChange={(e) => set("employeeId", e.target.value)}>
-                {activeEmployees.map((e) => (
-                  <option key={e.id} value={e.id}>{e.firstName} {e.lastName} — {e.id}</option>
-                ))}
-              </select>
-            </label>
-            <label className="pll-field">
-              <span className="pll-field-label">Advance Date<span className="pll-required">*</span></span>
-              <input className="pll-input" type="date" value={form.advanceDate} onChange={(e) => set("advanceDate", e.target.value)} />
-            </label>
-            <label className="pll-field">
-              <span className="pll-field-label">Advance Amount (₹)<span className="pll-required">*</span></span>
-              <input className="pll-input" type="number" min="0.01" step="0.01" value={form.amount} onChange={(e) => set("amount", e.target.value)} />
-            </label>
-            <label className="pll-field">
-              <span className="pll-field-label">Repayment / Deduction Amount (optional)</span>
-              <input className="pll-input" type="number" min="0" step="0.01" value={form.plannedDeduction} onChange={(e) => set("plannedDeduction", e.target.value)} />
-              <span className="pll-hint">For planning only — actual deductions are entered on the Salary page.</span>
-            </label>
-            <label className="pll-field pll-modal-field-wide">
-              <span className="pll-field-label">Reason</span>
-              <input className="pll-input" type="text" value={form.reason} onChange={(e) => set("reason", e.target.value)} placeholder="e.g. Medical emergency" />
-            </label>
-            <label className="pll-field pll-modal-field-wide">
-              <span className="pll-field-label">Remarks</span>
-              <input className="pll-input" type="text" value={form.remarks} onChange={(e) => set("remarks", e.target.value)} placeholder="Optional" />
-            </label>
-          </div>
-          {error && <span className="pll-error">{error}</span>}
-          <div className="pll-modal-actions">
-            <button type="button" className="pll-btn-outline" onClick={onClose}>Cancel</button>
-            <button type="submit" className="pll-btn-primary">Save Advance</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function EditAdvanceModal({ advance, onClose }) {
-  const { updateAdvance } = useAdvances();
-  const [form, setForm] = useState({
-    advanceDate: advance.advanceDate,
-    amount: advance.amount,
-    reason: advance.reason,
-    remarks: advance.remarks,
+  const [filters, setFilters] = useState({
+    search: "",
+    department: "",
+    branch: "",
+    employment_type: "",
+    work_location: "",
+    status: "",
+    date_from: "",
+    date_to: "",
   });
-  const locked = advance.totalRepaid > 0;
 
-  function set(field, value) {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  }
+  const [data, setData] = useState({ count: 0, results: [] });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    updateAdvance(advance.id, {
-      advanceDate: form.advanceDate,
-      amount: locked ? advance.amount : Number(form.amount),
-      reason: form.reason,
-      remarks: form.remarks,
-    });
-    onClose();
-  }
-
-  return (
-    <div className="pll-modal-overlay" onClick={onClose}>
-      <div className="pll-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <h3>Edit Advance</h3>
-        {locked && (
-          <p className="pll-modal-message">
-            ₹{advance.totalRepaid} has already been repaid against this advance, so the amount is
-            locked to preserve financial history. You can still update the date, reason, and remarks.
-          </p>
-        )}
-        <form onSubmit={handleSubmit}>
-          <div className="pll-modal-form-grid">
-            <label className="pll-field">
-              <span className="pll-field-label">Advance Date</span>
-              <input className="pll-input" type="date" value={form.advanceDate} onChange={(e) => set("advanceDate", e.target.value)} />
-            </label>
-            <label className="pll-field">
-              <span className="pll-field-label">Advance Amount (₹)</span>
-              <input className="pll-input" type="number" min="0.01" step="0.01" value={form.amount} disabled={locked} onChange={(e) => set("amount", e.target.value)} />
-            </label>
-            <label className="pll-field pll-modal-field-wide">
-              <span className="pll-field-label">Reason</span>
-              <input className="pll-input" type="text" value={form.reason} onChange={(e) => set("reason", e.target.value)} />
-            </label>
-            <label className="pll-field pll-modal-field-wide">
-              <span className="pll-field-label">Remarks</span>
-              <input className="pll-input" type="text" value={form.remarks} onChange={(e) => set("remarks", e.target.value)} />
-            </label>
-          </div>
-          <div className="pll-modal-actions">
-            <button type="button" className="pll-btn-outline" onClick={onClose}>Cancel</button>
-            <button type="submit" className="pll-btn-primary">Save Changes</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function AdvanceDetailModal({ advance, employees, onClose }) {
-  const { getAdvanceRepaymentLog } = useAdvances();
-  const log = getAdvanceRepaymentLog(advance.employeeId).filter((r) => r.advanceId === advance.id);
-
-  return (
-    <div className="pll-modal-overlay" onClick={onClose}>
-      <div className="pll-modal pll-modal-wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <h3>{employeeName(employees, advance.employeeId)} — Advance on {formatDisplayDate(advance.advanceDate)}</h3>
-        <dl className="pll-view-grid">
-          <dt>Advance Amount</dt><dd>{formatINR(advance.amount)}</dd>
-          <dt>Total Repaid</dt><dd>{formatINR(advance.totalRepaid)}</dd>
-          <dt>Outstanding</dt><dd>{formatINR(advance.outstandingAmount)}</dd>
-          <dt>Status</dt><dd><AdvanceStatusBadge status={advance.status} /></dd>
-          {advance.reason && (<><dt>Reason</dt><dd>{advance.reason}</dd></>)}
-          {advance.remarks && (<><dt>Remarks</dt><dd>{advance.remarks}</dd></>)}
-        </dl>
-        <h4>Repayment Log</h4>
-        {log.length === 0 ? (
-          <p className="pll-hint">No repayments recorded against this advance yet.</p>
-        ) : (
-          <div className="pll-table-wrap">
-            <table className="pll-table">
-              <thead><tr><th>Date</th><th className="pll-num">Amount Repaid</th><th>Via</th></tr></thead>
-              <tbody>
-                {log.map((r) => (
-                  <tr key={r.id}>
-                    <td>{formatDisplayDate(r.date)}</td>
-                    <td className="pll-num">{formatINR(r.amount)}</td>
-                    <td>{r.salaryPaymentId ? "Salary Payment" : "Manual"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="pll-modal-actions">
-          <button type="button" className="pll-btn-primary" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AdvanceManagementTab({ employees, activeEmployees }) {
-  const { getAdvances, deleteAdvance } = useAdvances();
-  const f = useRecordFilters();
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [viewTarget, setViewTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [flash, setFlash] = useState(false);
 
-  const rows = getAdvances(f.filters);
-  const years = useMemo(() => {
-    const s = new Set(rows.map((r) => Number(r.advanceDate.slice(0, 4))));
-    s.add(new Date().getFullYear());
-    return Array.from(s).sort((a, b) => b - a);
-  }, [rows]);
+  const debouncedSearch = useDebounce(filters.search, 400);
 
-  const exportHeaders = ["Employee", "Employee ID", "Advance Date", "Advance Amount", "Repaid", "Outstanding", "Reason", "Status"];
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await getAdvances({
+        search: debouncedSearch,
+        department: filters.department,
+        branch: filters.branch,
+        employment_type: filters.employment_type,
+        work_location: filters.work_location,
+        status: filters.status,
+        date_from: filters.date_from,
+        date_to: filters.date_to,
+        page: 1,
+        page_size: 200,
+      });
+      setData({
+        count: result.count || 0,
+        results: result.results || [],
+      });
+    } catch (err) {
+      setError(extractError(err, "Failed to load advances."));
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    debouncedSearch,
+    filters.department,
+    filters.branch,
+    filters.employment_type,
+    filters.work_location,
+    filters.status,
+    filters.date_from,
+    filters.date_to,
+    reloadKey,
+    getAdvances,
+  ]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  function setFilter(field, value) {
+    setFilters((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function clearFilters() {
+    setFilters({
+      search: "",
+      department: "",
+      branch: "",
+      employment_type: "",
+      work_location: "",
+      status: "",
+      date_from: "",
+      date_to: "",
+    });
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteAdvance(deleteTarget.id);
+      setDeleteTarget(null);
+      fetchData();
+    } catch (err) {
+      setError(extractError(err, "Failed to delete advance."));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const rows = data.results || [];
+
+  const exportHeaders = [
+    "Employee",
+    "Employee ID",
+    "Advance Date",
+    "Amount",
+    "Repaid",
+    "Outstanding",
+    "Reason",
+    "Status",
+  ];
 
   function exportRows() {
     return rows.map((r) => [
-      employeeName(employees, r.employeeId), r.employeeId, formatDisplayDate(r.advanceDate),
-      r.amount, r.totalRepaid, r.outstandingAmount, r.reason, ADVANCE_STATUS_LABELS[r.status] || r.status,
+      r.employee_name,
+      r.employee_code,
+      formatDisplayDate(r.advance_date),
+      r.amount,
+      r.total_repaid,
+      r.outstanding_amount,
+      r.reason || "",
+      ADVANCE_STATUS_LABELS[r.status] || r.status,
     ]);
-  }
-
-  function handleExportExcel() { exportToExcel("advance-history.xls", exportHeaders, exportRows()); }
-  function handleExportCsv() { exportToCSV("advance-history.csv", exportHeaders, exportRows()); }
-  function handleExportPdf() {
-    exportToPDF({
-      title: "Employee Advance History",
-      meta: [
-        `Filters: ${formatFilterSummary(f.filters)}`,
-        `Generated: ${formatDisplayDate(new Date().toISOString().slice(0, 10))}`,
-        `Records: ${rows.length}`,
-      ],
-      headers: exportHeaders,
-      rows: exportRows(),
-    });
   }
 
   return (
     <div>
-      {savedFlash && (
-        <Banner kind="success" onClose={() => setSavedFlash(false)}>Advance saved successfully.</Banner>
+      {flash && (
+        <Banner kind="success" onClose={() => setFlash(false)}>
+          Advance saved successfully.
+        </Banner>
       )}
 
-      <div className="pll-toolbar" style={{ justifyContent: "space-between" }}>
+      <div
+        className="pll-toolbar"
+        style={{ justifyContent: "space-between" }}
+      >
         <h3 style={{ margin: 0 }}>Employee Advances</h3>
-        <button type="button" className="pll-btn-primary" onClick={() => setShowForm(true)}>+ Give Advance</button>
+        <button
+          type="button"
+          className="pll-btn-primary"
+          onClick={() => setShowForm(true)}
+        >
+          + Give Advance
+        </button>
       </div>
 
-      <FilterBar
-        employees={employees}
-        employeeId={f.employeeId}
-        onEmployeeChange={f.setEmployeeId}
-        year={f.year}
-        onYearChange={f.setYear}
-        years={years}
-        month={f.month}
-        onMonthChange={f.setMonth}
-        status={f.status}
-        onStatusChange={f.setStatus}
-        statusOptions={ADVANCE_STATUSES.map((s) => ({ value: s, label: ADVANCE_STATUS_LABELS[s] }))}
-        quick={f.quick}
-        onQuickChange={f.setQuick}
-        onClear={f.clear}
-        resultCount={rows.length}
-      />
+      <div className="pll-filter-bar">
+        <div className="pll-filter-row">
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Employee Search</span>
+            <input
+              className="pll-input"
+              type="text"
+              placeholder="Name / ID…"
+              value={filters.search}
+              onChange={(e) => setFilter("search", e.target.value)}
+            />
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Department</span>
+            <select
+              className="pll-select"
+              value={filters.department}
+              onChange={(e) => setFilter("department", e.target.value)}
+            >
+              {DEPARTMENTS.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Branch</span>
+            <select
+              className="pll-select"
+              value={filters.branch}
+              onChange={(e) => setFilter("branch", e.target.value)}
+            >
+              {BRANCHES.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Employment Type</span>
+            <select
+              className="pll-select"
+              value={filters.employment_type}
+              onChange={(e) => setFilter("employment_type", e.target.value)}
+            >
+              {EMPLOYMENT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Work Location</span>
+            <select
+              className="pll-select"
+              value={filters.work_location}
+              onChange={(e) => setFilter("work_location", e.target.value)}
+            >
+              {WORK_LOCATIONS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Advance Status</span>
+            <select
+              className="pll-select"
+              value={filters.status}
+              onChange={(e) => setFilter("status", e.target.value)}
+            >
+              <option value="">All</option>
+              {ADVANCE_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {ADVANCE_STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Date From</span>
+            <input
+              className="pll-input"
+              type="date"
+              value={filters.date_from}
+              onChange={(e) => setFilter("date_from", e.target.value)}
+            />
+          </label>
+
+          <label className="pll-field pll-field-inline">
+            <span className="pll-field-label">Date To</span>
+            <input
+              className="pll-input"
+              type="date"
+              value={filters.date_to}
+              onChange={(e) => setFilter("date_to", e.target.value)}
+            />
+          </label>
+
+          <button
+            type="button"
+            className="pll-btn-outline pll-btn-sm"
+            onClick={clearFilters}
+          >
+            Clear Filters
+          </button>
+        </div>
+      </div>
 
       <ExportBar
-        onExportExcel={handleExportExcel}
-        onExportCsv={handleExportCsv}
-        onExportPdf={handleExportPdf}
-        onPrint={handleExportPdf}
+        onExportExcel={() =>
+          exportToExcel("advance-history.xls", exportHeaders, exportRows())
+        }
+        onExportCsv={() =>
+          exportToCSV("advance-history.csv", exportHeaders, exportRows())
+        }
+        onExportPdf={() =>
+          exportToPDF({
+            title: "Employee Advance History",
+            meta: [`Records: ${rows.length}`],
+            headers: exportHeaders,
+            rows: exportRows(),
+          })
+        }
+        onPrint={() =>
+          printRecords({
+            title: "Employee Advance History",
+            headers: exportHeaders,
+            rows: exportRows(),
+          })
+        }
       />
 
-      <div className="pll-table-wrap">
-        <table className="pll-table">
-          <thead>
-            <tr>
-              <th>Date</th><th>Employee</th><th className="pll-num">Advance Amount</th>
-              <th className="pll-num">Repaid</th><th className="pll-num">Outstanding</th>
-              <th>Reason</th><th>Status</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={8} className="pll-empty-row">No advance records match this filter.</td></tr>
-            )}
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td>{formatDisplayDate(r.advanceDate)}</td>
-                <td>{employeeName(employees, r.employeeId)}</td>
-                <td className="pll-num">{formatINR(r.amount)}</td>
-                <td className="pll-num">{formatINR(r.totalRepaid)}</td>
-                <td className="pll-num">{formatINR(r.outstandingAmount)}</td>
-                <td>{r.reason || "—"}</td>
-                <td><AdvanceStatusBadge status={r.status} /></td>
-                <td className="pll-row-actions">
-                  <button type="button" className="pll-link-btn" onClick={() => setViewTarget(r)}>View</button>
-                  <button type="button" className="pll-link-btn" onClick={() => setEditTarget(r)}>Edit</button>
-                  <button type="button" className="pll-link-btn pll-link-danger" onClick={() => setDeleteTarget(r)}>Delete</button>
-                </td>
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center" }}>
+          <Loading />
+        </div>
+      ) : error ? (
+        <div style={{ padding: 24 }}>
+          <Error onRetry={() => setReloadKey((k) => k + 1)} />
+          <div style={{ marginTop: 8, fontSize: 13, color: "#a52626" }}>
+            {error}
+          </div>
+        </div>
+      ) : (
+        <div className="pll-table-wrap">
+          <table className="pll-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Employee</th>
+                <th className="pll-num">Advance Amount</th>
+                <th className="pll-num">Repaid</th>
+                <th className="pll-num">Outstanding</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="pll-empty-row">
+                    No advance records match this filter.
+                  </td>
+                </tr>
+              )}
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{formatDisplayDate(r.advance_date)}</td>
+                  <td>{r.employee_name}</td>
+                  <td className="pll-num">{formatINR(r.amount)}</td>
+                  <td className="pll-num">{formatINR(r.total_repaid)}</td>
+                  <td className="pll-num">
+                    {formatINR(r.outstanding_amount)}
+                  </td>
+                  <td>{r.reason || "—"}</td>
+                  <td>
+                    <AdvanceStatusBadge status={r.status} />
+                  </td>
+                  <td className="pll-row-actions">
+                    <button
+                      type="button"
+                      className="pll-link-btn"
+                      onClick={() => setViewTarget(r)}
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      className="pll-link-btn"
+                      onClick={() => setEditTarget(r)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="pll-link-btn pll-link-danger"
+                      onClick={() => setDeleteTarget(r)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {showForm && (
         <AdvanceFormModal
-          activeEmployees={activeEmployees}
           onClose={() => setShowForm(false)}
           onSaved={() => {
             setShowForm(false);
-            setSavedFlash(true);
-            setTimeout(() => setSavedFlash(false), 3000);
+            setFlash(true);
+            setTimeout(() => setFlash(false), 3000);
+            fetchData();
           }}
         />
       )}
 
-      {editTarget && <EditAdvanceModal advance={editTarget} onClose={() => setEditTarget(null)} />}
-      {viewTarget && <AdvanceDetailModal advance={viewTarget} employees={employees} onClose={() => setViewTarget(null)} />}
+      {editTarget && (
+        <EditAdvanceModal
+          advance={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => {
+            setEditTarget(null);
+            setFlash(true);
+            setTimeout(() => setFlash(false), 3000);
+            fetchData();
+          }}
+        />
+      )}
+
+      {viewTarget && (
+        <AdvanceDetailModal
+          advance={viewTarget}
+          onClose={() => setViewTarget(null)}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
           title="Delete advance record?"
           message={
-            deleteTarget.totalRepaid > 0
-              ? `This advance already has ${formatINR(deleteTarget.totalRepaid)} repaid against it through salary payments, so it can't be deleted. Delete the related salary payment(s) first if you need to reverse this.`
-              : `This removes the ${formatINR(deleteTarget.amount)} advance for ${employeeName(employees, deleteTarget.employeeId)} dated ${formatDisplayDate(deleteTarget.advanceDate)}.`
+            Number(deleteTarget.total_repaid || 0) > 0
+              ? `This advance has ${formatINR(
+                  deleteTarget.total_repaid
+                )} repaid against it and can't be deleted.`
+              : `Remove the ${formatINR(
+                  deleteTarget.amount
+                )} advance for ${deleteTarget.employee_name} dated ${formatDisplayDate(
+                  deleteTarget.advance_date
+                )}?`
           }
           confirmLabel="Delete"
           danger
+          busy={deleting}
           onCancel={() => setDeleteTarget(null)}
-          onConfirm={() => {
-            if (deleteTarget.totalRepaid > 0) {
-              setDeleteTarget(null);
-              return;
-            }
-            deleteAdvance(deleteTarget.id);
-            setDeleteTarget(null);
-          }}
+          onConfirm={handleDelete}
         />
       )}
     </div>
@@ -1183,31 +2490,21 @@ function AdvanceManagementTab({ employees, activeEmployees }) {
 }
 
 /* ==========================================================================
-   PAGE SHELL — with Back Button + Tabs
+   PAGE SHELL
    ========================================================================== */
 
-const TABS = [
-  { key: "calculator", label: "Salary" },
-  { key: "history", label: "Salary History" },
-  { key: "advances", label: "Advance Management" },
-];
-
 export default function Salary() {
-  const { employees } = useEmployees();
-  const activeEmployees = employees.filter((e) => !e.archived);
-
   const [activeTab, setActiveTab] = useState("calculator");
-  const [employeeId, setEmployeeId] = useState(activeEmployees[0]?.id || "");
+  const [employeeId, setEmployeeId] = useState("");
   const [month, setMonth] = useState(currentMonthStr());
   const [viewRecord, setViewRecord] = useState(null);
+  const [historyReloadKey, setHistoryReloadKey] = useState(0);
 
-  const handleBack = () => {
-    window.history.back();
-  };
+  const handleBack = () => window.history.back();
 
   function goEditRecord(record) {
-    setEmployeeId(record.employeeId);
-    setMonth(record.salaryMonth);
+    setEmployeeId(String(record.employee));
+    setMonth(record.salary_month?.slice(0, 7) || currentMonthStr());
     setActiveTab("calculator");
   }
 
@@ -1216,83 +2513,95 @@ export default function Salary() {
   }
 
   return (
-    <div className="sal-page">
-      <div className="sal-page-header">
-        <div className="sal-page-header-left">
-          <button
-            className="sal-back-btn"
-            onClick={handleBack}
-            aria-label="Go back"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+    <>
+      <Header
+        navLinks={[
+          { label: "Employees", path: "/hr/employees" },
+          { label: "Attendance & Wages", path: "/hr/attendance" },
+          { label: "Salary", path: "/hr/salary" },
+        ]}
+      />
+
+      <div className="sal-page">
+        <div className="sal-page-header">
+          <div className="sal-page-header-left">
+            <button
+              className="sal-back-btn"
+              onClick={handleBack}
+              aria-label="Go back"
             >
-              <path d="M19 12H5" />
-              <path d="M12 19l-7-7 7-7" />
-            </svg>
-            Back
-          </button>
-          <div>
-            <h1>Employee Salary</h1>
-            <p>
-              Attendance-based wages flow in automatically for hourly employees;
-              monthly-salary employees are unaffected.
-            </p>
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M19 12H5" />
+                <path d="M12 19l-7-7 7-7" />
+              </svg>
+              Back
+            </button>
+            <div>
+              <h1>Employee Salary</h1>
+              <p>
+                Attendance-based wages flow in automatically for hourly
+                employees; monthly-salary employees are unaffected.
+              </p>
+            </div>
+          </div>
+          <div className="sal-page-header-actions">
+            <span className="sal-header-badge">Payroll</span>
           </div>
         </div>
-        <div className="sal-page-header-actions">
-          <span className="sal-header-badge">Payroll</span>
+
+        <div className="pll-tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className={`pll-tab-btn ${
+                activeTab === t.key ? "pll-tab-btn-active" : ""
+              }`}
+              onClick={() => setActiveTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
+
+        {activeTab === "calculator" && (
+          <SalaryCalculatorTab
+            employeeId={employeeId}
+            setEmployeeId={setEmployeeId}
+            month={month}
+            setMonth={setMonth}
+            onSaved={() => setHistoryReloadKey((k) => k + 1)}
+            onViewExisting={goViewRecord}
+            onRefreshCounts={() => setHistoryReloadKey((k) => k + 1)}
+          />
+        )}
+
+        {activeTab === "history" && (
+          <SalaryHistoryTab
+            key={historyReloadKey}
+            onEdit={goEditRecord}
+            onView={goViewRecord}
+          />
+        )}
+
+        {activeTab === "advances" && <AdvanceManagementTab />}
+
+        {viewRecord && (
+          <ViewSalaryModal
+            record={viewRecord}
+            onClose={() => setViewRecord(null)}
+          />
+        )}
       </div>
-
-      <div className="pll-tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={`pll-tab-btn ${activeTab === t.key ? "pll-tab-btn-active" : ""}`}
-            onClick={() => setActiveTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "calculator" && (
-        <SalaryCalculatorTab
-          employeeId={employeeId}
-          setEmployeeId={setEmployeeId}
-          month={month}
-          setMonth={setMonth}
-          activeEmployees={activeEmployees}
-          onSaved={() => {}}
-          onViewExisting={goViewRecord}
-        />
-      )}
-
-      {activeTab === "history" && (
-        <SalaryHistoryTab employees={employees} onEdit={goEditRecord} onView={goViewRecord} />
-      )}
-
-      {activeTab === "advances" && (
-        <AdvanceManagementTab employees={employees} activeEmployees={activeEmployees} />
-      )}
-
-      {viewRecord && (
-        <ViewSalaryModal
-          record={viewRecord}
-          employees={employees}
-          onClose={() => setViewRecord(null)}
-          onPrint={(r) => printSingleSalary(r, employees)}
-        />
-      )}
-    </div>
+    </>
   );
 }

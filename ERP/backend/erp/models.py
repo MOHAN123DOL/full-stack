@@ -1662,3 +1662,684 @@ class JournalEntry(models.Model):
 
     def __str__(self):
         return f"{self.record_number} — {self.type} — {self.amount}"
+
+
+
+#hr 
+# hr/models.py
+
+
+
+class Department(models.TextChoices):
+    ENGINEERING = "Engineering", "Engineering"
+    PRODUCTION = "Production", "Production"
+    HR = "HR", "HR"
+    SALES = "Sales", "Sales"
+    ACCOUNTS = "Accounts", "Accounts"
+
+
+class EmploymentStatus(models.TextChoices):
+    ACTIVE = "Active", "Active"
+    INACTIVE = "Inactive", "Inactive"
+    RESIGNED = "Resigned", "Resigned"
+    TERMINATED = "Terminated", "Terminated"
+    ON_NOTICE = "On Notice", "On Notice"
+
+
+class EmploymentType(models.TextChoices):
+    PERMANENT = "Permanent", "Permanent"
+    PROBATION = "Probation", "Probation"
+    CONTRACT = "Contract", "Contract"
+    TEMPORARY = "Temporary", "Temporary"
+    INTERN = "Intern", "Intern"
+    CONSULTANT = "Consultant", "Consultant"
+
+
+class Gender(models.TextChoices):
+    MALE = "Male", "Male"
+    FEMALE = "Female", "Female"
+    OTHER = "Other", "Other"
+
+
+class MaritalStatus(models.TextChoices):
+    SINGLE = "Single", "Single"
+    MARRIED = "Married", "Married"
+    DIVORCED = "Divorced", "Divorced"
+    WIDOWED = "Widowed", "Widowed"
+
+
+class Employee(models.Model):
+    """
+    Full employee record.
+
+    - `employee_id` is user-entered (e.g. "EMP001", "TRX-001") and
+      is the human-facing identifier the HR user types in.
+    - Internal `id` (auto PK) is what the API uses in URLs.
+    - JSONField is used for education/experience/bank/documents/
+      employmentHistory so the frontend shape maps 1:1.
+    """
+
+    # ---------------------------------------------------------
+    # IDENTITY  (user-entered — the frontend "id" field)
+    # ---------------------------------------------------------
+    employee_id = models.CharField(
+        max_length=50,
+        unique=True,
+        help_text="Manually entered employee ID, e.g. EMP001 or TRX-001.",
+    )
+    employee_code = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Optional secondary code (e.g. payroll code).",
+    )
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100, blank=True, default="")
+    photo = models.ImageField(
+        upload_to="employee_photos/",
+        blank=True,
+        null=True,
+    )
+
+    # ---------------------------------------------------------
+    # PERSONAL
+    # ---------------------------------------------------------
+    gender = models.CharField(
+        max_length=20, choices=Gender.choices, blank=True, default="",
+    )
+    dob = models.DateField(null=True, blank=True)
+    blood_group = models.CharField(max_length=5, blank=True, default="")
+    marital_status = models.CharField(
+        max_length=20, choices=MaritalStatus.choices, blank=True, default="",
+    )
+
+    # ---------------------------------------------------------
+    # CONTACT
+    # ---------------------------------------------------------
+    mobile = models.CharField(max_length=20, blank=True, default="")
+    email = models.EmailField(blank=True, default="")
+    emergency_contact_name = models.CharField(
+        max_length=150, blank=True, default=""
+    )
+    emergency_contact_number = models.CharField(
+        max_length=20, blank=True, default=""
+    )
+
+    # ---------------------------------------------------------
+    # EMPLOYMENT
+    # ---------------------------------------------------------
+    department = models.CharField(
+        max_length=50, choices=Department.choices, blank=True, default="",
+    )
+    designation = models.CharField(max_length=100, blank=True, default="")
+    branch = models.CharField(max_length=150, blank=True, default="")
+    employment_type = models.CharField(
+        max_length=20, choices=EmploymentType.choices, blank=True, default="",
+    )
+    employment_status = models.CharField(
+        max_length=20,
+        choices=EmploymentStatus.choices,
+        default=EmploymentStatus.ACTIVE,
+    )
+    reporting_manager = models.CharField(
+        max_length=150, blank=True, default=""
+    )
+    work_location = models.CharField(max_length=150, blank=True, default="")
+    joining_date = models.DateField(null=True, blank=True)
+
+    # ---------------------------------------------------------
+    # ADDRESS
+    # ---------------------------------------------------------
+    address_line1 = models.CharField(max_length=255, blank=True, default="")
+    address_line2 = models.CharField(max_length=255, blank=True, default="")
+    country = models.CharField(max_length=100, blank=True, default="India")
+    state = models.CharField(max_length=100, blank=True, default="")
+    city = models.CharField(max_length=100, blank=True, default="")
+    district = models.CharField(max_length=100, blank=True, default="")
+    pincode = models.CharField(max_length=10, blank=True, default="")
+
+    # ---------------------------------------------------------
+    # STATUTORY
+    # ---------------------------------------------------------
+    aadhaar = models.CharField(max_length=20, blank=True, default="")
+    pan = models.CharField(max_length=20, blank=True, default="")
+    uan = models.CharField(max_length=20, blank=True, default="")
+    pf = models.CharField(max_length=20, blank=True, default="")
+    esi = models.CharField(max_length=20, blank=True, default="")
+    passport = models.CharField(max_length=20, blank=True, default="")
+    driving_license = models.CharField(max_length=20, blank=True, default="")
+
+    # ---------------------------------------------------------
+    # JSON COLLECTIONS (match frontend shape exactly)
+    # ---------------------------------------------------------
+    skills = models.JSONField(default=list, blank=True)
+    education = models.JSONField(default=list, blank=True)
+    experience = models.JSONField(default=list, blank=True)
+    bank_details = models.JSONField(default=dict, blank=True)
+    documents = models.JSONField(default=list, blank=True)
+    employment_history = models.JSONField(default=list, blank=True)
+
+    # ---------------------------------------------------------
+    # LIFECYCLE
+    # ---------------------------------------------------------
+    archived = models.BooleanField(default=False)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="employee",
+        help_text="Linked User account. Set on first profile lookup.",
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_employees",
+    )
+
+    # ---------------------------------------------------------
+    # AUDIT
+    # ---------------------------------------------------------
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_employees",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["archived"]),
+            models.Index(fields=["employee_id"]),
+            models.Index(fields=["department"]),
+            models.Index(fields=["city"]),
+            models.Index(fields=["employment_status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.employee_id} — {self.first_name} {self.last_name}"
+
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}".strip()
+
+
+class EmployeeCodeSettings(models.Model):
+    
+    prefix = models.CharField(max_length=20, default="EMP")
+    next_number = models.PositiveIntegerField(default=1)
+    number_padding = models.PositiveIntegerField(default=3)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
+
+# salary and advance
+
+
+from django.db import models
+from django.core.validators import MinValueValidator
+
+
+class SalaryPayment(models.Model):
+    PAYMENT_STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("PAID", "Paid"),
+        ("PARTIALLY_PAID", "Partially Paid"),
+    ]
+
+    employee = models.ForeignKey(
+        "Employee",
+        on_delete=models.PROTECT,
+        related_name="salary_payments",
+    )
+
+    salary_month = models.DateField()
+    salary_year = models.PositiveIntegerField()
+
+    base_salary = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    attendance_wage = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    allowances = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    overtime = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    gross_earnings = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    pf = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    esi = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    tax = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    other_deductions = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    advance_deduction = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    total_deductions = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    net_salary = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+    )
+
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PAYMENT_STATUS_CHOICES,
+        default="PENDING",
+    )
+
+    paid_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "salary_payment"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["employee", "salary_month"],
+                name="unique_employee_salary_month",
+            )
+        ]
+        ordering = ["-salary_month", "-created_at"]
+
+    def __str__(self):
+        return f"{self.employee} - {self.salary_month}"
+
+
+
+class Advance(models.Model):
+    STATUS_CHOICES = [
+        ("OUTSTANDING", "Outstanding"),
+        ("PARTIALLY_REPAID", "Partially Repaid"),
+        ("FULLY_REPAID", "Fully Repaid"),
+    ]
+
+    employee = models.ForeignKey(
+        "Employee",
+        on_delete=models.PROTECT,
+        related_name="salary_advances",
+    )
+
+    advance_date = models.DateField()
+
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+    )
+
+    total_repaid = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    outstanding_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+
+    reason = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="OUTSTANDING",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "advance"
+        ordering = ["-advance_date", "-created_at"]
+
+    def __str__(self):
+        return f"{self.employee} - ₹{self.amount}"
+
+
+
+class AdvanceRepayment(models.Model):
+    advance = models.ForeignKey(
+        Advance,
+        on_delete=models.PROTECT,
+        related_name="repayments",
+    )
+
+    employee = models.ForeignKey(
+        "Employee",
+        on_delete=models.PROTECT,
+        related_name="advance_repayments",
+    )
+
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+    )
+
+    salary_payment = models.ForeignKey(
+        SalaryPayment,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="advance_repayments",
+    )
+
+    date = models.DateField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "advance_repayment"
+        ordering = ["-date", "-created_at"]
+
+    def __str__(self):
+        return f"{self.employee} - ₹{self.amount}"
+
+
+
+
+
+from decimal import Decimal
+
+from django.db import models
+from django.core.validators import MinValueValidator
+
+
+class WageConfig(models.Model):
+    SALARY_TYPE_CHOICES = [
+        ("HOURLY", "Hourly Wage"),
+        ("MONTHLY", "Monthly Salary"),
+    ]
+
+    LEAVE_POLICY_CHOICES = [
+        ("UNPAID", "Unpaid"),
+        ("FULL_DAY", "Paid Full Day"),
+    ]
+
+    employee = models.OneToOneField(
+        "Employee",
+        on_delete=models.PROTECT,
+        related_name="wage_configuration",
+    )
+
+    salary_type = models.CharField(
+        max_length=20,
+        choices=SALARY_TYPE_CHOICES,
+        default="HOURLY",
+    )
+
+    hourly_rate = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0"))
+        ],
+    )
+
+    monthly_salary = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0"))
+        ],
+    )
+
+    standard_hours_per_day = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=8,
+        validators=[
+            MinValueValidator(Decimal("0"))
+        ],
+    )
+
+    paid_leave_policy = models.CharField(
+        max_length=20,
+        choices=LEAVE_POLICY_CHOICES,
+        default="UNPAID",
+    )
+
+    holiday_policy = models.CharField(
+        max_length=20,
+        choices=LEAVE_POLICY_CHOICES,
+        default="UNPAID",
+    )
+
+    weekly_off_policy = models.CharField(
+        max_length=20,
+        choices=LEAVE_POLICY_CHOICES,
+        default="UNPAID",
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        db_table = "wage_configuration"
+
+    def __str__(self):
+        return (
+            f"{self.employee.employee_id} - "
+            f"{self.salary_type}"
+        )
+
+
+class Attendance(models.Model):
+
+    STATUS_CHOICES = [
+        ("PRESENT", "Present"),
+        ("HALF_DAY", "Half Day"),
+        ("ABSENT", "Absent"),
+        ("PAID_LEAVE", "Paid Leave"),
+        ("UNPAID_LEAVE", "Unpaid Leave"),
+        ("HOLIDAY", "Holiday"),
+        ("WEEKLY_OFF", "Weekly Off"),
+        ("WFH", "Work From Home"),
+    ]
+
+    employee = models.ForeignKey(
+        "Employee",
+        on_delete=models.PROTECT,
+        related_name="attendance_records",
+    )
+
+    date = models.DateField()
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+    )
+
+    login_time = models.TimeField(
+        null=True,
+        blank=True,
+    )
+
+    logout_time = models.TimeField(
+        null=True,
+        blank=True,
+    )
+
+    break_hours = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0"))
+        ],
+    )
+
+    working_hours = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0"))
+        ],
+    )
+
+    hourly_rate = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0"))
+        ],
+    )
+
+    daily_wage = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0"))
+        ],
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        db_table = "attendance_record"
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "employee",
+                    "date",
+                ],
+                name="unique_employee_attendance_date",
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "employee",
+                    "date",
+                ]
+            ),
+            models.Index(
+                fields=["date"]
+            ),
+            models.Index(
+                fields=["status"]
+            ),
+        ]
+
+        ordering = [
+            "-date",
+            "employee__employee_id",
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.employee.employee_id} - "
+            f"{self.date} - "
+            f"{self.status}"
+        )

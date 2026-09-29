@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import "../styles/Profile.css";
@@ -243,6 +243,41 @@ const IconClose = () => (
   </svg>
 );
 
+const IconPencil = () => (
+  <svg
+    viewBox="0 0 24 24"
+    width="14"
+    height="14"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+  </svg>
+);
+
+const IconTrash = () => (
+  <svg
+    viewBox="0 0 24 24"
+    width="14"
+    height="14"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    <path d="M10 11v6" />
+    <path d="M14 11v6" />
+    <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
 /* =========================================================
    REUSABLE COMPONENTS
 ========================================================= */
@@ -428,6 +463,20 @@ export default function Profile() {
 
   const targetHours = 8;
 
+  /* -------------------------------------------------------
+     Profile photo upload / remove
+  ------------------------------------------------------- */
+
+  const avatarInputRef = useRef(null);
+
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  const [photoRemoving, setPhotoRemoving] = useState(false);
+
+  const [photoError, setPhotoError] = useState("");
+
+  const [photoToast, setPhotoToast] = useState(null);
+
   /* =======================================================
      LOAD PROFILE
   ======================================================= */
@@ -451,29 +500,28 @@ export default function Profile() {
 
         console.log("Profile API response:", response.data);
 
+        if (!isMounted) return;
+
         if (response.data?.success) {
           setProfileData(response.data.data);
         } else {
           setProfileError(true);
         }
       } catch (error) {
+        if (!isMounted) return;
+
         console.error("Profile API error:", error);
         console.error("Status:", error.response?.status);
         console.error("Response:", error.response?.data);
 
         setProfileError(true);
       } finally {
-        setProfileLoading(false);
+        if (isMounted) {
+          setProfileLoading(false);
+        }
       }
     };
 
-    /*
-     * Do NOT call the profile API until:
-     *
-     * 1. Auth restore has completed
-     * 2. User is authenticated
-     * 3. Access token exists
-     */
     if (!authLoading && isAuthenticated && accessToken) {
       loadProfile();
     } else if (!authLoading) {
@@ -565,6 +613,127 @@ export default function Profile() {
     await logout();
 
     navigate("/material-planning/login", { replace: true });
+  };
+
+  /* =======================================================
+     PROFILE PHOTO UPLOAD
+  ======================================================= */
+
+  const handlePhotoChange = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setPhotoError("Please select an image file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setPhotoError("Image must be 5 MB or smaller.");
+      return;
+    }
+
+    if (!accessToken) {
+      setPhotoError("Your session has expired. Please sign in again.");
+      return;
+    }
+
+    setPhotoError("");
+
+    try {
+      setPhotoUploading(true);
+
+      const formData = new FormData();
+
+      formData.append("profile_photo", file);
+
+      const response = await api.patch(
+        "/erp/profile/",
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      if (!response.data?.success) {
+        throw new Error("bad response");
+      }
+
+      setProfileData(response.data.data);
+
+      setPhotoToast("Profile photo updated.");
+
+      setTimeout(() => setPhotoToast(null), 2600);
+    } catch (error) {
+      console.error("Photo upload failed:", error);
+
+      if (error.response?.status === 401) {
+        setPhotoError("Your session has expired. Please sign in again.");
+      } else {
+        setPhotoError(
+          error.response?.data?.message ||
+            "Unable to upload photo. Please try again."
+        );
+      }
+    } finally {
+      setPhotoUploading(false);
+
+      if (avatarInputRef.current) {
+        avatarInputRef.current.value = "";
+      }
+    }
+  };
+
+  /* =======================================================
+     PROFILE PHOTO REMOVE
+  ======================================================= */
+
+  const handlePhotoRemove = async () => {
+    if (!accessToken) {
+      setPhotoError("Your session has expired. Please sign in again.");
+      return;
+    }
+
+    if (!window.confirm("Remove your profile photo?")) return;
+
+    setPhotoError("");
+
+    try {
+      setPhotoRemoving(true);
+
+      const response = await api.delete("/erp/profile/photo/", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.data?.success) {
+        throw new Error("bad response");
+      }
+
+      setProfileData(response.data.data);
+
+      setPhotoToast("Profile photo removed.");
+
+      setTimeout(() => setPhotoToast(null), 2600);
+    } catch (error) {
+      console.error("Photo remove failed:", error);
+
+      if (error.response?.status === 401) {
+        setPhotoError("Your session has expired. Please sign in again.");
+      } else {
+        setPhotoError(
+          error.response?.data?.message ||
+            "Unable to remove photo. Please try again."
+        );
+      }
+    } finally {
+      setPhotoRemoving(false);
+    }
   };
 
   /* =======================================================
@@ -685,111 +854,84 @@ export default function Profile() {
   /* =======================================================
      PASSWORD SUBMIT
   ======================================================= */
-const handlePasswordSubmit = async (event) => {
-  event.preventDefault();
 
-  setPasswordError("");
+  const handlePasswordSubmit = async (event) => {
+    event.preventDefault();
 
-  if (!validatePassword()) {
-    return;
-  }
+    setPasswordError("");
 
-  if (!accessToken) {
-    setPasswordError(
-      "Your session has expired. Please sign in again."
-    );
-    return;
-  }
-
-  try {
-    setPasswordLoading(true);
-
-    console.log(
-      "Changing password with access token:",
-      !!accessToken
-    );
-
-    const response = await api.post(
-      "/erp/profile/change-password/",
-      {
-        oldPassword:
-          passwordForm.oldPassword,
-
-        newPassword:
-          passwordForm.newPassword,
-
-        confirmPassword:
-          passwordForm.confirmPassword,
-      },
-      {
-        headers: {
-          Authorization:
-            `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    console.log(
-      "Change password response:",
-      response.data
-    );
-
-    if (response.data?.success) {
-      setPasswordUpdated(true);
-
-      setPasswordForm({
-        oldPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-
-      setPasswordFieldErrors({});
-    } else {
-      setPasswordError(
-        response.data?.message ||
-          "Password change failed."
-      );
-    }
-  } catch (error) {
-    console.error(
-      "Change password error:",
-      error
-    );
-
-    console.error(
-      "Status:",
-      error.response?.status
-    );
-
-    console.error(
-      "Response:",
-      error.response?.data
-    );
-
-    if (error.response?.status === 401) {
-      setPasswordError(
-        "Your session has expired. Please sign in again."
-      );
+    if (!validatePassword()) {
       return;
     }
 
-    const responseData =
-      error.response?.data;
-
-    if (responseData?.errors) {
-      setPasswordFieldErrors(
-        responseData.errors
-      );
+    if (!accessToken) {
+      setPasswordError("Your session has expired. Please sign in again.");
+      return;
     }
 
-    setPasswordError(
-      responseData?.message ||
-        "Unable to change password. Please try again."
-    );
-  } finally {
-    setPasswordLoading(false);
-  }
-};
+    try {
+      setPasswordLoading(true);
+
+      console.log("Changing password with access token:", !!accessToken);
+
+      const response = await api.post(
+        "/erp/profile/change-password/",
+        {
+          oldPassword: passwordForm.oldPassword,
+          newPassword: passwordForm.newPassword,
+          confirmPassword: passwordForm.confirmPassword,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      console.log("Change password response:", response.data);
+
+      if (response.data?.success) {
+        setPasswordUpdated(true);
+
+        setPasswordForm({
+          oldPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        });
+
+        setPasswordFieldErrors({});
+      } else {
+        setPasswordError(
+          response.data?.message || "Password change failed."
+        );
+      }
+    } catch (error) {
+      console.error("Change password error:", error);
+      console.error("Status:", error.response?.status);
+      console.error("Response:", error.response?.data);
+
+      if (error.response?.status === 401) {
+        setPasswordError(
+          "Your session has expired. Please sign in again."
+        );
+        return;
+      }
+
+      const responseData = error.response?.data;
+
+      if (responseData?.errors) {
+        setPasswordFieldErrors(responseData.errors);
+      }
+
+      setPasswordError(
+        responseData?.message ||
+          "Unable to change password. Please try again."
+      );
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
   /* =======================================================
      PASSWORD REQUIREMENTS
   ======================================================= */
@@ -847,10 +989,7 @@ const handlePasswordSubmit = async (event) => {
 
   return (
     <div className="profile-page">
-      {/* =================================================
-          TOP BAR
-      ================================================= */}
-
+      {/* TOP BAR */}
       <div className="profile-topbar">
         <button type="button" className="profile-back-btn" onClick={handleBack}>
           <IconArrowLeft />
@@ -867,13 +1006,7 @@ const handlePasswordSubmit = async (event) => {
         </button>
       </div>
 
-      {/* =================================================
-          PAGE INNER
-      ================================================= */}
-
       <div className="profile-page-inner">
-        {/* Header */}
-
         <div className="profile-header">
           <div>
             <h1 className="profile-title">Profile</h1>
@@ -884,10 +1017,7 @@ const handlePasswordSubmit = async (event) => {
           </div>
         </div>
 
-        {/* =================================================
-            HERO
-        ================================================= */}
-
+        {/* HERO */}
         <div className="profile-hero">
           <div className="profile-hero-content">
             <div className="profile-avatar-wrapper">
@@ -897,12 +1027,60 @@ const handlePasswordSubmit = async (event) => {
                 ) : (
                   <span>{initials}</span>
                 )}
+
+                {/* Upload (pencil) */}
+                <button
+                  type="button"
+                  className="profile-avatar-edit"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={photoUploading || photoRemoving}
+                  title={photoUploading ? "Uploading…" : "Change profile photo"}
+                  aria-label="Change profile photo"
+                >
+                  {photoUploading ? (
+                    <span className="profile-avatar-spinner" />
+                  ) : (
+                    <IconPencil />
+                  )}
+                </button>
+
+                {/* Remove (trash) — only when a photo exists */}
+                {data.profilePhoto && (
+                  <button
+                    type="button"
+                    className="profile-avatar-remove"
+                    onClick={handlePhotoRemove}
+                    disabled={photoUploading || photoRemoving}
+                    title={
+                      photoRemoving ? "Removing…" : "Remove profile photo"
+                    }
+                    aria-label="Remove profile photo"
+                  >
+                    {photoRemoving ? (
+                      <span className="profile-avatar-spinner" />
+                    ) : (
+                      <IconTrash />
+                    )}
+                  </button>
+                )}
+
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={handlePhotoChange}
+                />
               </div>
 
               <span className="profile-status-badge">
                 <span className="profile-status-dot"></span>
                 Active
               </span>
+
+              {photoError && (
+                <p className="profile-avatar-error">{photoError}</p>
+              )}
             </div>
 
             <div className="profile-hero-info">
@@ -926,25 +1104,15 @@ const handlePasswordSubmit = async (event) => {
           </div>
         </div>
 
-        {/* =================================================
-            STATS
-        ================================================= */}
-
+        {/* STATS */}
         <div className="profile-stats-grid">
           {stats.map((stat, index) => (
             <StatCard key={index} {...stat} />
           ))}
         </div>
 
-        {/* =================================================
-            MAIN GRID
-        ================================================= */}
-
+        {/* MAIN GRID */}
         <div className="profile-main-grid">
-          {/* =================================================
-              PERSONAL INFORMATION
-          ================================================= */}
-
           <div className="profile-card profile-info-card">
             <div className="profile-card-header">
               <div>
@@ -997,13 +1165,7 @@ const handlePasswordSubmit = async (event) => {
             </div>
           </div>
 
-          {/* =================================================
-              SIDEBAR
-          ================================================= */}
-
           <div className="profile-sidebar">
-            {/* SECURITY */}
-
             <div className="profile-card profile-security-card">
               <div className="profile-card-header">
                 <div>
@@ -1038,8 +1200,6 @@ const handlePasswordSubmit = async (event) => {
               </button>
             </div>
 
-            {/* WORK HOURS */}
-
             <WorkHoursCard
               hoursWorked={hoursWorked}
               targetHours={targetHours}
@@ -1048,10 +1208,7 @@ const handlePasswordSubmit = async (event) => {
         </div>
       </div>
 
-      {/* =================================================
-          PASSWORD MODAL
-      ================================================= */}
-
+      {/* PASSWORD MODAL */}
       {isPasswordModalOpen && (
         <div
           className="profile-modal-overlay"
@@ -1071,8 +1228,6 @@ const handlePasswordSubmit = async (event) => {
               event.stopPropagation();
             }}
           >
-            {/* Modal header */}
-
             <div className="profile-modal-header">
               <div>
                 <h2 id="change-password-title" className="profile-modal-title">
@@ -1096,10 +1251,6 @@ const handlePasswordSubmit = async (event) => {
               )}
             </div>
 
-            {/* =================================================
-                SUCCESS
-            ================================================= */}
-
             {passwordUpdated ? (
               <div className="profile-modal-success">
                 <div className="profile-modal-success-icon">
@@ -1117,13 +1268,7 @@ const handlePasswordSubmit = async (event) => {
                 </button>
               </div>
             ) : (
-              /* =================================================
-                 PASSWORD FORM
-              ================================================= */
-
               <form onSubmit={handlePasswordSubmit} noValidate>
-                {/* Current password */}
-
                 <div className="profile-form-group">
                   <label htmlFor="oldPassword">Current Password</label>
 
@@ -1144,8 +1289,6 @@ const handlePasswordSubmit = async (event) => {
                     </p>
                   )}
                 </div>
-
-                {/* New password */}
 
                 <div className="profile-form-group">
                   <label htmlFor="newPassword">New Password</label>
@@ -1168,8 +1311,6 @@ const handlePasswordSubmit = async (event) => {
                   )}
                 </div>
 
-                {/* Password requirements */}
-
                 <div className="profile-password-rules">
                   <span>Password requirements</span>
 
@@ -1184,8 +1325,6 @@ const handlePasswordSubmit = async (event) => {
                     ))}
                   </ul>
                 </div>
-
-                {/* Confirm password */}
 
                 <div className="profile-form-group">
                   <label htmlFor="confirmPassword">Confirm New Password</label>
@@ -1208,13 +1347,9 @@ const handlePasswordSubmit = async (event) => {
                   )}
                 </div>
 
-                {/* General error */}
-
                 {passwordError && (
                   <p className="profile-error">{passwordError}</p>
                 )}
-
-                {/* Actions */}
 
                 <div className="profile-modal-actions">
                   <button
@@ -1237,6 +1372,13 @@ const handlePasswordSubmit = async (event) => {
               </form>
             )}
           </div>
+        </div>
+      )}
+
+      {/* PHOTO TOAST */}
+      {photoToast && (
+        <div className="emp-toast" role="status">
+          {photoToast}
         </div>
       )}
     </div>

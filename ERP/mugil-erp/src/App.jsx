@@ -28,7 +28,7 @@ import Profile from "./components/Profile.jsx";
 import Salary from "./pages/hr/Salary.jsx";
 import Attendance from "./pages/hr/Attendancewages.jsx";
 import { AttendanceProvider } from "./pages/hr/Attendancewages.jsx";
-import { SalaryAdjustmentsProvider } from "./pages/hr/Salary.jsx";
+
 import AccountsReport from"./pages/accounts/AccountsReport.jsx";
 import EmployeeProfile from "./pages/hr/EmployeeProfile.jsx";
 import ExpenseProfit from "./pages/accounts/ExpenseProfit.jsx";
@@ -53,7 +53,7 @@ export default function App() {
     <AuthProvider>
       <EmployeesProvider>
         <AttendanceProvider>
-          <SalaryAdjustmentsProvider>
+          
             <PayrollProvider>
             <Routes>
               <Route
@@ -384,7 +384,7 @@ export default function App() {
               />
             </Routes>
             </PayrollProvider>
-          </SalaryAdjustmentsProvider>
+          
         </AttendanceProvider>
       </EmployeesProvider>
     </AuthProvider>

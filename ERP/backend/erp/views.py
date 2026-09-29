@@ -17,6 +17,7 @@ from .models import (
     Customer,
     DeliveryChallan,
     DeliveryChallanNumberSettings,
+    EmployeeCodeSettings,
     ProformaInvoice,
     ProformaInvoiceNumberSettings,
     PurchaseOrder,
@@ -256,23 +257,203 @@ class UserProfileDetailAPIView(generics.RetrieveUpdateAPIView):
    
 #FOR PROFILE VIEW API
 
-class ProfileAPIView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-    ]
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
+
+class ProfileAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    # ==================================================
+    # GET
+    # ==================================================
     def get(self, request):
         serializer = ProfileSerializer(
             request.user,
-            context={
-                "request": request,
+            context={"request": request},
+        )
+        return Response(
+            {
+                "success": True,
+                "message": "Profile retrieved successfully.",
+                "data": serializer.data,
             },
+            status=status.HTTP_200_OK,
+        )
+
+    # ==================================================
+    # PATCH — photo only, saved on the Employee row
+    # ==================================================
+    def patch(self, request):
+        photo = request.FILES.get("profile_photo")
+
+        if not photo:
+            return Response(
+                {"success": False, "message": "No image was uploaded."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = getattr(photo, "content_type", "") or ""
+        if not content_type.startswith("image/"):
+            return Response(
+                {"success": False, "message": "Only image files are allowed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if photo.size > 5 * 1024 * 1024:
+            return Response(
+                {"success": False, "message": "Image must be 5 MB or smaller."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------------
+        # Resolve the Employee row for this user
+        # (same match order as the serializer helper)
+        # --------------------------------------------------
+        employee = (
+            Employee.objects.filter(user=request.user).first()
+        )
+
+        if employee is None:
+            employee = (
+                Employee.objects
+                .filter(created_by=request.user)
+                .order_by("-created_at")
+                .first()
+            )
+
+        if employee is None and request.user.email:
+            employee = (
+                Employee.objects
+                .filter(email__iexact=request.user.email)
+                .order_by("-created_at")
+                .first()
+            )
+
+        if employee is None and request.user.username:
+            employee = (
+                Employee.objects
+                .filter(first_name__iexact=request.user.username)
+                .order_by("-created_at")
+                .first()
+            )
+
+        if employee is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No employee record found for this account.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------------
+        # Replace the old file
+        # --------------------------------------------------
+        if employee.photo:
+            try:
+                employee.photo.delete(save=False)
+            except Exception:
+                pass
+
+        employee.photo = photo
+
+        # Save photo and keep the link to this user
+        if employee.user_id is None:
+            employee.user = request.user
+            employee.save(update_fields=["photo", "user", "updated_at"])
+        else:
+            employee.save(update_fields=["photo", "updated_at"])
+
+        serializer = ProfileSerializer(
+            request.user,
+            context={"request": request},
         )
 
         return Response(
             {
                 "success": True,
-                "message": "Profile retrieved successfully.",
+                "message": "Profile photo updated successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+class ProfilePhotoDeleteAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        # --------------------------------------------------
+        # Resolve the Employee row for this user
+        # (same fallback chain used everywhere else)
+        # --------------------------------------------------
+        employee = Employee.objects.filter(user=request.user).first()
+
+        if employee is None:
+            employee = (
+                Employee.objects
+                .filter(created_by=request.user)
+                .order_by("-created_at")
+                .first()
+            )
+
+        if employee is None and request.user.email:
+            employee = (
+                Employee.objects
+                .filter(email__iexact=request.user.email)
+                .order_by("-created_at")
+                .first()
+            )
+
+        if employee is None and request.user.username:
+            employee = (
+                Employee.objects
+                .filter(first_name__iexact=request.user.username)
+                .order_by("-created_at")
+                .first()
+            )
+
+        if employee is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No employee record found for this account.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not employee.photo:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No photo to remove.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------------
+        # Delete the file from disk and clear the field
+        # --------------------------------------------------
+        try:
+            employee.photo.delete(save=False)
+        except Exception:
+            pass
+
+        employee.photo = None
+        employee.save(update_fields=["photo", "updated_at"])
+
+        # --------------------------------------------------
+        # Echo back the fresh profile
+        # --------------------------------------------------
+        serializer = ProfileSerializer(
+            request.user,
+            context={"request": request},
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Profile photo removed successfully.",
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
@@ -4651,3 +4832,2413 @@ class JournalDetailAPIView(APIView):
             {"success": True, "message": "Journal entry deleted."},
             status=status.HTTP_200_OK,
         )
+
+
+#hr module
+# hr/views.py
+from django.db import transaction
+from django.db.models import Q
+
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Employee
+from .permissions import IsHR
+from .serializers import (
+    EmployeeArchiveSerializer,
+    EmployeeSerializer,
+)
+
+
+# ============================================================
+# EMPLOYEE LIST + CREATE
+# ============================================================
+class EmployeeListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHR]
+
+    # --------------------------------------------------------
+    # GET /erp/hr/employees/
+    # --------------------------------------------------------
+    def get(self, request):
+        qs = Employee.objects.all()
+
+        # ?archived=true|false
+        archived = request.query_params.get("archived")
+        if archived is not None:
+            qs = qs.filter(
+                archived=archived.lower() in ("1", "true", "yes")
+            )
+
+        # ?q=search
+        q = request.query_params.get("q")
+        if q:
+            qs = qs.filter(
+                Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(employee_id__icontains=q)
+                | Q(employee_code__icontains=q)
+                | Q(email__icontains=q)
+                | Q(mobile__icontains=q)
+                | Q(department__icontains=q)
+                | Q(designation__icontains=q)
+                | Q(city__icontains=q)
+            )
+
+        # Multi-select filters — comma-separated values
+        def _multi(param):
+            raw = request.query_params.get(param)
+            if not raw:
+                return None
+            return [v for v in raw.split(",") if v]
+
+        dept = _multi("department")
+        if dept:
+            qs = qs.filter(department__in=dept)
+
+        city = _multi("city")
+        if city:
+            qs = qs.filter(city__in=city)
+
+        desig = _multi("designation")
+        if desig:
+            qs = qs.filter(designation__in=desig)
+
+        status_q = _multi("employment_status")
+        if status_q:
+            qs = qs.filter(employment_status__in=status_q)
+
+        etype = _multi("employment_type")
+        if etype:
+            qs = qs.filter(employment_type__in=etype)
+
+        # Skills check in Python (JSON contains)
+        skills = _multi("skills")
+        qs = list(qs)
+        if skills:
+            qs = [e for e in qs if any(s in (e.skills or []) for s in skills)]
+
+        serializer = EmployeeSerializer(qs, many=True)
+
+        return Response(
+            {
+                "success": True,
+                "count": len(serializer.data),
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # --------------------------------------------------------
+    # POST /erp/hr/employees/
+    # --------------------------------------------------------
+    def post(self, request):
+        serializer = EmployeeSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Employee validation failed.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            # ---------------------------------------------------------
+            # Auto-generate employee_code from settings
+            # ---------------------------------------------------------
+            settings_obj = (
+                EmployeeCodeSettings.objects
+                .select_for_update()
+                .filter(is_active=True)
+                .first()
+            )
+
+            if not settings_obj:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Employee code settings have not been "
+                            "configured."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            code = (
+                f"{settings_obj.prefix}"
+                f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
+            )
+
+            settings_obj.next_number += 1
+            settings_obj.save(
+                update_fields=["next_number", "updated_at"]
+            )
+
+            employee = serializer.save(
+                created_by=request.user,
+                employee_code=code,
+            )
+
+
+        return Response(
+            {
+                "success": True,
+                "message": "Employee created successfully.",
+                "data": EmployeeSerializer(employee).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ============================================================
+# EMPLOYEE DETAIL / UPDATE / DELETE
+# ============================================================
+class EmployeeDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHR]
+
+    def _get(self, pk):
+        try:
+            return Employee.objects.get(pk=pk)
+        except Employee.DoesNotExist:
+            return None
+
+    # --------------------------------------------------------
+    # GET /erp/hr/employees/<pk>/
+    # --------------------------------------------------------
+    def get(self, request, pk):
+        emp = self._get(pk)
+        if not emp:
+            return Response(
+                {"success": False, "message": "Employee not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "data": EmployeeSerializer(emp).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # --------------------------------------------------------
+    # PATCH /erp/hr/employees/<pk>/
+    # --------------------------------------------------------
+    def patch(self, request, pk):
+        emp = self._get(pk)
+        if not emp:
+            return Response(
+                {"success": False, "message": "Employee not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = EmployeeSerializer(
+            emp, data=request.data, partial=True
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Employee validation failed.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = serializer.save()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Employee updated successfully.",
+                "data": EmployeeSerializer(updated).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # --------------------------------------------------------
+    # DELETE /erp/hr/employees/<pk>/
+    # --------------------------------------------------------
+    def delete(self, request, pk):
+        emp = self._get(pk)
+        if not emp:
+            return Response(
+                {"success": False, "message": "Employee not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        
+        if emp.photo:
+            try:
+                emp.photo.delete(save=False)
+            except Exception:
+                pass
+
+        emp.delete()
+
+        return Response(
+            {"success": True, "message": "Employee deleted."},
+            status=status.HTTP_200_OK,
+        )
+from rest_framework.parsers import MultiPartParser, FormParser
+
+
+class EmployeePhotoAPIView(APIView):
+    """
+    PATCH  /erp/hr/employees/<pk>/photo/   → upload / replace employee photo
+    DELETE /erp/hr/employees/<pk>/photo/   → remove employee photo
+    """
+    permission_classes = [IsAuthenticated, IsHR]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _get(self, pk):
+        try:
+            return Employee.objects.get(pk=pk)
+        except Employee.DoesNotExist:
+            return None
+
+    # --------------------------------------------------------
+    # PATCH — upload
+    # --------------------------------------------------------
+    def patch(self, request, pk):
+        emp = self._get(pk)
+        if not emp:
+            return Response(
+                {"success": False, "message": "Employee not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        photo = request.FILES.get("photo")
+        if not photo:
+            return Response(
+                {"success": False, "message": "No image was uploaded."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = getattr(photo, "content_type", "") or ""
+        if not content_type.startswith("image/"):
+            return Response(
+                {"success": False, "message": "Only image files are allowed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if photo.size > 5 * 1024 * 1024:
+            return Response(
+                {"success": False, "message": "Image must be 5 MB or smaller."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Remove the previous file from disk before saving the new one
+        if emp.photo:
+            try:
+                emp.photo.delete(save=False)
+            except Exception:
+                pass
+
+        emp.photo = photo
+        emp.save(update_fields=["photo", "updated_at"])
+
+        return Response(
+            {
+                "success": True,
+                "message": "Employee photo updated.",
+                "data": EmployeeSerializer(emp).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # --------------------------------------------------------
+    # DELETE — remove
+    # --------------------------------------------------------
+    def delete(self, request, pk):
+        emp = self._get(pk)
+        if not emp:
+            return Response(
+                {"success": False, "message": "Employee not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not emp.photo:
+            return Response(
+                {"success": False, "message": "This employee has no photo."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            emp.photo.delete(save=False)
+        except Exception:
+            pass
+
+        emp.photo = None
+        emp.save(update_fields=["photo", "updated_at"])
+
+        return Response(
+            {
+                "success": True,
+                "message": "Employee photo removed.",
+                "data": EmployeeSerializer(emp).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+# ============================================================
+# ARCHIVE / UNARCHIVE
+# ============================================================
+class EmployeeArchiveAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHR]
+
+    def post(self, request, pk):
+        try:
+            emp = Employee.objects.get(pk=pk)
+        except Employee.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Employee not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = EmployeeArchiveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        emp.archived = serializer.validated_data["archived"]
+        if emp.archived:
+            emp.employment_status = "Inactive"
+        emp.save(
+            update_fields=["archived", "employment_status", "updated_at"]
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Employee archived."
+                    if emp.archived
+                    else "Employee restored."
+                ),
+                "data": EmployeeSerializer(emp).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+#salary
+from datetime import datetime
+
+from django.db.models import Q
+from django.shortcuts import get_object_or_404
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from .models import (
+    Employee,
+    SalaryPayment,
+    Advance,
+)
+
+from .serializers import (
+    SalaryEmployeeSerializer,
+    SalaryPaymentSerializer,
+    AdvanceSerializer,
+)
+
+
+# =========================================================
+# COMMON EMPLOYEE FILTER
+# =========================================================
+
+def filter_employees(request):
+    search = request.query_params.get(
+        "search", ""
+    ).strip()
+
+    department = request.query_params.get(
+        "department", ""
+    ).strip()
+
+    branch = request.query_params.get(
+        "branch", ""
+    ).strip()
+
+    employment_type = request.query_params.get(
+        "employment_type", ""
+    ).strip()
+
+    work_location = request.query_params.get(
+        "work_location", ""
+    ).strip()
+
+    employees = Employee.objects.filter(
+    archived=False,
+    employment_status="Active",
+)
+
+    if search:
+        employees = employees.filter(
+            Q(employee_id__icontains=search)
+            | Q(employee_code__icontains=search)
+            | Q(first_name__icontains=search)
+            | Q(last_name__icontains=search)
+            | Q(mobile__icontains=search)
+            | Q(email__icontains=search)
+        )
+
+    if department:
+        employees = employees.filter(
+            department__iexact=department
+        )
+
+    if branch:
+        employees = employees.filter(
+            branch__icontains=branch
+        )
+
+    if employment_type:
+        employees = employees.filter(
+            employment_type__iexact=employment_type
+        )
+
+    if work_location:
+        employees = employees.filter(
+            work_location__icontains=work_location
+        )
+
+    return employees.order_by("employee_id")
+
+
+# =========================================================
+# EMPLOYEE SEARCH FOR SALARY ADD
+# =========================================================
+
+class SalaryEmployeeListAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        employees = filter_employees(request)
+
+        page = max(
+            int(request.query_params.get("page", 1)),
+            1
+        )
+
+        page_size = min(
+            int(
+                request.query_params.get(
+                    "page_size",
+                    25
+                )
+            ),
+            100
+        )
+
+        total = employees.count()
+
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        employees = employees[start:end]
+
+        serializer = SalaryEmployeeSerializer(
+            employees,
+            many=True
+        )
+
+        return Response({
+            "count": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (
+                total + page_size - 1
+            ) // page_size,
+            "results": serializer.data,
+        })
+
+
+# =========================================================
+# SALARY LIST + CREATE
+# =========================================================
+
+class SalaryPaymentListCreateAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        month = request.query_params.get(
+            "month"
+        )
+
+        payment_status = request.query_params.get(
+            "payment_status",
+            ""
+        ).strip()
+
+        employees = filter_employees(request)
+
+        salary_qs = SalaryPayment.objects.select_related(
+            "employee"
+        )
+
+        # -------------------------------------------------
+        # MONTH
+        # -------------------------------------------------
+
+        if month:
+
+            try:
+                salary_month = datetime.strptime(
+                    month,
+                    "%Y-%m"
+                ).date()
+
+                salary_month = salary_month.replace(
+                    day=1
+                )
+
+                salary_qs = salary_qs.filter(
+                    salary_month=salary_month
+                )
+
+            except ValueError:
+                return Response(
+                    {
+                        "detail": (
+                            "month must be in "
+                            "YYYY-MM format."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # -------------------------------------------------
+        # PAYMENT STATUS
+        # -------------------------------------------------
+
+        if payment_status:
+            salary_qs = salary_qs.filter(
+                payment_status=payment_status
+            )
+
+        # -------------------------------------------------
+        # EMPLOYEE FILTERS
+        # -------------------------------------------------
+
+        salary_qs = salary_qs.filter(
+            employee__in=employees
+        )
+
+        salary_qs = salary_qs.order_by(
+            "employee__employee_id"
+        )
+
+        # -------------------------------------------------
+        # MISSING SALARY
+        # -------------------------------------------------
+
+        if month:
+
+            saved_employee_ids = set(
+                salary_qs.values_list(
+                    "employee_id",
+                    flat=True
+                )
+            )
+
+            filtered_employees = employees
+
+            missing_employees = (
+                filtered_employees
+                .exclude(
+                    id__in=saved_employee_ids
+                )
+                .order_by("employee_id")
+            )
+
+        else:
+
+            saved_employee_ids = set(
+                salary_qs.values_list(
+                    "employee_id",
+                    flat=True
+                )
+            )
+
+            missing_employees = (
+                employees
+                .exclude(
+                    id__in=saved_employee_ids
+                )
+                .order_by("employee_id")
+            )
+
+        salary_serializer = SalaryPaymentSerializer(
+            salary_qs,
+            many=True
+        )
+
+        missing_serializer = SalaryEmployeeSerializer(
+            missing_employees,
+            many=True
+        )
+
+        return Response({
+            "month": month,
+
+            "total_employees": employees.count(),
+
+            "saved_entries": salary_qs.count(),
+
+            "missing_entries": missing_employees.count(),
+
+            "missing_employees": (
+                missing_serializer.data
+            ),
+
+            "salary_records": (
+                salary_serializer.data
+            ),
+        })
+
+    def post(self, request):
+
+        serializer = SalaryPaymentSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+
+            salary = serializer.save()
+
+            return Response(
+                SalaryPaymentSerializer(
+                    salary
+                ).data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+# =========================================================
+# SALARY DETAIL
+# =========================================================
+
+class SalaryPaymentDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk):
+        return get_object_or_404(
+            SalaryPayment.objects.select_related(
+                "employee"
+            ),
+            pk=pk,
+        )
+
+    def get(self, request, pk):
+
+        salary = self.get_object(pk)
+
+        serializer = SalaryPaymentSerializer(
+            salary
+        )
+
+        return Response(
+            serializer.data
+        )
+
+    def put(self, request, pk):
+
+        salary = self.get_object(pk)
+
+        serializer = SalaryPaymentSerializer(
+            salary,
+            data=request.data
+        )
+
+        if serializer.is_valid():
+
+            salary = serializer.save()
+
+            return Response(
+                SalaryPaymentSerializer(
+                    salary
+                ).data
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def patch(self, request, pk):
+
+        salary = self.get_object(pk)
+
+        serializer = SalaryPaymentSerializer(
+            salary,
+            data=request.data,
+            partial=True,
+        )
+
+        if serializer.is_valid():
+
+            salary = serializer.save()
+
+            return Response(
+                SalaryPaymentSerializer(
+                    salary
+                ).data
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def delete(self, request, pk):
+
+        salary = self.get_object(pk)
+
+        salary.delete()
+
+        return Response(
+            {
+                "message": "Salary deleted successfully."
+            },
+            status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+# =========================================================
+# ADVANCE LIST + CREATE
+# =========================================================
+
+class AdvanceListCreateAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        employees = filter_employees(request)
+
+        status_filter = request.query_params.get(
+            "status",
+            ""
+        ).strip()
+
+        date_from = request.query_params.get(
+            "date_from",
+            ""
+        ).strip()
+
+        date_to = request.query_params.get(
+            "date_to",
+            ""
+        ).strip()
+
+        advances = Advance.objects.select_related(
+            "employee"
+        ).filter(
+            employee__in=employees
+        )
+
+        # -------------------------------------------------
+        # STATUS
+        # -------------------------------------------------
+
+        if status_filter:
+            advances = advances.filter(
+                status=status_filter
+            )
+
+        # -------------------------------------------------
+        # DATE FROM
+        # -------------------------------------------------
+
+        if date_from:
+            advances = advances.filter(
+                advance_date__gte=date_from
+            )
+
+        # -------------------------------------------------
+        # DATE TO
+        # -------------------------------------------------
+
+        if date_to:
+            advances = advances.filter(
+                advance_date__lte=date_to
+            )
+
+        advances = advances.order_by(
+            "-advance_date",
+            "employee__employee_id"
+        )
+
+        serializer = AdvanceSerializer(
+            advances,
+            many=True
+        )
+
+        return Response({
+            "count": advances.count(),
+            "results": serializer.data,
+        })
+
+    def post(self, request):
+
+        serializer = AdvanceSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+
+            advance = serializer.save()
+
+            return Response(
+                AdvanceSerializer(
+                    advance
+                ).data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+# =========================================================
+# ADVANCE DETAIL
+# =========================================================
+
+class AdvanceDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk):
+
+        return get_object_or_404(
+            Advance.objects.select_related(
+                "employee"
+            ),
+            pk=pk,
+        )
+
+    def get(self, request, pk):
+
+        advance = self.get_object(pk)
+
+        serializer = AdvanceSerializer(
+            advance
+        )
+
+        return Response(
+            serializer.data
+        )
+
+    def patch(self, request, pk):
+
+        advance = self.get_object(pk)
+
+        serializer = AdvanceSerializer(
+            advance,
+            data=request.data,
+            partial=True,
+        )
+
+        if serializer.is_valid():
+
+            advance = serializer.save()
+
+            return Response(
+                AdvanceSerializer(
+                    advance
+                ).data
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def delete(self, request, pk):
+
+        advance = self.get_object(pk)
+
+        advance.delete()
+
+        return Response(
+            {
+                "message": "Advance deleted successfully."
+            },
+            status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+from datetime import datetime, date, timedelta
+from decimal import Decimal
+
+from django.db.models import Q, Sum
+
+from rest_framework import status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.exceptions import ValidationError
+
+from .models import (
+    Employee,
+    WageConfig,
+    Attendance,
+    Advance,
+)
+
+from .serializers import (
+    AttendanceEmployeeSerializer,
+    WageConfigSerializer,
+    AttendanceSerializer,
+)
+
+
+# ============================================================
+# PAGINATION
+# ============================================================
+
+class EmployeePagination(PageNumberPagination):
+
+    page_size = 25
+
+    page_size_query_param = "page_size"
+
+    max_page_size = 100
+
+
+class AttendancePagination(PageNumberPagination):
+
+    page_size = 50
+
+    page_size_query_param = "page_size"
+
+    max_page_size = 200
+
+
+# ============================================================
+# EMPLOYEE SEARCH
+# ============================================================
+
+class AttendanceEmployeeView(APIView):
+
+    def get(self, request):
+
+        queryset = Employee.objects.filter(
+            archived=False,
+            employment_status="Active",
+        )
+
+        search = request.GET.get(
+            "search",
+            "",
+        ).strip()
+
+        department = request.GET.get(
+            "department",
+            "",
+        ).strip()
+
+        branch = request.GET.get(
+            "branch",
+            "",
+        ).strip()
+
+        employment_type = request.GET.get(
+            "employment_type",
+            "",
+        ).strip()
+
+        work_location = request.GET.get(
+            "work_location",
+            "",
+        ).strip()
+
+        # ----------------------------------------------------
+        # SEARCH
+        # ----------------------------------------------------
+
+        if search:
+
+            queryset = queryset.filter(
+                Q(employee_id__icontains=search)
+                |
+                Q(employee_code__icontains=search)
+                |
+                Q(first_name__icontains=search)
+                |
+                Q(last_name__icontains=search)
+                |
+                Q(mobile__icontains=search)
+                |
+                Q(email__icontains=search)
+            )
+
+        # ----------------------------------------------------
+        # FILTERS
+        # ----------------------------------------------------
+
+        if department:
+
+            queryset = queryset.filter(
+                department=department
+            )
+
+        if branch:
+
+            queryset = queryset.filter(
+                branch=branch
+            )
+
+        if employment_type:
+
+            queryset = queryset.filter(
+                employment_type=employment_type
+            )
+
+        if work_location:
+
+            queryset = queryset.filter(
+                work_location=work_location
+            )
+
+        queryset = queryset.order_by(
+            "employee_id"
+        )
+
+        paginator = EmployeePagination()
+
+        page = paginator.paginate_queryset(
+            queryset,
+            request,
+        )
+
+        serializer = AttendanceEmployeeSerializer(
+            page,
+            many=True,
+        )
+
+        return paginator.get_paginated_response(
+            serializer.data
+        )
+
+
+# ============================================================
+# WAGE CONFIG VIEWSET
+# ============================================================
+
+class WageConfigViewSet(ModelViewSet):
+
+    serializer_class = WageConfigSerializer
+
+    def get_queryset(self):
+
+        queryset = (
+            WageConfig.objects
+            .select_related("employee")
+            .filter(
+                employee__archived=False,
+                employee__employment_status="Active",
+            )
+        )
+
+        search = self.request.GET.get(
+            "search",
+            "",
+        ).strip()
+
+        employee_id = self.request.GET.get(
+            "employee_id",
+            "",
+        ).strip()
+
+        department = self.request.GET.get(
+            "department",
+            "",
+        ).strip()
+
+        branch = self.request.GET.get(
+            "branch",
+            "",
+        ).strip()
+
+        employment_type = self.request.GET.get(
+            "employment_type",
+            "",
+        ).strip()
+
+        work_location = self.request.GET.get(
+            "work_location",
+            "",
+        ).strip()
+
+        if employee_id:
+
+            queryset = queryset.filter(
+                employee__employee_id=employee_id
+            )
+
+        if search:
+
+            queryset = queryset.filter(
+                Q(
+                    employee__employee_id__icontains=search
+                )
+                |
+                Q(
+                    employee__employee_code__icontains=search
+                )
+                |
+                Q(
+                    employee__first_name__icontains=search
+                )
+                |
+                Q(
+                    employee__last_name__icontains=search
+                )
+            )
+
+        if department:
+
+            queryset = queryset.filter(
+                employee__department=department
+            )
+
+        if branch:
+
+            queryset = queryset.filter(
+                employee__branch=branch
+            )
+
+        if employment_type:
+
+            queryset = queryset.filter(
+                employee__employment_type=employment_type
+            )
+
+        if work_location:
+
+            queryset = queryset.filter(
+                employee__work_location=work_location
+            )
+
+        return queryset.order_by(
+            "employee__employee_id"
+        )
+
+    def create(
+        self,
+        request,
+        *args,
+        **kwargs,
+    ):
+
+        employee_id = request.data.get(
+            "employee"
+        )
+
+        if not employee_id:
+
+            return Response(
+                {
+                    "detail":
+                        "employee is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            employee = Employee.objects.get(
+                pk=employee_id,
+                archived=False,
+                employment_status="Active",
+            )
+
+        except Employee.DoesNotExist:
+
+            return Response(
+                {
+                    "detail":
+                        "Employee not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        wage_config, created = (
+            WageConfig.objects.get_or_create(
+                employee=employee
+            )
+        )
+
+        serializer = self.get_serializer(
+            wage_config,
+            data=request.data,
+            partial=True,
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        serializer.save(
+            employee=employee
+        )
+
+        return Response(
+            serializer.data,
+            status=(
+                status.HTTP_201_CREATED
+                if created
+                else status.HTTP_200_OK
+            ),
+        )
+
+
+# ============================================================
+# ATTENDANCE VIEWSET
+# ============================================================
+
+class AttendanceViewSet(ModelViewSet):
+
+    serializer_class = AttendanceSerializer
+
+    pagination_class = AttendancePagination
+
+    def get_queryset(self):
+
+        queryset = (
+            Attendance.objects
+            .select_related("employee")
+            .filter(
+                employee__archived=False,
+                employee__employment_status="Active",
+            )
+        )
+
+        # ----------------------------------------------------
+        # FILTER PARAMETERS
+        # ----------------------------------------------------
+
+        attendance_date = self.request.GET.get(
+            "date",
+            "",
+        ).strip()
+
+        date_from = self.request.GET.get(
+            "date_from",
+            "",
+        ).strip()
+
+        date_to = self.request.GET.get(
+            "date_to",
+            "",
+        ).strip()
+
+        employee = self.request.GET.get(
+            "employee",
+            "",
+        ).strip()
+
+        employee_id = self.request.GET.get(
+            "employee_id",
+            "",
+        ).strip()
+
+        search = self.request.GET.get(
+            "search",
+            "",
+        ).strip()
+
+        department = self.request.GET.get(
+            "department",
+            "",
+        ).strip()
+
+        branch = self.request.GET.get(
+            "branch",
+            "",
+        ).strip()
+
+        employment_type = self.request.GET.get(
+            "employment_type",
+            "",
+        ).strip()
+
+        work_location = self.request.GET.get(
+            "work_location",
+            "",
+        ).strip()
+
+        attendance_status = self.request.GET.get(
+            "status",
+            "",
+        ).strip()
+
+        # ----------------------------------------------------
+        # DATE
+        # ----------------------------------------------------
+
+        if attendance_date:
+
+            queryset = queryset.filter(
+                date=attendance_date
+            )
+
+        if date_from:
+
+            queryset = queryset.filter(
+                date__gte=date_from
+            )
+
+        if date_to:
+
+            queryset = queryset.filter(
+                date__lte=date_to
+            )
+
+        # ----------------------------------------------------
+        # EMPLOYEE
+        # ----------------------------------------------------
+
+        if employee:
+
+            queryset = queryset.filter(
+                employee_id=employee
+            )
+
+        if employee_id:
+
+            queryset = queryset.filter(
+                employee__employee_id=employee_id
+            )
+
+        # ----------------------------------------------------
+        # SEARCH
+        # ----------------------------------------------------
+
+        if search:
+
+            queryset = queryset.filter(
+                Q(
+                    employee__employee_id__icontains=search
+                )
+                |
+                Q(
+                    employee__employee_code__icontains=search
+                )
+                |
+                Q(
+                    employee__first_name__icontains=search
+                )
+                |
+                Q(
+                    employee__last_name__icontains=search
+                )
+                |
+                Q(
+                    employee__mobile__icontains=search
+                )
+            )
+
+        # ----------------------------------------------------
+        # FILTERS
+        # ----------------------------------------------------
+
+        if department:
+
+            queryset = queryset.filter(
+                employee__department=department
+            )
+
+        if branch:
+
+            queryset = queryset.filter(
+                employee__branch=branch
+            )
+
+        if employment_type:
+
+            queryset = queryset.filter(
+                employee__employment_type=employment_type
+            )
+
+        if work_location:
+
+            queryset = queryset.filter(
+                employee__work_location=work_location
+            )
+
+        if attendance_status:
+
+            queryset = queryset.filter(
+                status=attendance_status
+            )
+
+        return queryset.order_by(
+            "-date",
+            "employee__employee_id",
+        )
+
+    # ========================================================
+    # CREATE
+    # ========================================================
+
+    def create(
+        self,
+        request,
+        *args,
+        **kwargs,
+    ):
+
+        employee_id = request.data.get(
+            "employee"
+        )
+
+        attendance_date = request.data.get(
+            "date"
+        )
+
+        if not employee_id:
+
+            return Response(
+                {
+                    "detail":
+                        "employee is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not attendance_date:
+
+            return Response(
+                {
+                    "detail":
+                        "date is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            employee = Employee.objects.get(
+                pk=employee_id,
+                archived=False,
+                employment_status="Active",
+            )
+
+        except Employee.DoesNotExist:
+
+            return Response(
+                {
+                    "detail":
+                        "Employee not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        duplicate = Attendance.objects.filter(
+            employee=employee,
+            date=attendance_date,
+        ).first()
+
+        if duplicate:
+
+            return Response(
+                {
+                    "detail":
+                        "Attendance already exists for this employee and date.",
+
+                    "id":
+                        duplicate.id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        serializer = self.get_serializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        serializer.save(
+            employee=employee
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    # ========================================================
+    # UPDATE
+    # ========================================================
+
+    def update(
+        self,
+        request,
+        *args,
+        **kwargs,
+    ):
+
+        instance = self.get_object()
+
+        employee_id = request.data.get(
+            "employee",
+            instance.employee_id,
+        )
+
+        attendance_date = request.data.get(
+            "date",
+            instance.date,
+        )
+
+        duplicate = Attendance.objects.filter(
+            employee_id=employee_id,
+            date=attendance_date,
+        ).exclude(
+            pk=instance.pk
+        ).exists()
+
+        if duplicate:
+
+            return Response(
+                {
+                    "detail":
+                        "Attendance already exists for this employee and date."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return super().update(
+            request,
+            *args,
+            **kwargs,
+        )
+
+    # ========================================================
+    # DAILY SUMMARY
+    # ========================================================
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="daily-summary",
+    )
+    def daily_summary(
+        self,
+        request,
+    ):
+
+        attendance_date = request.GET.get(
+            "date"
+        )
+
+        if not attendance_date:
+
+            return Response(
+                {
+                    "detail":
+                        "date is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = self.get_queryset().filter(
+            date=attendance_date
+        )
+
+        total_employees = Employee.objects.filter(
+            archived=False,
+            employment_status="Active",
+        ).count()
+
+        present_count = queryset.filter(
+            status__in=[
+                "PRESENT",
+                "HALF_DAY",
+                "WFH",
+            ]
+        ).count()
+
+        absent_count = queryset.filter(
+            status="ABSENT"
+        ).count()
+
+        serializer = self.get_serializer(
+            queryset,
+            many=True,
+        )
+
+        return Response({
+
+            "date":
+                attendance_date,
+
+            "total_employees":
+                total_employees,
+
+            "recorded":
+                queryset.count(),
+
+            "present":
+                present_count,
+
+            "absent":
+                absent_count,
+
+            "records":
+                serializer.data,
+        })
+
+    # ========================================================
+    # RANGE SUMMARY
+    # ========================================================
+
+    def build_range_summary(
+        self,
+        start_date,
+        end_date,
+        employee_id=None,
+    ):
+
+        employees = Employee.objects.filter(
+            archived=False,
+            employment_status="Active",
+        )
+
+        if employee_id:
+
+            employees = employees.filter(
+                pk=employee_id
+            )
+
+        employees = list(
+            employees.order_by(
+                "employee_id"
+            )
+        )
+
+        # ----------------------------------------------------
+        # ATTENDANCE RECORDS
+        # ----------------------------------------------------
+
+        records = (
+            Attendance.objects
+            .filter(
+                employee__in=employees,
+                date__gte=start_date,
+                date__lte=end_date,
+            )
+            .select_related("employee")
+            .order_by(
+                "employee__employee_id",
+                "date",
+            )
+        )
+
+        # ----------------------------------------------------
+        # OUTSTANDING ADVANCES
+        # ----------------------------------------------------
+
+        advance_rows = (
+            Advance.objects
+            .filter(
+                employee__in=employees,
+                outstanding_amount__gt=0,
+            )
+            .values(
+                "employee_id"
+            )
+            .annotate(
+                total_outstanding=Sum(
+                    "outstanding_amount"
+                )
+            )
+        )
+
+        advance_map = {
+            row["employee_id"]:
+                row["total_outstanding"]
+                or Decimal("0.00")
+            for row in advance_rows
+        }
+
+        # ----------------------------------------------------
+        # INITIALIZE EVERY EMPLOYEE
+        # ----------------------------------------------------
+
+        buckets = {}
+
+        for employee in employees:
+
+            buckets[employee.id] = {
+
+                "employee_id":
+                    employee.employee_id,
+
+                "employee_name":
+                    employee.full_name,
+
+                "days_worked":
+                    0,
+
+                "total_hours":
+                    Decimal("0.00"),
+
+                "last_rate":
+                    Decimal("0.00"),
+
+                "total_wage":
+                    Decimal("0.00"),
+
+                "outstanding_advance":
+                    advance_map.get(
+                        employee.id,
+                        Decimal("0.00"),
+                    ),
+
+                "status_counts":
+                    {},
+
+                "missing_count":
+                    0,
+            }
+
+        # ----------------------------------------------------
+        # ADD ATTENDANCE
+        # ----------------------------------------------------
+
+        for record in records:
+
+            bucket = buckets[
+                record.employee_id
+            ]
+
+            # Hours
+
+            bucket["total_hours"] += (
+                record.working_hours
+                or Decimal("0.00")
+            )
+
+            # Wage
+
+            bucket["total_wage"] += (
+                record.daily_wage
+                or Decimal("0.00")
+            )
+
+            # Hourly rate
+
+            if record.hourly_rate is not None:
+
+                bucket["last_rate"] = (
+                    record.hourly_rate
+                )
+
+            # Days worked
+
+            if record.status in {
+                "PRESENT",
+                "HALF_DAY",
+                "WFH",
+            }:
+
+                bucket["days_worked"] += 1
+
+            # Status breakdown
+
+            bucket["status_counts"][
+                record.status
+            ] = (
+                bucket["status_counts"].get(
+                    record.status,
+                    0,
+                )
+                + 1
+            )
+
+        # ----------------------------------------------------
+        # MISSING ATTENDANCE
+        # ----------------------------------------------------
+
+        today = date.today()
+
+        effective_end = min(
+            end_date,
+            today,
+        )
+
+        if effective_end >= start_date:
+
+            existing_records = (
+                Attendance.objects
+                .filter(
+                    employee__in=employees,
+                    date__gte=start_date,
+                    date__lte=effective_end,
+                )
+                .values(
+                    "employee_id",
+                    "date",
+                )
+            )
+
+            existing_map = {}
+
+            for item in existing_records:
+
+                existing_map.setdefault(
+                    item["employee_id"],
+                    set(),
+                ).add(
+                    item["date"]
+                )
+
+            current_date = start_date
+
+            while current_date <= effective_end:
+
+                for employee in employees:
+
+                    # Before joining date
+                    if (
+                        employee.joining_date
+                        and current_date
+                        < employee.joining_date
+                    ):
+                        continue
+
+                    employee_records = (
+                        existing_map.get(
+                            employee.id,
+                            set(),
+                        )
+                    )
+
+                    if current_date not in employee_records:
+
+                        buckets[
+                            employee.id
+                        ]["missing_count"] += 1
+
+                current_date += timedelta(
+                    days=1
+                )
+
+        return list(
+            buckets.values()
+        )
+
+    # ========================================================
+    # WEEKLY SUMMARY
+    # ========================================================
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="weekly-summary",
+    )
+    def weekly_summary(
+        self,
+        request,
+    ):
+
+        selected_date = request.GET.get(
+            "date"
+        )
+
+        if not selected_date:
+
+            return Response(
+                {
+                    "detail":
+                        "date is required. Use YYYY-MM-DD."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            selected_date = datetime.strptime(
+                selected_date,
+                "%Y-%m-%d",
+            ).date()
+
+        except ValueError:
+
+            return Response(
+                {
+                    "detail":
+                        "Invalid date. Use YYYY-MM-DD."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Monday
+        week_start = (
+            selected_date
+            - timedelta(
+                days=selected_date.weekday()
+            )
+        )
+
+        # Sunday
+        week_end = (
+            week_start
+            + timedelta(days=6)
+        )
+
+        employee_id = request.GET.get(
+            "employee"
+        )
+
+        data = self.build_range_summary(
+            week_start,
+            week_end,
+            employee_id,
+        )
+
+        total_hours = sum(
+            (
+                row["total_hours"]
+                for row in data
+            ),
+            Decimal("0.00"),
+        )
+
+        total_wage = sum(
+            (
+                row["total_wage"]
+                for row in data
+            ),
+            Decimal("0.00"),
+        )
+
+        return Response({
+
+            "start_date":
+                week_start,
+
+            "end_date":
+                week_end,
+
+            "total_hours":
+                total_hours,
+
+            "total_wage":
+                total_wage,
+
+            "employees":
+                len(data),
+
+            "results":
+                data,
+        })
+
+    # ========================================================
+    # MONTHLY SUMMARY
+    # ========================================================
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="monthly-summary",
+    )
+    def monthly_summary(
+        self,
+        request,
+    ):
+
+        month = request.GET.get(
+            "month"
+        )
+
+        if not month:
+
+            return Response(
+                {
+                    "detail":
+                        "month is required. Use YYYY-MM."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            month_start = datetime.strptime(
+                month,
+                "%Y-%m",
+            ).date()
+
+        except ValueError:
+
+            return Response(
+                {
+                    "detail":
+                        "Invalid month. Use YYYY-MM."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ----------------------------------------------------
+        # FIRST DAY OF NEXT MONTH
+        # ----------------------------------------------------
+
+        if month_start.month == 12:
+
+            next_month = date(
+                month_start.year + 1,
+                1,
+                1,
+            )
+
+        else:
+
+            next_month = date(
+                month_start.year,
+                month_start.month + 1,
+                1,
+            )
+
+        month_end = (
+            next_month
+            - timedelta(days=1)
+        )
+
+        employee_id = request.GET.get(
+            "employee"
+        )
+
+        data = self.build_range_summary(
+            month_start,
+            month_end,
+            employee_id,
+        )
+
+        # ----------------------------------------------------
+        # TOP CARDS
+        # ----------------------------------------------------
+
+        total_working_days = sum(
+            (
+                row["days_worked"]
+                for row in data
+            ),
+            0,
+        )
+
+        total_working_hours = sum(
+            (
+                row["total_hours"]
+                for row in data
+            ),
+            Decimal("0.00"),
+        )
+
+        total_wage = sum(
+            (
+                row["total_wage"]
+                for row in data
+            ),
+            Decimal("0.00"),
+        )
+
+        total_missing = sum(
+            (
+                row["missing_count"]
+                for row in data
+            ),
+            0,
+        )
+
+        total_employees = (
+            Employee.objects
+            .filter(
+                archived=False,
+                employment_status="Active",
+            )
+            .count()
+        )
+
+        if employee_id:
+
+            total_employees = (
+                Employee.objects
+                .filter(
+                    pk=employee_id,
+                    archived=False,
+                    employment_status="Active",
+                )
+                .count()
+            )
+
+        return Response({
+
+            "month":
+                month,
+
+            "start_date":
+                month_start,
+
+            "end_date":
+                month_end,
+
+            "total_employees":
+                total_employees,
+
+            "total_working_days":
+                total_working_days,
+
+            "total_working_hours":
+                total_working_hours,
+
+            "total_wage":
+                total_wage,
+
+            "missing_attendance_count":
+                total_missing,
+
+            "results":
+                data,
+        })
+
+    # ========================================================
+    # EMPLOYEE SUMMARY
+    # ========================================================
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="employee-summary",
+    )
+    def employee_summary(
+        self,
+        request,
+    ):
+
+        employee_id = request.GET.get(
+            "employee"
+        )
+
+        if not employee_id:
+
+            return Response(
+                {
+                    "detail":
+                        "employee is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            employee = Employee.objects.get(
+                pk=employee_id,
+                archived=False,
+                employment_status="Active",
+            )
+
+        except Employee.DoesNotExist:
+
+            return Response(
+                {
+                    "detail":
+                        "Employee not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        today = date.today()
+
+        # ----------------------------------------------------
+        # CURRENT WEEK
+        # ----------------------------------------------------
+
+        week_start = (
+            today
+            - timedelta(
+                days=today.weekday()
+            )
+        )
+
+        week_end = (
+            week_start
+            + timedelta(days=6)
+        )
+
+        # ----------------------------------------------------
+        # CURRENT MONTH
+        # ----------------------------------------------------
+
+        month_start = date(
+            today.year,
+            today.month,
+            1,
+        )
+
+        if today.month == 12:
+
+            next_month = date(
+                today.year + 1,
+                1,
+                1,
+            )
+
+        else:
+
+            next_month = date(
+                today.year,
+                today.month + 1,
+                1,
+            )
+
+        month_end = (
+            next_month
+            - timedelta(days=1)
+        )
+
+        # ----------------------------------------------------
+        # DATA
+        # ----------------------------------------------------
+
+        week_data = self.build_range_summary(
+            week_start,
+            week_end,
+            employee.id,
+        )
+
+        month_data = self.build_range_summary(
+            month_start,
+            month_end,
+            employee.id,
+        )
+
+        # ----------------------------------------------------
+        # WAGE CONFIG
+        # ----------------------------------------------------
+
+        wage_config = (
+            WageConfig.objects
+            .filter(
+                employee=employee
+            )
+            .first()
+        )
+
+        wage_data = None
+
+        if wage_config:
+
+            wage_data = {
+
+                "salary_type":
+                    wage_config.salary_type,
+
+                "hourly_rate":
+                    wage_config.hourly_rate,
+
+                "monthly_salary":
+                    wage_config.monthly_salary,
+
+                "standard_hours_per_day":
+                    wage_config.standard_hours_per_day,
+
+                "paid_leave_policy":
+                    wage_config.paid_leave_policy,
+
+                "holiday_policy":
+                    wage_config.holiday_policy,
+
+                "weekly_off_policy":
+                    wage_config.weekly_off_policy,
+            }
+
+        return Response({
+
+            "employee": {
+
+                "id":
+                    employee.id,
+
+                "employee_id":
+                    employee.employee_id,
+
+                "employee_name":
+                    employee.full_name,
+
+                "department":
+                    employee.department,
+
+                "designation":
+                    employee.designation,
+
+                "branch":
+                    employee.branch,
+
+                "employment_type":
+                    employee.employment_type,
+
+                "work_location":
+                    employee.work_location,
+            },
+
+            "week": {
+
+                "start_date":
+                    week_start,
+
+                "end_date":
+                    week_end,
+
+                "summary":
+                    (
+                        week_data[0]
+                        if week_data
+                        else None
+                    ),
+            },
+
+            "month": {
+
+                "start_date":
+                    month_start,
+
+                "end_date":
+                    month_end,
+
+                "summary":
+                    (
+                        month_data[0]
+                        if month_data
+                        else None
+                    ),
+            },
+
+            "wage_config":
+                wage_data,
+        })

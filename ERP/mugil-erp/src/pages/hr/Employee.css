@@ -2148,3 +2148,110 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     transition: none !important;
   }
 }
+
+
+.emp-modal-overlay {
+  position: fixed;
+  inset: 0;                       /* keep whatever you already have */
+  z-index: 10000;                 /* ← ADD THIS (make sure it's > header) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.55);
+  /* ...rest of your existing rule unchanged... */
+}
+
+/* --- Avatar wrapper (fixed square that holds image OR initials) --- */
+.ep-avatar-wrap {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  /* Give it a subtle ring so the empty state still reads as a circle */
+  box-shadow: 0 0 0 2px #eef2f7;
+}
+
+/* --- Avatar image --- */
+.ep-avatar-wrap .ep-avatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #eef2f7;
+}
+
+/* --- Placeholder (initials) --- */
+.ep-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #e6f4f1;                 /* soft teal */
+  color: #0f766e;                      /* deep teal text */
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  user-select: none;
+  line-height: 1;
+}
+
+/* --- Buttons stay on top of whichever is showing --- */
+.ep-avatar-edit,
+.ep-avatar-remove {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);
+  transition: transform 0.15s ease, background 0.15s ease;
+  z-index: 3;
+}
+
+.ep-avatar-edit {
+  top: -4px;
+  right: -4px;
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.ep-avatar-edit:hover:not(:disabled) {
+  transform: scale(1.06);
+  background: #0d5c56;
+}
+
+.ep-avatar-remove {
+  top: -4px;
+  left: -4px;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.ep-avatar-remove:hover:not(:disabled) {
+  transform: scale(1.06);
+  background: #b91c1c;
+}
+
+.ep-avatar-edit:disabled,
+.ep-avatar-remove:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.ep-avatar-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc2626;
+}

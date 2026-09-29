@@ -2581,3 +2581,95 @@
 .profile-password-rules li.valid::marker {
   color: #2f7a4f;
 }
+
+
+/* =========================================================
+   AVATAR EDIT BUTTON
+========================================================= */
+
+.profile-avatar {
+  position: relative;
+}
+.profile-avatar-edit {
+  position: absolute;
+  top: -4px;                     /* ← was: right: -4px; bottom: -4px; */
+  right: -4px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #0f766e;
+  color: #ffffff;
+  border: 3px solid #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);
+  transition: transform 0.15s ease, background 0.15s ease;
+  z-index: 3;
+}
+
+.profile-avatar-edit:hover:not(:disabled) {
+  transform: scale(1.06);
+  background: #0d5c56;
+}
+
+.profile-avatar-edit:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.profile-avatar-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: profile-avatar-spin 0.7s linear infinite;
+}
+
+@keyframes profile-avatar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.profile-avatar-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #dc2626;
+  text-align: center;
+}
+
+
+
+.profile-avatar-remove {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #ffffff;
+  border: 3px solid #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);
+  transition: transform 0.15s ease, background 0.15s ease;
+  z-index: 3;
+}
+
+.profile-avatar-remove:hover:not(:disabled) {
+  transform: scale(1.06);
+  background: #b91c1c;
+}
+
+.profile-avatar-remove:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}

@@ -1,11 +1,14 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, ChangePasswordAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, JournalAPIView, JournalDetailAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, ChangePasswordAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, JournalAPIView, JournalDetailAPIView, 
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView,
-                      NextPurchaseOrderNumberAPIView, ProfileAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, PurchaseOrderConfirmAPIView,
+                      NextPurchaseOrderNumberAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, PurchaseOrderConfirmAPIView,
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
-                          QuotationNextNumberAPIView, RefreshTokenAPIView, TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
-                          UserProfileListCreateAPIView)
+                          QuotationNextNumberAPIView, RefreshTokenAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
+                          UserProfileListCreateAPIView, AttendanceEmployeeView,
+    AttendanceViewSet,
+    WageConfigViewSet,
+    )
 
 
 urlpatterns = [
@@ -26,6 +29,11 @@ urlpatterns = [
      # TO GET PROFILE AND CHANGE PASSWORD
     path("profile/", ProfileAPIView.as_view(),name="profile",),
      path("profile/change-password/",ChangePasswordAPIView.as_view(),name="change-password",),
+     path(
+        "profile/photo/",
+        ProfilePhotoDeleteAPIView.as_view(),
+        name="profile-photo-delete",
+    ),
 
      # FOR acoounts
        path("accounts/modules/",AccountsModulesAPIView.as_view(), name="accounts-modules", ),
@@ -158,6 +166,169 @@ urlpatterns = [
     ),
      path("journal/", JournalAPIView.as_view(), name="journal"),
     path("journal/<int:pk>/", JournalDetailAPIView.as_view(), name="journal-detail"),
+
+
+    #hr module
+    path("employees/",EmployeeListCreateAPIView.as_view(),name="employee-list-create", ),
+    path( "employees/<int:pk>/", EmployeeDetailAPIView.as_view(), name="employee-detail", ),
+    path( "employees/<int:pk>/archive/", EmployeeArchiveAPIView.as_view(), name="employee-archive", ),
+    path(
+        "employees/<int:pk>/photo/",
+        EmployeePhotoAPIView.as_view(),
+        name="employee-photo",
+    ),
+
+
+    #employer salaryy
+     # Employee search for salary page
+    path(
+        "salary/employees/",
+        SalaryEmployeeListAPIView.as_view(),
+        name="salary-employees",
+    ),
+
+    # -----------------------------------------
+    # SALARY
+    # -----------------------------------------
+
+    path(
+        "salary-payments/",
+        SalaryPaymentListCreateAPIView.as_view(),
+        name="salary-payment-list-create",
+    ),
+
+    path(
+        "salary-payments/<int:pk>/",
+        SalaryPaymentDetailAPIView.as_view(),
+        name="salary-payment-detail",
+    ),
+
+    # -----------------------------------------
+    # ADVANCE
+    # -----------------------------------------
+
+    path(
+        "advances/",
+        AdvanceListCreateAPIView.as_view(),
+        name="advance-list-create",
+    ),
+
+    path(
+        "advances/<int:pk>/",
+        AdvanceDetailAPIView.as_view(),
+        name="advance-detail",
+    ),
+
+
+     path(
+        "attendance/employees/",
+        AttendanceEmployeeView.as_view(),
+        name="attendance-employees",
+    ),
+
+
+    # ========================================================
+    # ATTENDANCE
+    # ========================================================
+
+    path(
+        "attendance/",
+        AttendanceViewSet.as_view({
+            "get": "list",
+            "post": "create",
+        }),
+        name="attendance-list",
+    ),
+
+    path(
+        "attendance/<int:pk>/",
+        AttendanceViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
+        name="attendance-detail",
+    ),
+
+
+    # ========================================================
+    # ATTENDANCE DAILY SUMMARY
+    # ========================================================
+
+    path(
+        "attendance/daily-summary/",
+        AttendanceViewSet.as_view({
+            "get": "daily_summary",
+        }),
+        name="attendance-daily-summary",
+    ),
+
+
+    # ========================================================
+    # ATTENDANCE WEEKLY SUMMARY
+    # ========================================================
+
+    path(
+        "attendance/weekly-summary/",
+        AttendanceViewSet.as_view({
+            "get": "weekly_summary",
+        }),
+        name="attendance-weekly-summary",
+    ),
+
+
+    # ========================================================
+    # ATTENDANCE MONTHLY SUMMARY
+    # ========================================================
+
+    path(
+        "attendance/monthly-summary/",
+        AttendanceViewSet.as_view({
+            "get": "monthly_summary",
+        }),
+        name="attendance-monthly-summary",
+    ),
+
+
+    # ========================================================
+    # EMPLOYEE ATTENDANCE SUMMARY
+    # ========================================================
+
+    path(
+        "attendance/employee-summary/",
+        AttendanceViewSet.as_view({
+            "get": "employee_summary",
+        }),
+        name="attendance-employee-summary",
+    ),
+
+
+    # ========================================================
+    # WAGE CONFIG
+    # ========================================================
+
+    path(
+        "wage-config/",
+        WageConfigViewSet.as_view({
+            "get": "list",
+            "post": "create",
+        }),
+        name="wage-config-list",
+    ),
+
+    path(
+        "wage-config/<int:pk>/",
+        WageConfigViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
+        name="wage-config-detail",
+    ),
+
+
 
 
 
