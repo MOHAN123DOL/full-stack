@@ -648,16 +648,12 @@ export default function Profile() {
 
       formData.append("profile_photo", file);
 
-      const response = await api.patch(
-        "/erp/profile/",
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
+      const response = await api.patch("/erp/profile/", formData, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
       if (!response.data?.success) {
         throw new Error("bad response");
@@ -676,7 +672,7 @@ export default function Profile() {
       } else {
         setPhotoError(
           error.response?.data?.message ||
-            "Unable to upload photo. Please try again."
+            "Unable to upload photo. Please try again.",
         );
       }
     } finally {
@@ -728,7 +724,7 @@ export default function Profile() {
       } else {
         setPhotoError(
           error.response?.data?.message ||
-            "Unable to remove photo. Please try again."
+            "Unable to remove photo. Please try again.",
         );
       }
     } finally {
@@ -885,7 +881,7 @@ export default function Profile() {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
-        }
+        },
       );
 
       console.log("Change password response:", response.data);
@@ -901,9 +897,7 @@ export default function Profile() {
 
         setPasswordFieldErrors({});
       } else {
-        setPasswordError(
-          response.data?.message || "Password change failed."
-        );
+        setPasswordError(response.data?.message || "Password change failed.");
       }
     } catch (error) {
       console.error("Change password error:", error);
@@ -911,9 +905,7 @@ export default function Profile() {
       console.error("Response:", error.response?.data);
 
       if (error.response?.status === 401) {
-        setPasswordError(
-          "Your session has expired. Please sign in again."
-        );
+        setPasswordError("Your session has expired. Please sign in again.");
         return;
       }
 
@@ -924,8 +916,7 @@ export default function Profile() {
       }
 
       setPasswordError(
-        responseData?.message ||
-          "Unable to change password. Please try again."
+        responseData?.message || "Unable to change password. Please try again.",
       );
     } finally {
       setPasswordLoading(false);
@@ -1051,9 +1042,7 @@ export default function Profile() {
                     className="profile-avatar-remove"
                     onClick={handlePhotoRemove}
                     disabled={photoUploading || photoRemoving}
-                    title={
-                      photoRemoving ? "Removing…" : "Remove profile photo"
-                    }
+                    title={photoRemoving ? "Removing…" : "Remove profile photo"}
                     aria-label="Remove profile photo"
                   >
                     {photoRemoving ? (
@@ -1098,7 +1087,7 @@ export default function Profile() {
               <div className="profile-hero-tags">
                 <span className="profile-tag">ERP Account</span>
 
-                <span className="profile-tag">ID: {data.accountId}</span>
+                <span className="profile-tag">ID: {data.employeeId}</span>
               </div>
             </div>
           </div>

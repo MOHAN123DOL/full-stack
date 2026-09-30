@@ -176,19 +176,17 @@ export function EmployeesProvider({ children }) {
     [employees],
   );
 
+  /* ============================================================
+     ADD — do NOT send a `photo` string in the JSON body.
+     Real files must go through uploadEmployeePhoto().
+     ============================================================ */
   const addEmployee = useCallback(
     async (employee) => {
-      const { id, employeeCode, ...rest } = employee;
+      // ✅ FIX: strip out `photo` (and server-managed fields) so we never
+      // send a text string where the backend expects a file.
+      const { id, employeeCode, photo, ...rest } = employee;
 
-      const body = {
-        ...rest,
-        photo:
-          employee.photo ||
-          avatarUrl(
-            `${employee.firstName} ${employee.lastName}`,
-            employees.length,
-          ),
-      };
+      const body = { ...rest };
 
       const response = await api.post(EMPLOYEES_ENDPOINT, body, {
         headers: authHeaders(),
@@ -200,11 +198,25 @@ export function EmployeesProvider({ children }) {
 
       const created = response.data.data;
       setEmployees((prev) => [created, ...prev]);
+
+      // If a real File was provided, upload it as a separate multipart call.
+      if (photo instanceof File) {
+        try {
+          return await uploadEmployeePhoto(created.id, photo);
+        } catch (e) {
+          console.error("Photo upload failed after create:", e);
+        }
+      }
+
       return created;
     },
-    [authHeaders, employees.length],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [authHeaders],
   );
 
+  /* ============================================================
+     UPDATE — same rule: strip `photo` from the JSON patch body.
+     ============================================================ */
   const updateEmployee = useCallback(
     async (id, updates, historyEntries = []) => {
       const existing = employees.find((e) => String(e.id) === String(id));
@@ -213,7 +225,13 @@ export function EmployeesProvider({ children }) {
         ...(existing?.employmentHistory || []),
       ];
 
-      const { id: _dropId, employeeCode: _dropCode, ...rest } = updates;
+      // ✅ FIX: drop `photo` from the JSON payload as well.
+      const {
+        id: _dropId,
+        employeeCode: _dropCode,
+        photo,
+        ...rest
+      } = updates;
 
       const body = { ...rest, employmentHistory: mergedHistory };
 
@@ -225,12 +243,23 @@ export function EmployeesProvider({ children }) {
         throw new Error("bad response");
       }
 
-      const updated = response.data.data;
+      let updated = response.data.data;
       setEmployees((prev) =>
         prev.map((e) => (String(e.id) === String(id) ? updated : e)),
       );
+
+      // If a new File was provided, upload it separately.
+      if (photo instanceof File) {
+        try {
+          updated = await uploadEmployeePhoto(id, photo);
+        } catch (e) {
+          console.error("Photo upload failed after update:", e);
+        }
+      }
+
       return updated;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [authHeaders, employees],
   );
 
@@ -303,16 +332,23 @@ export function EmployeesProvider({ children }) {
      ============================================================ */
   const uploadEmployeePhoto = useCallback(
     async (id, file) => {
+      // Defensive: only proceed if we actually got a File
+      if (!(file instanceof File)) {
+        throw new Error("uploadEmployeePhoto: expected a File");
+      }
+
       const fd = new FormData();
       fd.append("photo", file);
 
+      // ✅ FIX: do NOT set Content-Type manually. Axios/browser will set it
+      // with the correct multipart boundary. Setting it by hand strips the
+      // boundary and causes the same "not a file" error.
       const response = await api.patch(
         `${EMPLOYEES_ENDPOINT}${id}/photo/`,
         fd,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "multipart/form-data",
           },
         },
       );
@@ -327,7 +363,7 @@ export function EmployeesProvider({ children }) {
       );
       return updated;
     },
-    [accessToken, authHeaders],
+    [accessToken],
   );
 
   /* ============================================================
@@ -826,10 +862,25 @@ export default function Employees() {
                             onClick={() => navigate(`/hr/employees/${emp.id}`)}
                           >
                             <div className="emp-card-avatar-wrap">
+                              {/* ✅ FIX: fall back to a generated avatar on the
+                                 client if the backend has no photo. Never
+                                 send this string to the API. */}
                               <img
                                 className="emp-card-avatar"
-                                src={emp.photo}
+                                src={
+                                  emp.photo ||
+                                  avatarUrl(
+                                    `${emp.firstName} ${emp.lastName}`,
+                                    emp.id || 0,
+                                  )
+                                }
                                 alt=""
+                                onError={(e) => {
+                                  e.currentTarget.src = avatarUrl(
+                                    `${emp.firstName} ${emp.lastName}`,
+                                    emp.id || 0,
+                                  );
+                                }}
                               />
                               <span
                                 className="emp-card-avatar-dot"
