@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import "../styles/Profile.css";
@@ -278,6 +278,199 @@ const IconTrash = () => (
   </svg>
 );
 
+
+const IconChevronLeft = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polyline points="15,18 9,12 15,6" />
+  </svg>
+);
+
+const IconChevronRight = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polyline points="9,6 15,12 9,18" />
+  </svg>
+);
+
+/* =========================================================
+   ATTENDANCE HELPERS
+   (calendar dates are handled as plain YYYY-MM-DD strings so
+   that timezones can never shift a date by one day)
+========================================================= */
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+const WEEKDAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const pad2 = (value) => String(value).padStart(2, "0");
+
+const toDateKey = (year, month, day) =>
+  `${year}-${pad2(month)}-${pad2(day)}`;
+
+const parseDateKey = (key) => {
+  const [year, month, day] = key.split("-").map(Number);
+  return { year, month, day };
+};
+
+/* Normalised calendar statuses */
+const STATUS_META = {
+  PRESENT: { label: "Present", tone: "present" },
+  NOT_ENTERED: { label: "Attendance Not Entered", tone: "pending" },
+  HALF_DAY: { label: "Half Day", tone: "pending" },
+  ABSENT: { label: "Absent", tone: "leave" },
+  LEAVE: { label: "Leave", tone: "leave" },
+  HOLIDAY: { label: "Holiday", tone: "off" },
+  WEEKLY_OFF: { label: "Weekly Off", tone: "off" },
+};
+
+/* Exact wording for the details panel, by raw API status */
+const RAW_STATUS_LABELS = {
+  PRESENT: "Present",
+  WFH: "Work From Home",
+  HALF_DAY: "Half Day",
+  ABSENT: "Absent",
+  PAID_LEAVE: "Paid Leave",
+  UNPAID_LEAVE: "Unpaid Leave",
+  HOLIDAY: "Holiday",
+  WEEKLY_OFF: "Weekly Off",
+};
+
+const normalizeStatus = (rawStatus) => {
+  switch (String(rawStatus || "").trim().toUpperCase()) {
+    case "PRESENT":
+    case "WFH":
+      return "PRESENT";
+    case "HALF_DAY":
+      return "HALF_DAY";
+    case "ABSENT":
+      return "ABSENT";
+    case "PAID_LEAVE":
+    case "UNPAID_LEAVE":
+      return "LEAVE";
+    case "HOLIDAY":
+      return "HOLIDAY";
+    case "WEEKLY_OFF":
+      return "WEEKLY_OFF";
+    default:
+      return "NOT_ENTERED";
+  }
+};
+
+const formatTime = (value) => {
+  if (!value) return "-";
+
+  const match = String(value).match(/^(\d{1,2}):(\d{2})/);
+
+  if (!match) return "-";
+
+  const hours24 = Number(match[1]);
+  const minutes = match[2];
+  const suffix = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 || 12;
+
+  return `${pad2(hours12)}:${minutes} ${suffix}`;
+};
+
+const formatHours = (value) => {
+  const number = parseFloat(value);
+
+  return Number.isFinite(number) ? `${number.toFixed(2)} h` : "-";
+};
+
+const formatCurrency = (value) => {
+  const number = parseFloat(value);
+
+  if (!Number.isFinite(number)) return "-";
+
+  return `₹${new Intl.NumberFormat("en-IN", {
+    maximumFractionDigits: 2,
+  }).format(number)}`;
+};
+
+const formatLongDate = (key) => {
+  const { year, month, day } = parseDateKey(key);
+
+  /* Local-time constructor with explicit parts: no timezone shift */
+  const weekday = WEEKDAY_NAMES[new Date(year, month - 1, day).getDay()];
+
+  return {
+    title: `${MONTH_NAMES[month - 1]} ${day}`,
+    subtitle: `${weekday}, ${year}`,
+  };
+};
+
+const getTodayParts = () => {
+  const now = new Date();
+
+  return {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+  };
+};
+
+const getAttendanceErrorMessage = (error) => {
+  const status = error?.response?.status;
+
+  if (status === 401) {
+    return "Your session has expired. Please sign in again.";
+  }
+
+  if (status === 403) {
+    return "You don't have permission to view attendance.";
+  }
+
+  if (status === 404) {
+    return "The attendance service could not be found.";
+  }
+
+  if (status >= 500) {
+    return "The server had a problem. Please try again shortly.";
+  }
+
+  if (!error?.response) {
+    return "Network error. Please check your connection.";
+  }
+
+  return error.response?.data?.message || "Something went wrong.";
+};
+
 /* =========================================================
    REUSABLE COMPONENTS
 ========================================================= */
@@ -324,7 +517,7 @@ function InfoItem({ icon, label, value }) {
   );
 }
 
-function CircularProgress({ value, max, label, sublabel }) {
+function CircularProgress({ value, max, label, sublabel, muted = false }) {
   const radius = 80;
   const circumference = 2 * Math.PI * radius;
 
@@ -333,6 +526,10 @@ function CircularProgress({ value, max, label, sublabel }) {
   const offset = circumference - (progress / 100) * circumference;
 
   const getColor = () => {
+    if (muted) {
+      return "#c3ccd4";
+    }
+
     const ratio = value / max;
 
     if (ratio >= 0.8) {
@@ -391,7 +588,7 @@ function CircularProgress({ value, max, label, sublabel }) {
   );
 }
 
-function WorkHoursCard({ hoursWorked, targetHours }) {
+function WorkHoursCard({ hoursWorked, targetHours, sublabel, muted = false }) {
   return (
     <div className="profile-card profile-work-card">
       <div className="profile-card-header">
@@ -410,9 +607,310 @@ function WorkHoursCard({ hoursWorked, targetHours }) {
         value={hoursWorked}
         max={targetHours}
         label="Worked"
-        sublabel={`Target ${targetHours}h`}
+        sublabel={sublabel || `Target ${targetHours}h`}
+        muted={muted}
       />
     </div>
+  );
+}
+
+
+function AttendanceSummary({ monthLabel, counts, unavailable }) {
+  const items = [
+    { key: "present", label: "Present", value: counts.present },
+    { key: "pending", label: "Not Entered", value: counts.notEntered },
+    { key: "leave", label: "Leave / Absent", value: counts.leave },
+    { key: "half", label: "Half Day", value: counts.halfDay },
+    { key: "off", label: "Holiday / Off", value: counts.off },
+  ];
+
+  const total = items.reduce((sum, item) => sum + item.value, 0);
+
+  return (
+    <section
+      id="profile-attendance-summary"
+      className="profile-card profile-attendance-summary"
+      aria-label={`Attendance summary for ${monthLabel}`}
+    >
+      <div className="profile-summary-head">
+        <h3 className="profile-card-title">Attendance Summary</h3>
+
+        <span className="profile-summary-month">{monthLabel}</span>
+      </div>
+
+      <div className="profile-summary-grid">
+        {items.map((item) => (
+          <div
+            key={item.key}
+            className={`profile-summary-card tone-${item.key}`}
+          >
+            <span className="profile-summary-value">
+              {unavailable ? "–" : item.value}
+            </span>
+
+            <span className="profile-summary-label">{item.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div
+        className={
+          "profile-summary-bar" + (unavailable || !total ? " is-empty" : "")
+        }
+        role="img"
+        aria-label={
+          unavailable
+            ? "Attendance distribution unavailable"
+            : items.map((item) => `${item.label} ${item.value}`).join(", ")
+        }
+      >
+        {!unavailable &&
+          total > 0 &&
+          items
+            .filter((item) => item.value > 0)
+            .map((item) => (
+              <span
+                key={item.key}
+                className={`profile-summary-bar-seg tone-${item.key}`}
+                style={{ width: `${(item.value / total) * 100}%` }}
+                title={`${item.label}: ${item.value}`}
+              />
+            ))}
+      </div>
+    </section>
+  );
+}
+
+function AttendanceCalendarCard({
+  year,
+  month,
+  daysInMonth,
+  leadingBlanks,
+  getDayInfo,
+  selectedDateKey,
+  todayKey,
+  onSelectDate,
+  onPrevMonth,
+  onNextMonth,
+  loading,
+  error,
+  errorStatus,
+  onRetry,
+  onSignIn,
+}) {
+  const monthLabel = `${MONTH_NAMES[month - 1]} ${year}`;
+
+  const cells = [];
+
+  for (let i = 0; i < leadingBlanks; i += 1) {
+    cells.push(<span key={`blank-${i}`} className="profile-cal-blank" />);
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const { dateKey, status } = getDayInfo(day);
+
+    const meta = STATUS_META[status];
+
+    const isToday = dateKey === todayKey;
+    const isSelected = dateKey === selectedDateKey;
+
+    const accessibleLabel =
+      `${day} ${MONTH_NAMES[month - 1]} ${year}: ${meta.label}` +
+      (isToday ? " (today)" : "");
+
+    cells.push(
+      <button
+        key={dateKey}
+        type="button"
+        className={
+          `profile-cal-day tone-${loading ? "loading" : meta.tone}` +
+          (isToday ? " is-today" : "") +
+          (isSelected ? " is-selected" : "")
+        }
+        data-status={status}
+        aria-label={accessibleLabel}
+        aria-pressed={isSelected}
+        title={`${meta.label}${isToday ? " • Today" : ""}`}
+        onClick={() => onSelectDate(dateKey)}
+      >
+        {day}
+      </button>,
+    );
+  }
+
+  return (
+    <section
+      id="profile-attendance-calendar"
+      className="profile-calendar-card"
+      aria-label="Attendance calendar"
+    >
+      <div className="profile-calendar-header">
+        <h3 className="profile-calendar-title" aria-live="polite">
+          {monthLabel}
+        </h3>
+
+        <div className="profile-calendar-nav">
+          <button
+            type="button"
+            className="profile-calendar-nav-btn"
+            onClick={onPrevMonth}
+            aria-label="Previous month"
+            title="Previous month"
+          >
+            <IconChevronLeft />
+          </button>
+
+          <button
+            type="button"
+            className="profile-calendar-nav-btn"
+            onClick={onNextMonth}
+            aria-label="Next month"
+            title="Next month"
+          >
+            <IconChevronRight />
+          </button>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="profile-calendar-state is-error" role="alert">
+          <strong>Unable to load attendance.</strong>
+
+          <p>{error}</p>
+
+          <div className="profile-calendar-state-actions">
+            {errorStatus === 401 ? (
+              <button
+                type="button"
+                className="profile-calendar-retry"
+                onClick={onSignIn}
+              >
+                Sign in again
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="profile-calendar-retry"
+                onClick={onRetry}
+              >
+                Try Again
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="profile-calendar-weekdays" aria-hidden="true">
+            {WEEKDAY_HEADERS.map((name) => (
+              <span key={name}>{name}</span>
+            ))}
+          </div>
+
+          <div
+            className="profile-calendar-grid"
+            aria-busy={loading}
+            role="group"
+            aria-label={`Days of ${monthLabel}`}
+          >
+            {cells}
+          </div>
+
+          <p
+            className={
+              "profile-calendar-loading" + (loading ? " is-visible" : "")
+            }
+            role="status"
+          >
+            {loading ? "Loading attendance..." : ""}
+          </p>
+        </>
+      )}
+
+      <ul className="profile-calendar-legend" aria-label="Legend">
+        <li>
+          <span className="profile-legend-dot tone-present" />
+          Present
+        </li>
+        <li>
+          <span className="profile-legend-dot tone-pending" />
+          Not Entered
+        </li>
+        <li>
+          <span className="profile-legend-dot tone-leave" />
+          Leave / Absent
+        </li>
+        <li>
+          <span className="profile-legend-dot tone-off" />
+          Holiday / Weekly Off
+        </li>
+      </ul>
+    </section>
+  );
+}
+
+function AttendanceDetails({ dateKey, record, status }) {
+  const { title, subtitle } = formatLongDate(dateKey);
+
+  const meta = STATUS_META[status];
+
+  const rawStatus = record
+    ? String(record.status || "").trim().toUpperCase()
+    : "";
+
+  const statusLabel = record
+    ? RAW_STATUS_LABELS[rawStatus] || rawStatus || meta.label
+    : STATUS_META.NOT_ENTERED.label;
+
+  const showTimes =
+    record &&
+    (status === "PRESENT" || status === "HALF_DAY");
+
+  const rows = [];
+
+  if (record) {
+    if (showTimes) {
+      rows.push(["Login", formatTime(record.login_time)]);
+      rows.push(["Logout", formatTime(record.logout_time)]);
+      rows.push(["Working Hours", formatHours(record.working_hours)]);
+      rows.push(["Break", formatHours(record.break_hours)]);
+    }
+
+    rows.push(["Daily Wage", formatCurrency(record.daily_wage)]);
+    rows.push(["Remarks", record.remarks ? record.remarks : "-"]);
+  }
+
+  return (
+    <section
+      className="profile-day-details"
+      aria-label={`Attendance details for ${title}`}
+      aria-live="polite"
+    >
+      <div className="profile-day-details-head">
+        <div>
+          <h3>{title}</h3>
+          <span>{subtitle}</span>
+        </div>
+
+        <span className={`profile-status-pill tone-${meta.tone}`}>
+          {statusLabel}
+        </span>
+      </div>
+
+      {record ? (
+        <dl className="profile-day-details-list">
+          {rows.map(([label, value]) => (
+            <div key={label} className="profile-day-details-row">
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="profile-day-details-empty">
+          Attendance has not been entered for this date.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -459,9 +957,67 @@ export default function Profile() {
      Work hours
   ------------------------------------------------------- */
 
-  const [hoursWorked] = useState(0);
-
   const targetHours = 8;
+
+  /* -------------------------------------------------------
+     Attendance (calendar) state
+  ------------------------------------------------------- */
+
+  const [calendarDate, setCalendarDate] = useState(() => new Date());
+
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+
+  const [attendanceError, setAttendanceError] = useState("");
+
+  const [attendanceErrorStatus, setAttendanceErrorStatus] = useState(null);
+
+  /* Today's record is kept separately so the Work Hours card stays
+     correct even while another month is being browsed. */
+  const [todayAttendance, setTodayAttendance] = useState(null);
+
+  const [todayAttendanceState, setTodayAttendanceState] = useState("loading");
+
+  const [selectedDateKey, setSelectedDateKey] = useState(() => {
+    const today = getTodayParts();
+
+    return toDateKey(today.year, today.month, today.day);
+  });
+
+  const attendanceRequestId = useRef(0);
+
+  const [activeNav, setActiveNav] = useState("profile");
+
+  const calendarYear = calendarDate.getFullYear();
+
+  const calendarMonth = calendarDate.getMonth() + 1;
+
+  const todayParts = getTodayParts();
+
+  const todayKey = toDateKey(todayParts.year, todayParts.month, todayParts.day);
+
+  /* -------------------------------------------------------
+     Work hours (driven by today's attendance record)
+  ------------------------------------------------------- */
+
+  const parsedTodayHours = todayAttendance
+    ? parseFloat(todayAttendance.working_hours)
+    : NaN;
+
+  const hoursWorked = Number.isFinite(parsedTodayHours) ? parsedTodayHours : 0;
+
+  let workHoursSublabel = `Target ${targetHours}h`;
+
+  if (!todayAttendance) {
+    if (todayAttendanceState === "loading") {
+      workHoursSublabel = "Loading attendance...";
+    } else if (todayAttendanceState === "error") {
+      workHoursSublabel = "Attendance unavailable";
+    } else {
+      workHoursSublabel = "Attendance not entered";
+    }
+  }
 
   /* -------------------------------------------------------
      Profile photo upload / remove
@@ -532,6 +1088,214 @@ export default function Profile() {
       isMounted = false;
     };
   }, [authLoading, isAuthenticated, accessToken]);
+
+  /* =======================================================
+     LOAD ATTENDANCE (per month)
+  ======================================================= */
+
+  const fetchAttendance = useCallback(
+    async (year, month) => {
+      if (!accessToken) return;
+
+      attendanceRequestId.current += 1;
+
+      const requestId = attendanceRequestId.current;
+
+      const isCurrentMonth =
+        year === getTodayParts().year && month === getTodayParts().month;
+
+      setAttendanceLoading(true);
+      setAttendanceError("");
+      setAttendanceErrorStatus(null);
+
+      try {
+        const response = await api.get("/erp/attendance/my/", {
+          params: {
+            year,
+            month,
+          },
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        /* A newer request has started: ignore this stale response */
+        if (requestId !== attendanceRequestId.current) return;
+
+        const payload = response.data;
+
+        if (!payload?.success) {
+          setAttendanceRecords([]);
+          setAttendanceError(
+            payload?.message || "Attendance could not be retrieved.",
+          );
+
+          if (isCurrentMonth) {
+            setTodayAttendanceState("error");
+          }
+
+          return;
+        }
+
+        const records = Array.isArray(payload.data?.records)
+          ? payload.data.records
+          : [];
+
+        setAttendanceRecords(records);
+
+        if (isCurrentMonth) {
+          const today = getTodayParts();
+
+          const todayDateKey = toDateKey(today.year, today.month, today.day);
+
+          setTodayAttendance(
+            records.find(
+              (record) => String(record.date).slice(0, 10) === todayDateKey,
+            ) || null,
+          );
+
+          setTodayAttendanceState("ready");
+        }
+      } catch (error) {
+        if (requestId !== attendanceRequestId.current) return;
+
+        console.error("Attendance API error:", error);
+        console.error("Status:", error.response?.status);
+        console.error("Response:", error.response?.data);
+
+        setAttendanceRecords([]);
+        setAttendanceError(getAttendanceErrorMessage(error));
+        setAttendanceErrorStatus(error.response?.status ?? null);
+
+        if (isCurrentMonth) {
+          setTodayAttendanceState("error");
+        }
+      } finally {
+        if (requestId === attendanceRequestId.current) {
+          setAttendanceLoading(false);
+        }
+      }
+    },
+    [accessToken],
+  );
+
+  useEffect(() => {
+    if (authLoading || !isAuthenticated || !accessToken) return;
+
+    fetchAttendance(calendarYear, calendarMonth);
+  }, [
+    authLoading,
+    isAuthenticated,
+    accessToken,
+    calendarYear,
+    calendarMonth,
+    fetchAttendance,
+  ]);
+
+  /* Ignore any in-flight response after the page unmounts */
+  useEffect(() => {
+    const requestCounter = attendanceRequestId;
+
+    return () => {
+      requestCounter.current += 1;
+    };
+  }, []);
+
+  /* =======================================================
+     ATTENDANCE CALENDAR HELPERS
+  ======================================================= */
+
+  const recordsByDate = useMemo(() => {
+    const map = new Map();
+
+    attendanceRecords.forEach((record) => {
+      if (record?.date) {
+        map.set(String(record.date).slice(0, 10), record);
+      }
+    });
+
+    return map;
+  }, [attendanceRecords]);
+
+  const getAttendanceRecord = (dateKey) => recordsByDate.get(dateKey) || null;
+
+  /* No record  =>  NOT_ENTERED  (never ABSENT) */
+  const getAttendanceStatus = (dateKey) => {
+    const record = getAttendanceRecord(dateKey);
+
+    if (!record) return "NOT_ENTERED";
+
+    return normalizeStatus(record.status);
+  };
+
+  const getDayInfo = (day) => {
+    const dateKey = toDateKey(calendarYear, calendarMonth, day);
+
+    return {
+      dateKey,
+      status: getAttendanceStatus(dateKey),
+    };
+  };
+
+  const daysInMonth = new Date(calendarYear, calendarMonth, 0).getDate();
+
+  /* Monday-first grid: Mon = 0 ... Sun = 6 */
+  const leadingBlanks =
+    (new Date(calendarYear, calendarMonth - 1, 1).getDay() + 6) % 7;
+
+  const attendanceCounts = useMemo(() => {
+    const counts = {
+      present: 0,
+      notEntered: 0,
+      leave: 0,
+      halfDay: 0,
+      off: 0,
+    };
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const dateKey = toDateKey(calendarYear, calendarMonth, day);
+
+      const record = recordsByDate.get(dateKey);
+
+      const status = record ? normalizeStatus(record.status) : "NOT_ENTERED";
+
+      if (status === "PRESENT") counts.present += 1;
+      else if (status === "HALF_DAY") counts.halfDay += 1;
+      else if (status === "ABSENT" || status === "LEAVE") counts.leave += 1;
+      else if (status === "HOLIDAY" || status === "WEEKLY_OFF")
+        counts.off += 1;
+      else counts.notEntered += 1;
+    }
+
+    return counts;
+  }, [recordsByDate, calendarYear, calendarMonth, daysInMonth]);
+
+  const changeMonth = (delta) => {
+    /* Day 1 avoids month-overflow bugs (e.g. Oct 31 -> "Nov 31") */
+    const next = new Date(calendarYear, calendarMonth - 1 + delta, 1);
+
+    const nextYear = next.getFullYear();
+
+    const nextMonth = next.getMonth() + 1;
+
+    const today = getTodayParts();
+
+    setCalendarDate(next);
+
+    setSelectedDateKey(
+      nextYear === today.year && nextMonth === today.month
+        ? toDateKey(nextYear, nextMonth, today.day)
+        : toDateKey(nextYear, nextMonth, 1),
+    );
+  };
+
+  const handlePrevMonth = () => changeMonth(-1);
+
+  const handleNextMonth = () => changeMonth(1);
+
+  const handleRetryAttendance = () => {
+    fetchAttendance(calendarYear, calendarMonth);
+  };
 
   /* =======================================================
      FALLBACK DATA
@@ -959,6 +1723,22 @@ export default function Profile() {
   ];
 
   /* =======================================================
+     SIDEBAR NAVIGATION (scroll to sections of this page)
+  ======================================================= */
+
+  const scrollToSection = (navKey, elementId) => {
+    setActiveNav(navKey);
+
+    const element = document.getElementById(elementId);
+
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  /* =======================================================
      AUTH / PROFILE LOADING
   ======================================================= */
 
@@ -980,220 +1760,344 @@ export default function Profile() {
 
   return (
     <div className="profile-page">
-      {/* TOP BAR */}
-      <div className="profile-topbar">
-        <button type="button" className="profile-back-btn" onClick={handleBack}>
-          <IconArrowLeft />
-          <span>Back</span>
-        </button>
+      <div className="profile-shell">
+        {/* ================= LEFT SIDEBAR ================= */}
+        <aside className="profile-sidebar-nav" aria-label="Profile navigation">
+          <div className="profile-brand">
+            <span className="profile-brand-logo">M</span>
 
-        <button
-          type="button"
-          className="profile-logout-btn"
-          onClick={handleSignOut}
-          title="Logout"
-        >
-          <IconLogout />
-        </button>
-      </div>
-
-      <div className="profile-page-inner">
-        <div className="profile-header">
-          <div>
-            <h1 className="profile-title">Profile</h1>
-
-            <p className="profile-subtitle">
-              View your account information and security settings
-            </p>
-          </div>
-        </div>
-
-        {/* HERO */}
-        <div className="profile-hero">
-          <div className="profile-hero-content">
-            <div className="profile-avatar-wrapper">
-              <div className="profile-avatar">
-                {data.profilePhoto ? (
-                  <img src={data.profilePhoto} alt="Profile" />
-                ) : (
-                  <span>{initials}</span>
-                )}
-
-                {/* Upload (pencil) */}
-                <button
-                  type="button"
-                  className="profile-avatar-edit"
-                  onClick={() => avatarInputRef.current?.click()}
-                  disabled={photoUploading || photoRemoving}
-                  title={photoUploading ? "Uploading…" : "Change profile photo"}
-                  aria-label="Change profile photo"
-                >
-                  {photoUploading ? (
-                    <span className="profile-avatar-spinner" />
-                  ) : (
-                    <IconPencil />
-                  )}
-                </button>
-
-                {/* Remove (trash) — only when a photo exists */}
-                {data.profilePhoto && (
-                  <button
-                    type="button"
-                    className="profile-avatar-remove"
-                    onClick={handlePhotoRemove}
-                    disabled={photoUploading || photoRemoving}
-                    title={photoRemoving ? "Removing…" : "Remove profile photo"}
-                    aria-label="Remove profile photo"
-                  >
-                    {photoRemoving ? (
-                      <span className="profile-avatar-spinner" />
-                    ) : (
-                      <IconTrash />
-                    )}
-                  </button>
-                )}
-
-                <input
-                  ref={avatarInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: "none" }}
-                  onChange={handlePhotoChange}
-                />
-              </div>
-
-              <span className="profile-status-badge">
-                <span className="profile-status-dot"></span>
-                Active
-              </span>
-
-              {photoError && (
-                <p className="profile-avatar-error">{photoError}</p>
-              )}
-            </div>
-
-            <div className="profile-hero-info">
-              <h2 className="profile-hero-name">{data.username}</h2>
-
-              <p
-                className={
-                  "profile-hero-email" +
-                  (data.email === "Not available" ? " is-muted" : "")
-                }
-              >
-                {data.email}
-              </p>
-
-              <div className="profile-hero-tags">
-                <span className="profile-tag">ERP Account</span>
-
-                <span className="profile-tag">ID: {data.employeeId}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* STATS */}
-        <div className="profile-stats-grid">
-          {stats.map((stat, index) => (
-            <StatCard key={index} {...stat} />
-          ))}
-        </div>
-
-        {/* MAIN GRID */}
-        <div className="profile-main-grid">
-          <div className="profile-card profile-info-card">
-            <div className="profile-card-header">
-              <div>
-                <h3 className="profile-card-title">Personal Information</h3>
-
-                <p className="profile-card-subtitle">
-                  Your account details and contact information
-                </p>
-              </div>
-
-              <span className="profile-view-only-badge">View only</span>
-            </div>
-
-            <div className="profile-info-grid">
-              <InfoItem
-                icon={<IconUser />}
-                label="Username"
-                value={data.username}
-              />
-
-              <InfoItem icon={<IconMail />} label="Email" value={data.email} />
-
-              <InfoItem icon={<IconPhone />} label="Phone" value={data.phone} />
-
-              <InfoItem
-                icon={<IconBriefcase />}
-                label="Role"
-                value={data.role}
-              />
-
-              <InfoItem
-                icon={<IconBuilding />}
-                label="Department"
-                value={data.department}
-              />
-
-              <InfoItem
-                icon={<IconGlobe />}
-                label="Employee ID"
-                value={data.employeeId}
-              />
-            </div>
-
-            <div className="profile-info-footer">
-              <p className="profile-info-note">
-                <IconInfo />
-                Information is managed by HR/Admin. Contact your HR department
-                for updates.
-              </p>
-            </div>
+            <span className="profile-brand-name">Mugil ERP</span>
           </div>
 
-          <div className="profile-sidebar">
-            <div className="profile-card profile-security-card">
-              <div className="profile-card-header">
-                <div>
-                  <h3 className="profile-card-title">Security</h3>
+          <nav className="profile-nav">
+            <button
+              type="button"
+              className={
+                "profile-nav-item" + (activeNav === "profile" ? " is-active" : "")
+              }
+              onClick={() => scrollToSection("profile", "profile-top")}
+            >
+              <IconUser />
+              <span>Profile</span>
+            </button>
 
-                  <p className="profile-card-subtitle">Manage your password</p>
-                </div>
+            <button
+              type="button"
+              className={
+                "profile-nav-item" +
+                (activeNav === "attendance" ? " is-active" : "")
+              }
+              onClick={() =>
+                scrollToSection("attendance", "profile-attendance-calendar")
+              }
+            >
+              <IconCalendar />
+              <span>Attendance</span>
+            </button>
 
-                <div className="profile-card-icon shield">
-                  <IconShield />
-                </div>
-              </div>
+            <button
+              type="button"
+              className={
+                "profile-nav-item" + (activeNav === "hours" ? " is-active" : "")
+              }
+              onClick={() => scrollToSection("hours", "profile-work-hours")}
+            >
+              <IconClock />
+              <span>Work Hours</span>
+            </button>
 
-              <div className="profile-security-item">
-                <div className="profile-security-icon">
-                  <IconLock />
-                </div>
+            <button
+              type="button"
+              className="profile-nav-item"
+              onClick={openPasswordModal}
+            >
+              <IconLock />
+              <span>Security</span>
+            </button>
 
-                <div className="profile-security-text">
-                  <span className="profile-security-label">Password</span>
+            <button
+              type="button"
+              className="profile-nav-item"
+              onClick={handleBack}
+            >
+              <IconArrowLeft />
+              <span>Go Back</span>
+            </button>
+          </nav>
 
-                  <span className="profile-security-value">••••••••••••</span>
-                </div>
-              </div>
+          <div className="profile-side-promo">
+            <div className="profile-side-promo-icon">
+              <IconShield />
+            </div>
 
+            <h4>Keep your account secure</h4>
+
+            <p>Update your password regularly to protect your ERP account.</p>
+
+            <button
+              type="button"
+              className="profile-side-promo-btn"
+              onClick={openPasswordModal}
+              aria-label="Change password"
+              title="Change password"
+            >
+              <IconChevronRight />
+            </button>
+          </div>
+        </aside>
+
+        {/* ================= CONTENT ================= */}
+        <div className="profile-content" id="profile-top">
+          {/* TOP BAR */}
+          <div className="profile-topbar">
+            <div className="profile-search-bar">
               <button
                 type="button"
-                className="profile-change-password-btn"
-                onClick={openPasswordModal}
+                className="profile-back-btn"
+                onClick={handleBack}
+                aria-label="Back"
               >
-                Change Password
+                <IconArrowLeft />
               </button>
+
+              <div className="profile-search-text">
+                <span className="profile-search-title">Profile</span>
+
+                <span className="profile-search-sub">
+                  View your account information and attendance
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="profile-top-actions">
+            <div className="profile-top-user">
+              <span className="profile-top-avatar">
+                {data.profilePhoto ? (
+                  <img src={data.profilePhoto} alt="" />
+                ) : (
+                  initials
+                )}
+              </span>
             </div>
 
-            <WorkHoursCard
-              hoursWorked={hoursWorked}
-              targetHours={targetHours}
-            />
+            <button
+              type="button"
+              className="profile-logout-btn"
+              onClick={handleSignOut}
+              title="Logout"
+              aria-label="Logout"
+            >
+              <IconLogout />
+            </button>
           </div>
+
+          {/* MAIN COLUMN */}
+          <div className="profile-dashboard-main">
+            {/* HERO BANNER */}
+            <div className="profile-hero">
+              <div className="profile-hero-content">
+                <div className="profile-avatar-wrapper">
+                  <div className="profile-avatar">
+                    {data.profilePhoto ? (
+                      <img src={data.profilePhoto} alt="Profile" />
+                    ) : (
+                      <span>{initials}</span>
+                    )}
+
+                    {/* Upload (pencil) */}
+                    <button
+                      type="button"
+                      className="profile-avatar-edit"
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={photoUploading || photoRemoving}
+                      title={
+                        photoUploading ? "Uploading…" : "Change profile photo"
+                      }
+                      aria-label="Change profile photo"
+                    >
+                      {photoUploading ? (
+                        <span className="profile-avatar-spinner" />
+                      ) : (
+                        <IconPencil />
+                      )}
+                    </button>
+
+                    {/* Remove (trash) — only when a photo exists */}
+                    {data.profilePhoto && (
+                      <button
+                        type="button"
+                        className="profile-avatar-remove"
+                        onClick={handlePhotoRemove}
+                        disabled={photoUploading || photoRemoving}
+                        title={
+                          photoRemoving ? "Removing…" : "Remove profile photo"
+                        }
+                        aria-label="Remove profile photo"
+                      >
+                        {photoRemoving ? (
+                          <span className="profile-avatar-spinner" />
+                        ) : (
+                          <IconTrash />
+                        )}
+                      </button>
+                    )}
+
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={handlePhotoChange}
+                    />
+                  </div>
+
+                  <span className="profile-status-badge">
+                    <span className="profile-status-dot"></span>
+                    Active
+                  </span>
+
+                  {photoError && (
+                    <p className="profile-avatar-error">{photoError}</p>
+                  )}
+                </div>
+
+                <div className="profile-hero-info">
+                  <h2 className="profile-hero-name">{data.username}</h2>
+
+                  <p
+                    className={
+                      "profile-hero-email" +
+                      (data.email === "Not available" ? " is-muted" : "")
+                    }
+                  >
+                    {data.email}
+                  </p>
+
+                  <div className="profile-hero-tags">
+                    <span className="profile-tag">ERP Account</span>
+
+                    <span className="profile-tag">ID: {data.employeeId}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* STATS */}
+            <div className="profile-stats-grid">
+              {stats.map((stat, index) => (
+                <StatCard key={index} {...stat} />
+              ))}
+            </div>
+
+            {/* ATTENDANCE SUMMARY (big card, like the reference chart card) */}
+            <AttendanceSummary
+              monthLabel={`${MONTH_NAMES[calendarMonth - 1]} ${calendarYear}`}
+              counts={attendanceCounts}
+              unavailable={attendanceLoading || Boolean(attendanceError)}
+            />
+
+            {/* BOTTOM ROW: Personal info + Work hours */}
+            <div className="profile-main-grid">
+              <div className="profile-card profile-info-card">
+                <div className="profile-card-header">
+                  <div>
+                    <h3 className="profile-card-title">Personal Information</h3>
+
+                    <p className="profile-card-subtitle">
+                      Your account details and contact information
+                    </p>
+                  </div>
+
+                  <span className="profile-view-only-badge">View only</span>
+                </div>
+
+                <div className="profile-info-grid">
+                  <InfoItem
+                    icon={<IconUser />}
+                    label="Username"
+                    value={data.username}
+                  />
+
+                  <InfoItem
+                    icon={<IconMail />}
+                    label="Email"
+                    value={data.email}
+                  />
+
+                  <InfoItem
+                    icon={<IconPhone />}
+                    label="Phone"
+                    value={data.phone}
+                  />
+
+                  <InfoItem
+                    icon={<IconBriefcase />}
+                    label="Role"
+                    value={data.role}
+                  />
+
+                  <InfoItem
+                    icon={<IconBuilding />}
+                    label="Department"
+                    value={data.department}
+                  />
+
+                  <InfoItem
+                    icon={<IconGlobe />}
+                    label="Employee ID"
+                    value={data.employeeId}
+                  />
+                </div>
+
+                <div className="profile-info-footer">
+                  <p className="profile-info-note">
+                    <IconInfo />
+                    Information is managed by HR/Admin. Contact your HR
+                    department for updates.
+                  </p>
+                </div>
+              </div>
+
+              <div className="profile-sidebar" id="profile-work-hours">
+                <WorkHoursCard
+                  hoursWorked={hoursWorked}
+                  targetHours={targetHours}
+                  sublabel={workHoursSublabel}
+                  muted={!todayAttendance}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN — CALENDAR + SELECTED DAY */}
+          <aside className="profile-dashboard-aside">
+            <AttendanceCalendarCard
+              year={calendarYear}
+              month={calendarMonth}
+              daysInMonth={daysInMonth}
+              leadingBlanks={leadingBlanks}
+              getDayInfo={getDayInfo}
+              selectedDateKey={selectedDateKey}
+              todayKey={todayKey}
+              onSelectDate={setSelectedDateKey}
+              onPrevMonth={handlePrevMonth}
+              onNextMonth={handleNextMonth}
+              loading={attendanceLoading}
+              error={attendanceError}
+              errorStatus={attendanceErrorStatus}
+              onRetry={handleRetryAttendance}
+              onSignIn={handleSignOut}
+            />
+
+            {!attendanceError && !attendanceLoading && (
+              <AttendanceDetails
+                dateKey={selectedDateKey}
+                record={getAttendanceRecord(selectedDateKey)}
+                status={getAttendanceStatus(selectedDateKey)}
+              />
+            )}
+          </aside>
         </div>
       </div>
 

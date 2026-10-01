@@ -2,7 +2,7 @@ from django.contrib.auth import authenticate
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import User
+from .models import ConsumableIssue, User
 
 #for login 
 class LoginSerializer(serializers.Serializer):
@@ -79,8 +79,38 @@ class UserProfileSerializer(serializers.ModelSerializer):
 # ============================================================
 # PROFILE SERIALIZER — pulls from Employee, falls back to UserProfile
 # ============================================================
-from erp.models import Employee  # adjust import if Employee lives elsewhere
+from erp.models import Employee  
+from rest_framework import serializers
+from .models import Attendance
 
+
+class MyAttendanceSerializer(serializers.ModelSerializer):
+    employee_id = serializers.CharField(
+        source="employee.employee_id",
+        read_only=True,
+    )
+
+    employee_name = serializers.CharField(
+        source="employee.full_name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Attendance
+        fields = [
+            "id",
+            "employee_id",
+            "employee_name",
+            "date",
+            "status",
+            "login_time",
+            "logout_time",
+            "break_hours",
+            "working_hours",
+            "hourly_rate",
+            "daily_wage",
+            "remarks",
+        ]
 
 class ProfileSerializer(serializers.ModelSerializer):
 
@@ -2308,3 +2338,47 @@ class AttendanceSerializer(serializers.ModelSerializer):
             instance,
             validated_data,
         )
+
+
+
+#for consumable
+from rest_framework import serializers
+
+from .models import (
+    ConsumableGRN,
+    PurchaseOrderItem,
+)
+
+
+class ConsumableGRNSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ConsumableGRN
+        fields = "__all__"
+        read_only_fields = [
+            "grn_number",
+            "received_quantity",
+            "pending_quantity",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+
+
+
+class ConsumableIssueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ConsumableIssue
+        fields = "__all__"
+        read_only_fields = [
+            "issue_number",
+            "grn",
+            "po_number",
+            "po_description",
+            "consumable_name",
+            "category",
+            "unit",
+            "warehouse",
+            "created_at",
+            "updated_at",
+        ]

@@ -332,7 +332,44 @@ class PurchaseOrder(models.Model):
 
             self.items = normalised
 
+        
         super().save(*args, **kwargs)
+
+        
+        if self.status == self.Status.CONFIRMED:
+
+            for index, item in enumerate(self.items or [], start=1):
+
+                if not isinstance(item, dict):
+                    continue
+
+                PurchaseOrderItem.objects.update_or_create(
+                    purchase_order=self,
+                    item_code=f"DESC-{index:03d}",
+                    defaults={
+                        "po_number": self.po_number,
+
+                        "description": (
+                            item.get("description")
+                            or item.get("poDescription")
+                            or item.get("itemDescription")
+                            or ""
+                        ),
+
+                        "quantity": (
+                            item.get("quantity")
+                            or item.get("qty")
+                            or item.get("poQty")
+                            or 0
+                        ),
+
+                        "unit": (
+                            item.get("unit")
+                            or item.get("uom")
+                            or ""
+                        ),
+                    },
+                )
 
 
 class PurchaseOrderNumberSettings(models.Model):
@@ -2342,4 +2379,234 @@ class Attendance(models.Model):
             f"{self.employee.employee_id} - "
             f"{self.date} - "
             f"{self.status}"
+        )
+
+
+
+
+# for purchase order description
+class PurchaseOrderItem(models.Model):
+
+    purchase_order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.CASCADE,
+        related_name="po_items",
+    )
+    po_number = models.CharField(
+        max_length=100,
+        db_index=True,
+        null=True,
+    blank=True,
+    )
+
+    item_code = models.CharField(
+        max_length=100,
+    )
+
+    description = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    unit = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["id"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["purchase_order", "item_code"],
+                name="unique_po_item_code",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.po_number} - {self.item_code}"
+
+
+class ConsumableGRN(models.Model):
+
+    class GRNType(models.TextChoices):
+        PO = "PO", "Purchase Order"
+        DIRECT = "DIRECT", "Direct"
+
+    class Status(models.TextChoices):
+        PENDING = "Pending", "Pending"
+        PARTIALLY_RECEIVED = "Partially Received", "Partially Received"
+        FULLY_RECEIVED = "Fully Received", "Fully Received"
+
+    WAREHOUSE_CHOICES = [
+        ("Unit One", "Unit One"),
+        ("Unit Two", "Unit Two"),
+    ]
+
+    grn_number = models.CharField(max_length=100, unique=True)
+
+    grn_type = models.CharField(
+        max_length=20,
+        choices=GRNType.choices,
+        default=GRNType.PO,
+    )
+
+    purchase_order_item = models.ForeignKey(
+        PurchaseOrderItem,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="grns",
+    )
+
+    po_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+
+    po_description = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    supplier = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    consumable_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    category = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    unit = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    ordered_quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    received_quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    pending_quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    warehouse = models.CharField(
+        max_length=50,
+        choices=WAREHOUSE_CHOICES,
+        blank=True,
+        default="",
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    received_by = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.grn_number} - {self.po_number}"
+
+
+
+class ConsumableIssue(models.Model):
+   
+
+    issue_number = models.CharField(max_length=100, unique=True)
+
+    # Which GRN line the stock came out of.
+    # Ties the issue back to a specific (PO, description, warehouse).
+    grn = models.ForeignKey(
+        ConsumableGRN,
+        on_delete=models.PROTECT,
+        related_name="issues",
+    )
+
+   
+    po_number = models.CharField(
+        max_length=100, blank=True, default="", db_index=True,
+    )
+    po_description = models.TextField(blank=True, default="")
+    consumable_name = models.CharField(max_length=255, blank=True, default="")
+    category = models.CharField(max_length=100, blank=True, default="")
+    unit = models.CharField(max_length=50, blank=True, default="")
+    warehouse = models.CharField(max_length=50, blank=True, default="")
+
+    # The issue itself
+    quantity_issued = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+
+    # Where it went
+    department = models.CharField(max_length=150, blank=True, default="")
+    employee_name = models.CharField(max_length=255, blank=True, default="")
+    job_card = models.CharField(max_length=150, blank=True, default="")
+    remarks = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["grn"]),
+            models.Index(fields=["po_number"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.issue_number} — "
+            f"{self.consumable_name} — "
+            f"{self.quantity_issued}"
         )

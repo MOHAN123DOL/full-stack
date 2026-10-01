@@ -1,13 +1,16 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, ChangePasswordAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, JournalAPIView, JournalDetailAPIView, 
-                    LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView,
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, JournalAPIView, JournalDetailAPIView, 
+                    LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, PurchaseOrderConfirmAPIView,
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
                           QuotationNextNumberAPIView, RefreshTokenAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
                           UserProfileListCreateAPIView, AttendanceEmployeeView,
     AttendanceViewSet,
     WageConfigViewSet,
+    ConsumableStockAPIView,
+    ConsumableIssueStockAPIView,
+    ConsumableIssueCreateAPIView
     )
 
 
@@ -28,6 +31,11 @@ urlpatterns = [
     ),
      # TO GET PROFILE AND CHANGE PASSWORD
     path("profile/", ProfileAPIView.as_view(),name="profile",),
+    path(
+        "attendance/my/",
+        MyAttendanceAPIView.as_view(),
+        name="my-attendance",
+    ),
      path("profile/change-password/",ChangePasswordAPIView.as_view(),name="change-password",),
      path(
         "profile/photo/",
@@ -332,8 +340,50 @@ urlpatterns = [
 
 
 
-
+      # inventory
 
        path("inventory/",InventoryAPIView.as_view(),name="inventory",),  
        path("inventory/material/menu/",MaterialMenuAPIView.as_view(),name="material-menu",),
+       path(
+        "consumable/",
+        ConsumableDashboardView.as_view(),
+        name="consumable-dashboard"
+    ),
+    #consumable grn po items list
+    path("consumable-grn/po-items/",ConsumableGRNPOItemListAPIView.as_view(),name="consumable-grn-po-items",),
+   
+   
+    # Receive quantity against one PO item
+    path(
+        "consumable-grn/receive/<int:item_id>/",
+        ConsumableGRNReceiveAPIView.as_view(),
+        name="consumable-grn-receive",
+    ),
+
+    path(
+        "consumable-grn/direct/",
+        ConsumableGRNDirectCreateAPIView.as_view(),
+        name="consumable-grn-direct",
+    ),
+
+
+    path(
+    "consumable-grn/stock/",
+    ConsumableStockAPIView.as_view(),
+        name="consumable-stock",
+    ),
+    path(
+        "consumable-grn/issue-stock/",
+        ConsumableIssueStockAPIView.as_view(),
+        name="consumable-issue-stock",
+    ),
+    path(
+        "consumable-grn/issue/<int:grn_id>/",
+        ConsumableIssueCreateAPIView.as_view(),
+        name="consumable-issue-create",
+    ),
+
+   
+
+
 ]

@@ -181,6 +181,12 @@
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
 }
 
+.consumable-grn-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 /* ==========================================================
    SEARCH
 ========================================================== */
@@ -226,6 +232,56 @@
   color: #94a3b8;
 }
 
+.consumable-grn-search-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ==========================================================
+   REFRESH BUTTON
+========================================================== */
+
+.consumable-grn-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  height: 48px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.consumable-grn-refresh-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.consumable-grn-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.consumable-grn-spin {
+  animation: consumableGrnSpin 1s linear infinite;
+}
+
+@keyframes consumableGrnSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ==========================================================
    PRIMARY BUTTON
 ========================================================== */
@@ -248,7 +304,7 @@
   white-space: nowrap;
 }
 
-.consumable-grn-add-btn:hover {
+.consumable-grn-add-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 12px 22px rgba(37, 99, 235, 0.28);
 }
@@ -257,8 +313,37 @@
   transform: translateY(0);
 }
 
+.consumable-grn-add-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .consumable-grn-add-btn svg {
   flex-shrink: 0;
+}
+
+/* ==========================================================
+   ERROR BOX
+========================================================== */
+
+.consumable-grn-error-box {
+  margin-bottom: 28px;
+  padding: 24px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 18px;
+  color: #991b1b;
+}
+
+/* ==========================================================
+   LOADING WRAPPER
+========================================================== */
+
+.consumable-grn-loading-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px 0;
 }
 
 /* ==========================================================
@@ -272,7 +357,12 @@
     align-items: stretch;
   }
 
-  .consumable-grn-add-btn {
+  .consumable-grn-toolbar-actions {
+    flex-direction: column;
+  }
+
+  .consumable-grn-add-btn,
+  .consumable-grn-refresh-btn {
     width: 100%;
   }
 
@@ -293,7 +383,8 @@
 
 @media (max-width: 480px) {
 
-  .consumable-grn-add-btn {
+  .consumable-grn-add-btn,
+  .consumable-grn-refresh-btn {
     font-size: 13px;
     height: 44px;
   }
@@ -411,7 +502,8 @@
   color: #6d28d9;
 }
 
-.consumable-grn-status-completed {
+.consumable-grn-status-completed,
+.consumable-grn-status-fully-received {
   background: #dcfce7;
   color: #15803d;
 }
@@ -508,7 +600,9 @@
     font-size: 13px;
   }
 
-}/* ==========================================================
+}
+
+/* ==========================================================
    MODAL OVERLAY
 ========================================================== */
 
@@ -602,8 +696,13 @@
   transition: .25s;
 }
 
-.consumable-grn-modal-close:hover {
+.consumable-grn-modal-close:hover:not(:disabled) {
   background: #e2e8f0;
+}
+
+.consumable-grn-modal-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ==========================================================
@@ -612,6 +711,8 @@
 
 .consumable-grn-modal-body {
   padding: 28px;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
 }
 
 /* ==========================================================
@@ -648,6 +749,19 @@
   color: #1e293b;
 }
 
+.consumable-grn-info-card-wide {
+  grid-column: 1 / -1;
+}
+
+.consumable-grn-info-card-highlight {
+  background: #eef4ff;
+  border-color: #bfdbfe;
+}
+
+.consumable-grn-info-card-highlight .consumable-grn-info-value {
+  color: #2563eb;
+}
+
 /* ==========================================================
    FORM
 ========================================================== */
@@ -681,7 +795,8 @@
 }
 
 .consumable-grn-form-group input,
-.consumable-grn-form-group textarea {
+.consumable-grn-form-group textarea,
+.consumable-grn-form-group select {
   width: 100%;
   padding: 13px 15px;
   border: 1px solid #dbe4ee;
@@ -690,6 +805,17 @@
   outline: none;
   transition: .25s;
   font-family: inherit;
+  background: #ffffff;
+  color: #1e293b;
+}
+
+.consumable-grn-form-group select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.937 10.825 4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 15px center;
+  padding-right: 40px;
 }
 
 .consumable-grn-form-group textarea {
@@ -698,9 +824,39 @@
 }
 
 .consumable-grn-form-group input:focus,
-.consumable-grn-form-group textarea:focus {
+.consumable-grn-form-group textarea:focus,
+.consumable-grn-form-group select:focus {
   border-color: #2563eb;
   box-shadow: 0 0 0 4px rgba(37,99,235,.08);
+}
+
+.consumable-grn-form-group input:disabled,
+.consumable-grn-form-group textarea:disabled,
+.consumable-grn-form-group select:disabled {
+  background: #f1f5f9;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* ==========================================================
+   VALIDATION ERROR
+========================================================== */
+
+.consumable-grn-validation-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.consumable-grn-form-error {
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #991b1b;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 /* ==========================================================
@@ -729,8 +885,13 @@
   transition: .25s;
 }
 
-.consumable-grn-cancel-btn:hover {
+.consumable-grn-cancel-btn:hover:not(:disabled) {
   background: #f8fafc;
+}
+
+.consumable-grn-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .consumable-grn-save-btn {
@@ -743,11 +904,31 @@
   font-weight: 600;
   cursor: pointer;
   transition: .25s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
-.consumable-grn-save-btn:hover {
+.consumable-grn-save-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 12px 22px rgba(37,99,235,.25);
+}
+
+.consumable-grn-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.consumable-grn-btn-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: consumableGrnSpin 0.8s linear infinite;
 }
 
 /* ==========================================================
@@ -780,6 +961,10 @@
     grid-template-columns: 1fr;
   }
 
+  .consumable-grn-info-card-wide {
+    grid-column: auto;
+  }
+
   .consumable-grn-form-actions {
     flex-direction: column-reverse;
   }
@@ -805,4 +990,71 @@
     grid-template-columns: 1fr;
   }
 
+}
+
+/* ==========================================================
+   MULTI-DESCRIPTION PO LINES
+========================================================== */
+
+.consumable-grn-table {
+  min-width: 1200px;
+}
+
+.consumable-grn-po-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.consumable-grn-po-number {
+  font-weight: 700;
+  color: #111827;
+  white-space: nowrap;
+}
+
+.consumable-grn-po-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eef4ff;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.consumable-grn-description-cell {
+  min-width: 180px;
+  max-width: 280px;
+  font-weight: 600;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+/* Visual separator between different POs; rows of one PO stay tight */
+.consumable-grn-table tbody tr.consumable-grn-row-group-start td {
+  border-top: 2px solid #dbe3ef;
+}
+
+.consumable-grn-table tbody tr.consumable-grn-row-group-start:first-child td {
+  border-top: none;
+}
+
+.consumable-grn-status-not-received,
+.consumable-grn-status-fully-received {
+  white-space: nowrap;
+}
+
+.consumable-grn-status-fully-received {
+  background: #dcfce7;
+  color: #15803d;
+}
+.consumable-grn-item-code-cell {
+  font-weight: 600;
+  color: #0f766e;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.consumable-grn-status-partially-received {
+  white-space: nowrap;
 }

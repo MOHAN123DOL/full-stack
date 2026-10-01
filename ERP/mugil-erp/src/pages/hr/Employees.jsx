@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
 } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import EmployeeForm from "./Employeeform.jsx";
@@ -122,9 +123,23 @@ export function useEmployees() {
 
 export function EmployeesProvider({ children }) {
   const { accessToken } = useAuth();
+  const location = useLocation();
+
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // -------------------------------------------------------------------
+  // Only fetch employees when the current route is inside the HR module.
+  // EmployeesProvider may be mounted higher than HrLayout by mistake
+  // (or by other refactors); this guard ensures the /erp/employees/
+  // endpoint never fires for non-HR users, who would only get a 403.
+  // -------------------------------------------------------------------
+  const isHrRoute = location.pathname.startsWith("/hr");
+
+  // Track the last access token we successfully loaded for, so we don't
+  // re-fetch on every render / navigation.
+  const lastLoadedTokenRef = useRef(null);
 
   const authHeaders = useCallback(
     () => ({
@@ -134,6 +149,7 @@ export function EmployeesProvider({ children }) {
   );
 
   const refresh = useCallback(async () => {
+    // No token → nothing to fetch.
     if (!accessToken) {
       setEmployees([]);
       setError("Your session has expired. Please login again.");
@@ -158,7 +174,25 @@ export function EmployeesProvider({ children }) {
         list = responseData.results;
 
       setEmployees(list);
+      lastLoadedTokenRef.current = accessToken;
     } catch (err) {
+      const status = err?.response?.status;
+
+      // 403 = current user is not in the HR department. /erp/employees/
+      // is HR-only, so a 403 is expected for other roles. Skip silently.
+      if (status === 403) {
+        setEmployees([]);
+        setError("");
+        return;
+      }
+
+      // 401 = token expired / invalid → surface a friendly message.
+      if (status === 401) {
+        setEmployees([]);
+        setError("Your session has expired. Please login again.");
+        return;
+      }
+
       console.error("Failed to load employees:", err);
       setEmployees([]);
       setError(GENERIC_ERROR);
@@ -167,9 +201,24 @@ export function EmployeesProvider({ children }) {
     }
   }, [accessToken, authHeaders]);
 
+  // -------------------------------------------------------------------
+  // Initial load / token change
+  // -------------------------------------------------------------------
   useEffect(() => {
+    // Not an HR page → do not call the API. Set loading to false so any
+    // consumer that accidentally renders here doesn't sit in a spinner.
+    if (!isHrRoute) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Already loaded for this token → skip.
+    if (lastLoadedTokenRef.current === accessToken) {
+      return;
+    }
+
     refresh();
-  }, [refresh]);
+  }, [isHrRoute, accessToken, refresh]);
 
   const getEmployee = useCallback(
     (id) => employees.find((e) => String(e.id) === String(id)),
@@ -182,8 +231,6 @@ export function EmployeesProvider({ children }) {
      ============================================================ */
   const addEmployee = useCallback(
     async (employee) => {
-      // ✅ FIX: strip out `photo` (and server-managed fields) so we never
-      // send a text string where the backend expects a file.
       const { id, employeeCode, photo, ...rest } = employee;
 
       const body = { ...rest };
@@ -225,7 +272,6 @@ export function EmployeesProvider({ children }) {
         ...(existing?.employmentHistory || []),
       ];
 
-      // ✅ FIX: drop `photo` from the JSON payload as well.
       const {
         id: _dropId,
         employeeCode: _dropCode,
@@ -340,9 +386,8 @@ export function EmployeesProvider({ children }) {
       const fd = new FormData();
       fd.append("photo", file);
 
-      // ✅ FIX: do NOT set Content-Type manually. Axios/browser will set it
-      // with the correct multipart boundary. Setting it by hand strips the
-      // boundary and causes the same "not a file" error.
+      // Do NOT set Content-Type manually — axios/browser sets it with
+      // the correct multipart boundary.
       const response = await api.patch(
         `${EMPLOYEES_ENDPOINT}${id}/photo/`,
         fd,
@@ -862,9 +907,6 @@ export default function Employees() {
                             onClick={() => navigate(`/hr/employees/${emp.id}`)}
                           >
                             <div className="emp-card-avatar-wrap">
-                              {/* ✅ FIX: fall back to a generated avatar on the
-                                 client if the backend has no photo. Never
-                                 send this string to the API. */}
                               <img
                                 className="emp-card-avatar"
                                 src={

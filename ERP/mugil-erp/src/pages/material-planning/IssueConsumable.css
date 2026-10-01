@@ -213,6 +213,7 @@
 
 .issue-consumable-table {
   width: 100%;
+  min-width: 1100px;
   border-collapse: collapse;
 }
 
@@ -461,7 +462,8 @@
   margin: 0;
 }
 
-.modal-actions {
+.modal-actions,
+.issue-consumable-modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 14px;
@@ -561,5 +563,278 @@
 
   .issue-consumable-summary-value {
     font-size: 24px;
+  }
+}
+
+/* ==========================================================
+   SOURCE PO / DESCRIPTION
+========================================================== */
+
+.issue-consumable-po-number {
+  font-weight: 700;
+  color: #111827;
+  white-space: nowrap;
+}
+
+.issue-consumable-po-description {
+  min-width: 180px;
+  max-width: 280px;
+  font-weight: 600;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.issue-consumable-info-item-wide {
+  grid-column: 1 / -1;
+  background: #eef4ff;
+  border-color: #bfdbfe;
+}
+
+.issue-consumable-field-full {
+  grid-column: 1 / -1;
+}
+
+.issue-consumable-modal-body {
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+}
+
+@media (max-width: 900px) {
+  .issue-consumable-info-item-wide {
+    grid-column: auto;
+  }
+}
+/* ==========================================================
+   REFRESH BUTTON
+========================================================== */
+
+.cons-stock-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 20px;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.cons-stock-refresh-button:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.cons-stock-refresh-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cons-stock-spin {
+  animation: consStockSpin 1s linear infinite;
+}
+
+@keyframes consStockSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ==========================================================
+   LOADING + ERROR WRAPPERS
+========================================================== */
+
+.cons-stock-loading-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 30px 0;
+}
+
+.cons-stock-error-box {
+  padding: 24px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 18px;
+  color: #991b1b;
+}
+
+/* ==========================================================
+   TOOLBAR — REFRESH BUTTON
+========================================================== */
+
+.issue-consumable-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.issue-consumable-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 20px;
+  border: 1px solid #dbe4ef;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+.issue-consumable-refresh-button:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.issue-consumable-refresh-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.issue-consumable-spin {
+  animation: issueConsumableSpin 1s linear infinite;
+}
+
+@keyframes issueConsumableSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ==========================================================
+   LOADING + ERROR WRAPPERS
+========================================================== */
+
+.issue-consumable-loading-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px 0;
+}
+
+.issue-consumable-error-box {
+  padding: 24px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 18px;
+  color: #991b1b;
+  margin-bottom: 24px;
+}
+
+/* ==========================================================
+   FORM VALIDATION + SUBMIT ERROR
+========================================================== */
+
+.issue-consumable-validation-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.issue-consumable-form-error {
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #991b1b;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
+/* ==========================================================
+   SAVE BUTTON SPINNER
+========================================================== */
+
+.issue-consumable-save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.issue-consumable-save-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.issue-consumable-btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: issueConsumableSpin 0.8s linear infinite;
+}
+
+/* ==========================================================
+   FIELD DISABLED STATE
+========================================================== */
+
+.issue-consumable-field input:disabled,
+.issue-consumable-field textarea:disabled {
+  background: #f1f5f9;
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+/* ==========================================================
+   SUMMARY — QUANTITY BY UNIT
+========================================================== */
+
+.issue-consumable-summary-units {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.issue-consumable-summary-unit-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.issue-consumable-summary-unit {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5563;
+  letter-spacing: 0.4px;
+}
+
+/* When showing a stack of units, shrink the big number a bit
+   so the card stays compact. */
+.issue-consumable-summary-units .issue-consumable-summary-value {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+/* ==========================================================
+   RESPONSIVE
+========================================================== */
+
+@media (max-width: 768px) {
+  .issue-consumable-summary-units .issue-consumable-summary-value {
+    font-size: 20px;
+  }
+
+  .issue-consumable-summary-unit {
+    font-size: 12px;
   }
 }

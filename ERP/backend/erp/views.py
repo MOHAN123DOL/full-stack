@@ -2,10 +2,23 @@ from django.db import models
 from django.shortcuts import render
 from django.db import transaction
 from decimal import Decimal
+from django.db.models import Sum
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from .models import (
+    ConsumableIssue,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    ConsumableGRN,
+)
 from django.db import transaction
 from django.db.models import F
 from .serializers import (
+    ConsumableGRNSerializer,
+    ConsumableIssueSerializer,
     CustomerSerializer,
     DeliveryChallanSerializer,
     ProformaInvoiceSerializer,
@@ -69,7 +82,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
-
+from decimal import Decimal, InvalidOperation
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
@@ -378,7 +391,110 @@ class ProfileAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
 
+from .models import Attendance
+from .serializers import MyAttendanceSerializer
+
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from .models import Attendance
+from .serializers import MyAttendanceSerializer
+
+
+class MyAttendanceAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        # --------------------------------------------
+        # Get logged-in employee
+        # --------------------------------------------
+        try:
+            employee = request.user.employee
+        except Exception:
+            employee = None
+
+        if employee is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No employee record is linked to this account.",
+                    "data": [],
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # --------------------------------------------
+        # Get year/month from query parameters
+        # --------------------------------------------
+        current_date = timezone.localdate()
+
+        year_param = request.query_params.get("year")
+        month_param = request.query_params.get("month")
+
+        try:
+            year = int(year_param) if year_param else current_date.year
+            month = int(month_param) if month_param else current_date.month
+
+            if month < 1 or month > 12:
+                raise ValueError
+
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid year or month. Example: ?year=2026&month=10",
+                    "data": [],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------
+        # Filter attendance for selected month
+        # --------------------------------------------
+        attendance_records = (
+            Attendance.objects
+            .filter(
+                employee=employee,
+                date__year=year,
+                date__month=month,
+            )
+            .order_by("date")
+        )
+
+        serializer = MyAttendanceSerializer(
+            attendance_records,
+            many=True,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Attendance records retrieved successfully.",
+                "data": {
+                    "employee": {
+                        "employee_id": employee.employee_id,
+                        "name": employee.full_name,
+                    },
+                    "year": year,
+                    "month": month,
+                    "records": serializer.data,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    
+
+    
 class ProfilePhotoDeleteAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -503,186 +619,6 @@ class ChangePasswordAPIView(APIView):
 
 
 
-# for material planning module starts here 
-
-
-class InventoryAPIView(APIView):
-
-    permission_classes = [IsMaterialPlanning]
-
-    def get(self, request):
-
-        modules = [
-            {
-                "id": "material",
-                "code": "MOD-01 / MAT",
-                "title": "Materials",
-                "description": (
-                    "Manage all raw materials used in manufacturing "
-                    "— from structural steel to finished sheet stock."
-                ),
-                "icon": "layers",
-                "accent": "steel",
-                "path": "/inventory/material",
-                "examples": [
-                    "Plates",
-                    "Pipes",
-                    "Channels",
-                    "Angles",
-                    "Flats",
-                    "Beams",
-                    "Sheets",
-                    "Rods",
-                    "Structural Steel",
-                ],
-            },
-            {
-                "id": "consumable",
-                "code": "MOD-02 / CON",
-                "title": "Consumables",
-                "description": (
-                    "Manage consumables used during production "
-                    "— welding, grinding, fastening, and safety supplies."
-                ),
-                "icon": "wrench",
-                "accent": "amber",
-                "path": "/inventory/consumable",
-                "examples": [
-                    "Welding Rods",
-                    "Welding Wire",
-                    "Grinding Wheels",
-                    "Cutting Discs",
-                    "Paint",
-                    "Primer",
-                    "Gas Cylinders",
-                    "Bolts",
-                    "Nuts",
-                    "Washers",
-                    "Safety Items",
-                ],
-            },
-        ]
-
-        return Response({
-            "success": True,
-            "data": {
-                "modules": modules,
-                "total_modules": len(modules),
-                "total_items": 0,
-                "operational": "24/7",
-            }
-        })
-
-
-
-class MaterialMenuAPIView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-        IsMaterialPlanning,
-    ]
-
-    def get(self, request):
-        menu_cards = [
-            {
-                "code": "DB",
-                "title": "DWG & BOM",
-                "description": "Manage projects, drawings and bill of materials.",
-                "icon": "ruler",
-                "path": "/inventory/material/dwg-bom",
-            },
-            {
-                "code": "PO",
-                "title": "PO Integration",
-                "description": "Integrate project BOM materials with purchase order descriptions.",
-                "icon": "clipboard-list",
-                "path": "/inventory/material/po-integration",
-            },
-            {
-                "code": "GRN",
-                "title": "GRN / Receive Material",
-                "description": "Receive and track materials against actual and dummy purchase orders.",
-                "icon": "truck",
-                "path": "/inventory/material/grn",
-            },
-            {
-                "code": "STK",
-                "title": "Material Stock",
-                "description": "Track available material by unit, source and specification.",
-                "icon": "boxes",
-                "path": "/inventory/material/material-stock",
-            },
-            {
-                "code": "IJW",
-                "title": "Issue to Job Work",
-                "description": "Issue available material for in-house or outsourced job work processes.",
-                "icon": "briefcase",
-                "path": "/inventory/material/issue-to-jobwork",
-            },
-            {
-                "code": "RJW",
-                "title": "Receive from Job Work",
-                "description": "Receive completed job work, record output pieces and manage remaining material.",
-                "icon": "briefcase",
-                "path": "/inventory/material/receive-from-jobwork",
-            },
-            {
-                "code": "IPR",
-                "title": "Issue to Production",
-                "description": "Issue available material from stock to production for manufacturing.",
-                "icon": "factory",
-                "path": "/inventory/material/issue-to-production",
-            },
-            {
-                "code": "PAI",
-                "title": "Production Assembly Integration",
-                "description": "Combine production materials and prior assemblies into a planned assembly.",
-                "icon": "combine",
-                "path": "/inventory/material/production-assembly-integration",
-            },
-            {
-                "code": "OPR",
-                "title": "Production Operation",
-                "description": "Manage and track production operations, workflows, and manufacturing processes.",
-                "icon": "settings",
-                "path": "/inventory/material/production-operation",
-            },
-            {
-                "code": "RWK",
-                "title": "Rework",
-                "description": "Track QC-rejected quantities through rework until they are cleared and released.",
-                "icon": "wrench",
-                "path": "/inventory/material/rework",
-            },
-            {
-                "code": "SCR",
-                "title": "Scrap",
-                "description": "Create and track scrap directly from a Purchase Order.",
-                "icon": "recycle",
-                "path": "/inventory/material/scrap",
-            },
-            {
-                "code": "DSP",
-                "title": "Dispatch",
-                "description": "Prepare and record outgoing dispatch of finished and processed material.",
-                "icon": "send",
-                "path": "/inventory/material/dispatch",
-            },
-            {
-                "code": "RPT",
-                "title": "Reports",
-                "description": "Read-only reports covering the full material journey.",
-                "icon": "bar-chart",
-                "path": "/inventory/material/reports",
-            },
-        ]
-
-        return Response({
-            "success": True,
-            "data": {
-                "menu_cards": menu_cards,
-                "total_modules": len(menu_cards),
-            },
-        })
 
 #accounts module starts here
 
@@ -7242,3 +7178,953 @@ class AttendanceViewSet(ModelViewSet):
             "wage_config":
                 wage_data,
         })
+
+#
+
+# for material planning module starts here 
+
+
+class InventoryAPIView(APIView):
+
+    permission_classes = [IsMaterialPlanning]
+
+    def get(self, request):
+
+        modules = [
+            {
+                "id": "material",
+                "code": "MOD-01 / MAT",
+                "title": "Materials",
+                "description": (
+                    "Manage all raw materials used in manufacturing "
+                    "— from structural steel to finished sheet stock."
+                ),
+                "icon": "layers",
+                "accent": "steel",
+                "path": "/inventory/material",
+                "examples": [
+                    "Plates",
+                    "Pipes",
+                    "Channels",
+                    "Angles",
+                    "Flats",
+                    "Beams",
+                    "Sheets",
+                    "Rods",
+                    "Structural Steel",
+                ],
+            },
+            {
+                "id": "consumable",
+                "code": "MOD-02 / CON",
+                "title": "Consumables",
+                "description": (
+                    "Manage consumables used during production "
+                    "— welding, grinding, fastening, and safety supplies."
+                ),
+                "icon": "wrench",
+                "accent": "amber",
+                "path": "/inventory/consumable",
+                "examples": [
+                    "Welding Rods",
+                    "Welding Wire",
+                    "Grinding Wheels",
+                    "Cutting Discs",
+                    "Paint",
+                    "Primer",
+                    "Gas Cylinders",
+                    "Bolts",
+                    "Nuts",
+                    "Washers",
+                    "Safety Items",
+                ],
+            },
+        ]
+
+        return Response({
+            "success": True,
+            "data": {
+                "modules": modules,
+                "total_modules": len(modules),
+                "total_items": 0,
+                "operational": "24/7",
+            }
+        })
+
+
+
+class MaterialMenuAPIView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+        IsMaterialPlanning,
+    ]
+
+    def get(self, request):
+        menu_cards = [
+            {
+                "code": "DB",
+                "title": "DWG & BOM",
+                "description": "Manage projects, drawings and bill of materials.",
+                "icon": "ruler",
+                "path": "/inventory/material/dwg-bom",
+            },
+            {
+                "code": "PO",
+                "title": "PO Integration",
+                "description": "Integrate project BOM materials with purchase order descriptions.",
+                "icon": "clipboard-list",
+                "path": "/inventory/material/po-integration",
+            },
+            {
+                "code": "GRN",
+                "title": "GRN / Receive Material",
+                "description": "Receive and track materials against actual and dummy purchase orders.",
+                "icon": "truck",
+                "path": "/inventory/material/grn",
+            },
+            {
+                "code": "STK",
+                "title": "Material Stock",
+                "description": "Track available material by unit, source and specification.",
+                "icon": "boxes",
+                "path": "/inventory/material/material-stock",
+            },
+            {
+                "code": "IJW",
+                "title": "Issue to Job Work",
+                "description": "Issue available material for in-house or outsourced job work processes.",
+                "icon": "briefcase",
+                "path": "/inventory/material/issue-to-jobwork",
+            },
+            {
+                "code": "RJW",
+                "title": "Receive from Job Work",
+                "description": "Receive completed job work, record output pieces and manage remaining material.",
+                "icon": "briefcase",
+                "path": "/inventory/material/receive-from-jobwork",
+            },
+            {
+                "code": "IPR",
+                "title": "Issue to Production",
+                "description": "Issue available material from stock to production for manufacturing.",
+                "icon": "factory",
+                "path": "/inventory/material/issue-to-production",
+            },
+            {
+                "code": "PAI",
+                "title": "Production Assembly Integration",
+                "description": "Combine production materials and prior assemblies into a planned assembly.",
+                "icon": "combine",
+                "path": "/inventory/material/production-assembly-integration",
+            },
+            {
+                "code": "OPR",
+                "title": "Production Operation",
+                "description": "Manage and track production operations, workflows, and manufacturing processes.",
+                "icon": "settings",
+                "path": "/inventory/material/production-operation",
+            },
+            {
+                "code": "RWK",
+                "title": "Rework",
+                "description": "Track QC-rejected quantities through rework until they are cleared and released.",
+                "icon": "wrench",
+                "path": "/inventory/material/rework",
+            },
+            {
+                "code": "SCR",
+                "title": "Scrap",
+                "description": "Create and track scrap directly from a Purchase Order.",
+                "icon": "recycle",
+                "path": "/inventory/material/scrap",
+            },
+            {
+                "code": "DSP",
+                "title": "Dispatch",
+                "description": "Prepare and record outgoing dispatch of finished and processed material.",
+                "icon": "send",
+                "path": "/inventory/material/dispatch",
+            },
+            {
+                "code": "RPT",
+                "title": "Reports",
+                "description": "Read-only reports covering the full material journey.",
+                "icon": "bar-chart",
+                "path": "/inventory/material/reports",
+            },
+        ]
+
+        return Response({
+            "success": True,
+            "data": {
+                "menu_cards": menu_cards,
+                "total_modules": len(menu_cards),
+            },
+        })
+class ConsumableDashboardView(APIView):
+    """
+    Consumable module dashboard.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        return Response({
+            "success": True,
+            "module": "consumable",
+            "title": "Consumable Inventory",
+
+            "actions": [
+                {
+                    "code": "GRN",
+                    "title": "GRN (Goods Receipt Note)",
+                    "description": "Receive consumables from suppliers.",
+                    "path": "/inventory/consumable/grn",
+                },
+                {
+                    "code": "STK",
+                    "title": "Consumable Stock",
+                    "description": "Display current consumable stock levels.",
+                    "path": "/inventory/consumable/stock",
+                },
+                {
+                    "code": "ISS",
+                    "title": "Issue Consumables",
+                    "description": "Issue consumables to departments or production.",
+                    "path": "/inventory/consumable/issue",
+                },
+                {
+                    "code": "RET",
+                    "title": "Return Consumables",
+                    "description": "Return unused consumables back to inventory.",
+                    "path": "/inventory/consumable/return",
+                },
+                {
+                    "code": "RPT",
+                    "title": "Reports",
+                    "description": "GRN, stock, issue, and consumption reports.",
+                    "path": "/inventory/consumable/reports",
+                },
+            ]
+        })
+    
+
+
+class ConsumableGRNPOItemListAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        items = PurchaseOrderItem.objects.filter(
+            purchase_order__status=PurchaseOrder.Status.CONFIRMED
+        ).select_related(
+            "purchase_order"
+        ).order_by(
+            "purchase_order__po_number",
+            "id"
+        )
+
+        data = []
+
+        for item in items:
+
+            # Already received against this PO item
+            received = (
+                ConsumableGRN.objects.filter(
+                    purchase_order_item=item
+                ).aggregate(
+                    total=Sum("received_quantity")
+                )["total"]
+                or 0
+            )
+
+            ordered = item.quantity or 0
+
+            pending = max(
+                ordered - received,
+                0
+            )
+
+            if received <= 0:
+                status = "Pending"
+
+            elif received >= ordered:
+                status = "Fully Received"
+
+            else:
+                status = "Partially Received"
+
+            data.append({
+                "id": item.id,
+
+                "poNumber": item.po_number,
+
+                "itemCode": item.item_code, 
+
+                "description": item.description,
+
+                "orderedQty": ordered,
+
+                "receivedQty": received,
+
+                "pendingQty": pending,
+
+                "unit": item.unit,
+
+                "status": status,
+
+                "supplier": (
+                    item.purchase_order.vendor
+                ),
+
+                "consumableName": item.description,
+
+                "category": "",
+
+                "warehouse": "",
+            })
+
+        return Response(data)
+
+
+
+
+def generate_grn_number():
+    last_grn = (
+        ConsumableGRN.objects
+        .order_by("-id")
+        .first()
+    )
+
+    if last_grn is None:
+        next_number = 1
+    else:
+        next_number = last_grn.id + 1
+
+    return f"CGRN-{next_number:05d}"
+
+
+
+
+
+def clean_supplier(raw):
+    """
+    PurchaseOrder.vendor is a JSONField, so it may be stored as
+    a stringified dict (e.g. "{'companyName': 'ABC', ...}").
+    Return a readable supplier name.
+    """
+    if not raw:
+        return ""
+
+    if isinstance(raw, dict):
+        candidate = (
+            raw.get("companyName")
+            or raw.get("company_name")
+            or raw.get("name")
+            or raw.get("supplier")
+            or ""
+        )
+        return str(candidate).strip()
+
+    text = str(raw).strip()
+
+    # Salvage stringified dicts
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            import ast
+            parsed = ast.literal_eval(text)
+            if isinstance(parsed, dict):
+                candidate = (
+                    parsed.get("companyName")
+                    or parsed.get("company_name")
+                    or parsed.get("name")
+                    or parsed.get("supplier")
+                    or ""
+                )
+                if candidate:
+                    return str(candidate).strip()
+        except (ValueError, SyntaxError):
+            pass
+
+    return text
+
+class ConsumableGRNReceiveAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, item_id):
+
+        try:
+            po_item = (
+                PurchaseOrderItem.objects
+                .select_for_update()
+                .select_related("purchase_order")
+                .get(
+                    id=item_id,
+                    purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+                )
+            )
+
+        except PurchaseOrderItem.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Purchase Order item not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        quantity_received = Decimal(
+            str(request.data.get("quantityReceived", 0))
+        )
+
+        received_by = str(
+            request.data.get("receivedBy", "")
+        ).strip()
+
+        remarks = str(
+            request.data.get("remarks", "")
+        ).strip()
+
+        warehouse = str(
+            request.data.get("warehouse", "")
+        ).strip()
+
+        # -----------------------------
+        # VALIDATION
+        # -----------------------------
+
+        if quantity_received <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Quantity received must be greater than zero.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not received_by:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Received by is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        allowed_warehouses = {
+            "Unit One",
+            "Unit Two",
+        }
+
+        if warehouse not in allowed_warehouses:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Invalid warehouse. Select Unit One or Unit Two.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------
+        # PREVIOUS RECEIVED
+        # -----------------------------
+
+        previous_received = (
+            ConsumableGRN.objects
+            .filter(
+                purchase_order_item=po_item
+            )
+            .aggregate(
+                total=Sum("received_quantity")
+            )["total"]
+            or Decimal("0")
+        )
+
+        ordered_quantity = (
+            po_item.quantity or Decimal("0")
+        )
+
+        pending_quantity = (
+            ordered_quantity - previous_received
+        )
+
+        if pending_quantity <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "This PO item is already fully received.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity_received > pending_quantity:
+            return Response(
+                {
+                    "success": False,
+                    "detail": (
+                        f"Only {pending_quantity} "
+                        f"{po_item.unit} is pending."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------
+        # CALCULATE
+        # -----------------------------
+
+        total_received = (
+            previous_received + quantity_received
+        )
+
+        remaining = (
+            ordered_quantity - total_received
+        )
+
+        if remaining <= 0:
+            grn_status = (
+                ConsumableGRN.Status.FULLY_RECEIVED
+            )
+        else:
+            grn_status = (
+                ConsumableGRN.Status.PARTIALLY_RECEIVED
+            )
+
+        # -----------------------------
+        # CREATE GRN
+        # -----------------------------
+
+        grn = ConsumableGRN.objects.create(
+
+            grn_number=generate_grn_number(),
+
+            grn_type=ConsumableGRN.GRNType.PO,
+
+            purchase_order_item=po_item,
+
+            po_number=po_item.po_number,
+
+            po_description=po_item.description,
+
+            supplier=(clean_supplier(po_item.purchase_order.vendor)),
+
+            consumable_name=po_item.description,
+
+            unit=po_item.unit,
+
+            ordered_quantity=ordered_quantity,
+
+            received_quantity=quantity_received,
+
+            pending_quantity=remaining,
+
+            warehouse=warehouse,
+
+            status=grn_status,
+
+            received_by=received_by,
+
+            remarks=remarks,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Consumable received successfully.",
+                "data": ConsumableGRNSerializer(grn).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ConsumableGRNDirectCreateAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+
+        supplier = str(
+            request.data.get("supplier", "")
+        ).strip()
+
+        consumable_name = str(
+            request.data.get("consumableName", "")
+        ).strip()
+
+        category = str(
+            request.data.get("category", "")
+        ).strip()
+
+        unit = str(
+            request.data.get("unit", "")
+        ).strip()
+
+        warehouse = str(
+            request.data.get("warehouse", "")
+        ).strip()
+
+        received_by = str(
+            request.data.get("receivedBy", "")
+        ).strip()
+
+        remarks = str(
+            request.data.get("remarks", "")
+        ).strip()
+
+        try:
+            quantity = Decimal(
+                str(request.data.get("quantity", 0))
+            )
+        except (ValueError, TypeError, InvalidOperation):
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Invalid quantity.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------
+        # REQUIRED VALIDATION
+        # -----------------------------
+
+        required_fields = {
+            "supplier": supplier,
+            "consumableName": consumable_name,
+            "category": category,
+            "unit": unit,
+            "warehouse": warehouse,
+            "receivedBy": received_by,
+        }
+
+        missing = [
+            field
+            for field, value in required_fields.items()
+            if not value
+        ]
+
+        if missing:
+            return Response(
+                {
+                    "success": False,
+                    "detail": (
+                        "Required fields missing: "
+                        + ", ".join(missing)
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Quantity must be greater than zero.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------
+        # WAREHOUSE VALIDATION
+        # -----------------------------
+
+        if warehouse not in {
+            "Unit One",
+            "Unit Two",
+        }:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Invalid warehouse. Select Unit One or Unit Two.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------
+        # CREATE DIRECT GRN
+        # -----------------------------
+
+        grn = ConsumableGRN.objects.create(
+
+            grn_number=generate_grn_number(),
+
+            grn_type=ConsumableGRN.GRNType.DIRECT,
+
+            po_number="",
+
+            po_description="Direct Purchase",
+
+            supplier=supplier,
+
+            consumable_name=consumable_name,
+
+            category=category,
+
+            unit=unit,
+
+            ordered_quantity=quantity,
+
+            received_quantity=quantity,
+
+            pending_quantity=Decimal("0"),
+
+            warehouse=warehouse,
+
+            status=ConsumableGRN.Status.FULLY_RECEIVED,
+
+            received_by=received_by,
+
+            remarks=remarks,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Direct GRN created successfully.",
+                "data": ConsumableGRNSerializer(grn).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
+
+
+
+# =====================================================================
+# CONSUMABLE STOCK + ISSUE
+# =====================================================================
+
+LOW_STOCK_THRESHOLD = 10
+
+
+
+
+def _available_qty_for_grn(grn):
+    """received − issued for a single GRN row."""
+    received = grn.received_quantity or Decimal("0")
+    issued = (
+        ConsumableIssue.objects
+        .filter(grn=grn)
+        .aggregate(total=Sum("quantity_issued"))["total"]
+        or Decimal("0")
+    )
+    return received - issued
+
+
+def generate_issue_number():
+    last = ConsumableIssue.objects.order_by("-id").first()
+    next_number = 1 if last is None else last.id + 1
+    return f"CISS-{next_number:05d}"
+
+
+# ---------------------------------------------------------------------
+# GET /erp/consumable-grn/stock/
+# ---------------------------------------------------------------------
+
+class ConsumableStockAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        grns = (
+            ConsumableGRN.objects
+            .all()
+            .order_by("-created_at")
+        )
+
+        data = []
+
+        for grn in grns:
+            available = _available_qty_for_grn(grn)
+
+            # Hide depleted rows
+            if available <= 0:
+                continue
+
+            if available <= LOW_STOCK_THRESHOLD:
+                status_value = "Low Stock"
+            else:
+                status_value = "In Stock"
+
+            data.append({
+                "id": grn.id,
+                "referenceNumber": grn.grn_number,
+                "consumableName": (
+                    grn.consumable_name
+                    or grn.po_description
+                    or "—"
+                ),
+                "category": grn.category or "—",
+                "unit": grn.unit or "—",
+                "availableQty": float(available),
+                "warehouse": grn.warehouse or "—",
+                "supplier": clean_supplier(grn.supplier) or "—",
+                "lastReceivedDate": (
+                    grn.created_at.strftime("%Y-%m-%d")
+                    if grn.created_at
+                    else "—"
+                ),
+                "status": status_value,
+                "poNumber": grn.po_number,
+                "grnType": grn.grn_type,
+            })
+
+        return Response(data)
+
+
+# ---------------------------------------------------------------------
+# GET /erp/consumable-grn/issue-stock/   (for IssueConsumable page)
+# ---------------------------------------------------------------------
+# Same shape as ConsumableStockAPIView, but keeps the extra fields
+# the IssueConsumable table needs.
+# ---------------------------------------------------------------------
+
+class ConsumableIssueStockAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        grns = (
+            ConsumableGRN.objects
+            .all()
+            .order_by("-created_at")
+        )
+
+        data = []
+
+        for grn in grns:
+            available = _available_qty_for_grn(grn)
+
+            if available <= 0:
+                continue
+
+            data.append({
+                "id": grn.id,
+                "poNumber": grn.po_number or "—",
+                "description": grn.po_description or "—",
+                "referenceNumber": grn.grn_number,
+                "consumableName": (
+                    grn.consumable_name
+                    or grn.po_description
+                    or "—"
+                ),
+                "category": grn.category or "—",
+                "warehouse": grn.warehouse or "—",
+                "availableQty": float(available),
+                "unit": grn.unit or "—",
+            })
+
+        return Response(data)
+
+
+# ---------------------------------------------------------------------
+# POST /erp/consumable-grn/issue/<grn_id>/
+# ---------------------------------------------------------------------
+
+class ConsumableIssueCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, grn_id):
+        # Lock the GRN row so two concurrent issues can't oversell
+        try:
+            grn = (
+                ConsumableGRN.objects
+                .select_for_update()
+                .get(id=grn_id)
+            )
+        except ConsumableGRN.DoesNotExist:
+            return Response(
+                {"success": False, "detail": "Stock line not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---------------- INPUT ----------------
+        department = str(request.data.get("department", "")).strip()
+        employee_name = str(request.data.get("employeeName", "")).strip()
+        job_card = str(request.data.get("jobCard", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        try:
+            quantity = Decimal(str(request.data.get("quantity", 0)))
+        except (ValueError, TypeError, InvalidOperation):
+            return Response(
+                {"success": False, "detail": "Invalid quantity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------- VALIDATION ----------------
+        if not department:
+            return Response(
+                {"success": False, "detail": "Department is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not employee_name:
+            return Response(
+                {"success": False, "detail": "Employee name is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Quantity must be greater than zero.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------- STOCK CHECK ----------------
+        available = _available_qty_for_grn(grn)
+
+        if available <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "This stock line is fully issued.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity > available:
+            return Response(
+                {
+                    "success": False,
+                    "detail": (
+                        f"Only {available} {grn.unit or ''} available "
+                        f"to issue."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------- CREATE ----------------
+        issue = ConsumableIssue.objects.create(
+            issue_number=generate_issue_number(),
+            grn=grn,
+            po_number=grn.po_number,
+            po_description=grn.po_description,
+            consumable_name=(
+                grn.consumable_name or grn.po_description
+            ),
+            category=grn.category,
+            unit=grn.unit,
+            warehouse=grn.warehouse,
+            quantity_issued=quantity,
+            department=department,
+            employee_name=employee_name,
+            job_card=job_card,
+            remarks=remarks,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Consumable issued successfully.",
+                "data": ConsumableIssueSerializer(issue).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
