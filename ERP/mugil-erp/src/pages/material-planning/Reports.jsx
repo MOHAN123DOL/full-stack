@@ -1,15 +1,3 @@
-// Reports.jsx
-// =============================================================================
-// Material Management Reports — process-based ERP reporting.
-//
-// IMPORTANT ARCHITECTURE NOTE
-// ----------------------------------------------------------------------------
-// There is no shared cross-module store in this codebase. This page reproduces,
-// as its own read-only reference data, the SAME records already seeded in each
-// real module (same PO numbers, DWG numbers, job/assembly IDs, quantities,
-// people, dates), joined together the way the ERP process actually connects
-// them. Every report has its own explicit column list.
-// =============================================================================
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";

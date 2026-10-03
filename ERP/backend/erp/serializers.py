@@ -2,7 +2,7 @@ from django.contrib.auth import authenticate
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import ConsumableIssue, User
+from .models import ConsumableIssue, ConsumableReturn, User
 
 #for login 
 class LoginSerializer(serializers.Serializer):
@@ -2377,6 +2377,22 @@ class ConsumableIssueSerializer(serializers.ModelSerializer):
             "po_description",
             "consumable_name",
             "category",
+            "unit",
+            "warehouse",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class ConsumableReturnSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ConsumableReturn
+        fields = "__all__"
+        read_only_fields = [
+            "return_number",
+            "issue",
+            "issue_number",
+            "consumable_name",
             "unit",
             "warehouse",
             "created_at",

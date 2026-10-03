@@ -658,3 +658,137 @@
   }
 
 }
+
+
+
+/* ==========================================
+   TOOLBAR — REFRESH BUTTON
+========================================== */
+
+.rcn-toolbar-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.rcn-toolbar-card .rcn-search-box {
+  flex: 1;
+  min-width: 240px;
+}
+
+.rcn-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 20px;
+  border: 1px solid #dbe4ee;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.rcn-refresh-button:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.rcn-refresh-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rcn-spin {
+  animation: rcnSpin 1s linear infinite;
+}
+
+@keyframes rcnSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ==========================================
+   LOADING + ERROR WRAPPERS
+========================================== */
+
+.rcn-loading-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px 0;
+}
+
+.rcn-error-box {
+  padding: 24px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 18px;
+  color: #991b1b;
+  margin-bottom: 24px;
+}
+
+/* ==========================================
+   FORM VALIDATION + SUBMIT ERROR
+========================================== */
+
+.rcn-validation-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.rcn-form-error {
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #991b1b;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
+/* ==========================================
+   SAVE BUTTON SPINNER
+========================================== */
+
+.rcn-save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.rcn-save-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.rcn-btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: rcnSpin 0.8s linear infinite;
+}
+
+/* ==========================================
+   FIELD DISABLED STATE
+========================================== */
+
+.rcn-field input:disabled,
+.rcn-field textarea:disabled {
+  background: #f1f5f9;
+  cursor: not-allowed;
+  opacity: 0.75;
+}

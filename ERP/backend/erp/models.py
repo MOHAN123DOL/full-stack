@@ -2559,9 +2559,12 @@ class ConsumableGRN(models.Model):
         return f"{self.grn_number} - {self.po_number}"
 
 
-
 class ConsumableIssue(models.Model):
-   
+
+    class Status(models.TextChoices):
+        ISSUED = "Issued", "Issued"
+        PARTIALLY_RETURNED = "Partially Returned", "Partially Returned"
+        FULLY_RETURNED = "Fully Returned", "Fully Returned"
 
     issue_number = models.CharField(max_length=100, unique=True)
 
@@ -2573,7 +2576,6 @@ class ConsumableIssue(models.Model):
         related_name="issues",
     )
 
-   
     po_number = models.CharField(
         max_length=100, blank=True, default="", db_index=True,
     )
@@ -2586,6 +2588,14 @@ class ConsumableIssue(models.Model):
     # The issue itself
     quantity_issued = models.DecimalField(
         max_digits=15, decimal_places=3, default=0,
+    )
+
+    # Overall lifecycle status (stored, updated on every return)
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.ISSUED,
+        db_index=True,
     )
 
     # Where it went
@@ -2602,6 +2612,7 @@ class ConsumableIssue(models.Model):
         indexes = [
             models.Index(fields=["grn"]),
             models.Index(fields=["po_number"]),
+            models.Index(fields=["status"]),
         ]
 
     def __str__(self):
@@ -2609,4 +2620,46 @@ class ConsumableIssue(models.Model):
             f"{self.issue_number} — "
             f"{self.consumable_name} — "
             f"{self.quantity_issued}"
+        )
+
+class ConsumableReturn(models.Model):
+    
+
+    return_number = models.CharField(max_length=100, unique=True)
+
+    issue = models.ForeignKey(
+        ConsumableIssue,
+        on_delete=models.PROTECT,
+        related_name="returns",
+    )
+
+    # Snapshot fields (kept for readability / reports even if the
+    # issue row is later edited)
+    issue_number = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    consumable_name = models.CharField(max_length=255, blank=True, default="")
+    unit = models.CharField(max_length=50, blank=True, default="")
+    warehouse = models.CharField(max_length=50, blank=True, default="")
+
+    quantity_returned = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+
+    returned_by = models.CharField(max_length=255, blank=True, default="")
+    remarks = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["issue"]),
+            models.Index(fields=["issue_number"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.return_number} — "
+            f"{self.consumable_name} — "
+            f"{self.quantity_returned}"
         )

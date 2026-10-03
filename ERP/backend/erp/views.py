@@ -10,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from .models import (
     ConsumableIssue,
+    ConsumableReturn,
     PurchaseOrder,
     PurchaseOrderItem,
     ConsumableGRN,
@@ -19,6 +20,7 @@ from django.db.models import F
 from .serializers import (
     ConsumableGRNSerializer,
     ConsumableIssueSerializer,
+    ConsumableReturnSerializer,
     CustomerSerializer,
     DeliveryChallanSerializer,
     ProformaInvoiceSerializer,
@@ -7902,17 +7904,78 @@ LOW_STOCK_THRESHOLD = 10
 
 
 
+def clean_supplier(raw):
+    """
+    PurchaseOrder.vendor is a JSONField, so it may be stored as a
+    stringified dict (e.g. "{'companyName': 'ABC', ...}").
+    Return a readable supplier name.
+    """
+    if not raw:
+        return ""
+
+    if isinstance(raw, dict):
+        candidate = (
+            raw.get("companyName")
+            or raw.get("company_name")
+            or raw.get("name")
+            or raw.get("supplier")
+            or ""
+        )
+        return str(candidate).strip()
+
+    text = str(raw).strip()
+
+    # Salvage stringified dicts
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            import ast
+            parsed = ast.literal_eval(text)
+            if isinstance(parsed, dict):
+                candidate = (
+                    parsed.get("companyName")
+                    or parsed.get("company_name")
+                    or parsed.get("name")
+                    or parsed.get("supplier")
+                    or ""
+                )
+                if candidate:
+                    return str(candidate).strip()
+        except (ValueError, SyntaxError):
+            pass
+
+    return text
+
+
+
+
 
 def _available_qty_for_grn(grn):
-    """received − issued for a single GRN row."""
+    """
+    Available stock for a single GRN line.
+
+    available = received − issued + returned
+
+    Returns must be added back so that stock reappears in the
+    Consumable Stock page and in the Issue Consumable page after
+    a return.
+    """
     received = grn.received_quantity or Decimal("0")
+
     issued = (
         ConsumableIssue.objects
         .filter(grn=grn)
         .aggregate(total=Sum("quantity_issued"))["total"]
         or Decimal("0")
     )
-    return received - issued
+
+    returned = (
+        ConsumableReturn.objects
+        .filter(issue__grn=grn)
+        .aggregate(total=Sum("quantity_returned"))["total"]
+        or Decimal("0")
+    )
+
+    return received - issued + returned
 
 
 def generate_issue_number():
@@ -8114,6 +8177,7 @@ class ConsumableIssueCreateAPIView(APIView):
             unit=grn.unit,
             warehouse=grn.warehouse,
             quantity_issued=quantity,
+            status=ConsumableIssue.Status.ISSUED,
             department=department,
             employee_name=employee_name,
             job_card=job_card,
@@ -8128,3 +8192,479 @@ class ConsumableIssueCreateAPIView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+# for returning consumables after issue
+def generate_return_number():
+    last = ConsumableReturn.objects.order_by("-id").first()
+    next_number = 1 if last is None else last.id + 1
+    return f"CRET-{next_number:05d}"
+
+class ConsumableReturnableIssueListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        issues = (
+            ConsumableIssue.objects
+            .all()
+            .order_by("-created_at")
+        )
+
+        data = []
+
+        for issue in issues:
+            issued_qty = issue.quantity_issued or Decimal("0")
+
+            returned_qty = (
+                ConsumableReturn.objects
+                .filter(issue=issue)
+                .aggregate(total=Sum("quantity_returned"))["total"]
+                or Decimal("0")
+            )
+
+            balance_qty = issued_qty - returned_qty
+
+            # Self-heal status if it drifted
+            expected_status = (
+                ConsumableIssue.Status.ISSUED
+                if returned_qty <= 0
+                else (
+                    ConsumableIssue.Status.FULLY_RETURNED
+                    if balance_qty <= 0
+                    else ConsumableIssue.Status.PARTIALLY_RETURNED
+                )
+            )
+
+            if issue.status != expected_status:
+                issue.status = expected_status
+                issue.save(update_fields=["status", "updated_at"])
+
+            data.append({
+                "id": issue.id,
+                "issueNumber": issue.issue_number,
+                "consumableName": (
+                    issue.consumable_name
+                    or issue.po_description
+                    or "—"
+                ),
+                "department": issue.department or "—",
+                "employeeName": issue.employee_name or "—",
+                "jobCard": issue.job_card or "",
+                "issuedQty": float(issued_qty),
+                "returnedQty": float(returned_qty),
+                "balanceQty": float(max(balance_qty, 0)),
+                "unit": issue.unit or "—",
+                "warehouse": issue.warehouse or "—",
+                "status": expected_status,
+            })
+
+        return Response(data)
+
+class ConsumableReturnCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, issue_id):
+        try:
+            issue = (
+                ConsumableIssue.objects
+                .select_for_update()
+                .get(id=issue_id)
+            )
+        except ConsumableIssue.DoesNotExist:
+            return Response(
+                {"success": False, "detail": "Issue not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---------------- INPUT ----------------
+        returned_by = str(request.data.get("returnedBy", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        try:
+            qty = Decimal(str(request.data.get("returnQty", 0)))
+        except (ValueError, TypeError, InvalidOperation):
+            return Response(
+                {"success": False, "detail": "Invalid quantity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if qty <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Return quantity must be greater than zero.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------- BALANCE CHECK ----------------
+        issued_qty = issue.quantity_issued or Decimal("0")
+
+        returned_so_far = (
+            ConsumableReturn.objects
+            .filter(issue=issue)
+            .aggregate(total=Sum("quantity_returned"))["total"]
+            or Decimal("0")
+        )
+
+        balance = issued_qty - returned_so_far
+
+        if balance <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "This issue is already fully returned.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if qty > balance:
+            return Response(
+                {
+                    "success": False,
+                    "detail": (
+                        f"Only {balance} {issue.unit or ''} balance "
+                        f"to return."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------- CREATE RETURN ----------------
+        ret = ConsumableReturn.objects.create(
+            return_number=generate_return_number(),
+            issue=issue,
+            issue_number=issue.issue_number,
+            consumable_name=(
+                issue.consumable_name or issue.po_description
+            ),
+            unit=issue.unit,
+            warehouse=issue.warehouse,
+            quantity_returned=qty,
+            returned_by=returned_by or issue.employee_name,
+            remarks=remarks,
+        )
+
+        # ---------------- REFRESH ISSUE STATUS ----------------
+        total_returned = returned_so_far + qty
+
+        if total_returned <= 0:
+            new_status = ConsumableIssue.Status.ISSUED
+        elif total_returned < issued_qty:
+            new_status = ConsumableIssue.Status.PARTIALLY_RETURNED
+        else:
+            new_status = ConsumableIssue.Status.FULLY_RETURNED
+
+        if issue.status != new_status:
+            issue.status = new_status
+            issue.save(update_fields=["status", "updated_at"])
+
+        return Response(
+            {
+                "success": True,
+                "message": "Consumable returned successfully.",
+                "data": ConsumableReturnSerializer(ret).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+
+# =====================================================================
+# MOVEMENT HISTORY — MASTER LIST
+# -----------------------------------------------------------------
+# One row per (PO number + description). Aggregates every GRN that
+# touched that line, plus every issue and return that came from it.
+# =====================================================================
+
+class ConsumableMovementGroupListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        grns = (
+            ConsumableGRN.objects
+            .all()
+            .order_by("po_number", "po_description", "id")
+        )
+
+        # Group key: (po_number, po_description)
+        groups = {}
+
+        for grn in grns:
+            key = (
+                grn.po_number or "",
+                grn.po_description or grn.consumable_name or "",
+            )
+
+            if key not in groups:
+                groups[key] = {
+                    "poNumber": grn.po_number or "—",
+                    "poDescription": (
+                        grn.po_description
+                        or grn.consumable_name
+                        or "—"
+                    ),
+                    "consumableName": (
+                        grn.consumable_name
+                        or grn.po_description
+                        or "—"
+                    ),
+                    "category": grn.category or "—",
+                    "unit": grn.unit or "—",
+                    "supplier": clean_supplier(grn.supplier) or "—",
+                    "grnIds": [],
+                    "grnNumbers": [],
+                    "warehouses": set(),
+                    "receivedQty": Decimal("0"),
+                    "issuedQty": Decimal("0"),
+                    "returnedQty": Decimal("0"),
+                    "lastReceivedAt": None,
+                }
+
+            g = groups[key]
+
+            g["grnIds"].append(grn.id)
+            g["grnNumbers"].append(grn.grn_number)
+
+            if grn.warehouse:
+                g["warehouses"].add(grn.warehouse)
+
+            g["receivedQty"] += grn.received_quantity or Decimal("0")
+
+            g["issuedQty"] += (
+                ConsumableIssue.objects
+                .filter(grn=grn)
+                .aggregate(total=Sum("quantity_issued"))["total"]
+                or Decimal("0")
+            )
+
+            g["returnedQty"] += (
+                ConsumableReturn.objects
+                .filter(issue__grn=grn)
+                .aggregate(total=Sum("quantity_returned"))["total"]
+                or Decimal("0")
+            )
+
+            if grn.created_at and (
+                g["lastReceivedAt"] is None
+                or grn.created_at > g["lastReceivedAt"]
+            ):
+                g["lastReceivedAt"] = grn.created_at
+
+        data = []
+        for idx, (key, g) in enumerate(groups.items()):
+            available = (
+                g["receivedQty"] - g["issuedQty"] + g["returnedQty"]
+            )
+
+            data.append({
+                "id": f"{g['poNumber']}::{g['poDescription']}::{idx}",
+                "poNumber": g["poNumber"],
+                "poDescription": g["poDescription"],
+                "consumableName": g["consumableName"],
+                "category": g["category"],
+                "unit": g["unit"],
+                "supplier": g["supplier"],
+                "warehouses": sorted(g["warehouses"]),
+                "grnIds": g["grnIds"],
+                "grnNumbers": g["grnNumbers"],
+                "receivedQty": float(g["receivedQty"]),
+                "issuedQty": float(g["issuedQty"]),
+                "returnedQty": float(g["returnedQty"]),
+                "availableQty": float(available),
+                "lastReceivedAt": (
+                    g["lastReceivedAt"].strftime("%Y-%m-%d %H:%M")
+                    if g["lastReceivedAt"]
+                    else "—"
+                ),
+            })
+
+        data.sort(
+            key=lambda row: row["lastReceivedAt"],
+            reverse=True,
+        )
+
+        return Response(data)
+
+
+# =====================================================================
+# MOVEMENT HISTORY — DETAIL (timeline for one PO line)
+# =====================================================================
+
+class ConsumableMovementDetailAPIView(APIView):
+    """
+    GET /erp/consumable-grn/movements/detail/
+        ?po_number=PO-2026-001&description=Mild Steel Plate
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        po_number = request.query_params.get("po_number", "").strip()
+        description = request.query_params.get("description", "").strip()
+
+        if not po_number and not description:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "po_number or description is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        grns_qs = ConsumableGRN.objects.all()
+
+        if po_number:
+            grns_qs = grns_qs.filter(po_number=po_number)
+
+        if description:
+            grns_qs = grns_qs.filter(
+                models.Q(po_description=description)
+                | models.Q(consumable_name=description)
+            )
+
+        grns = list(grns_qs.order_by("id"))
+
+        if not grns:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "No GRN lines found for this PO line.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # -------- AGGREGATE --------
+        total_received = sum(
+            (g.received_quantity or Decimal("0")) for g in grns
+        )
+
+        issues = list(
+            ConsumableIssue.objects
+            .filter(grn__in=grns)
+            .order_by("-created_at")
+        )
+
+        total_issued = sum(
+            (i.quantity_issued or Decimal("0")) for i in issues
+        )
+
+        returns = list(
+            ConsumableReturn.objects
+            .filter(issue__grn__in=grns)
+            .select_related("issue")
+            .order_by("-created_at")
+        )
+
+        total_returned = sum(
+            (r.quantity_returned or Decimal("0")) for r in returns
+        )
+
+        total_available = total_received - total_issued + total_returned
+
+        first = grns[0]
+        warehouses = sorted({
+            g.warehouse for g in grns if g.warehouse
+        })
+
+        summary = {
+            "poNumber": first.po_number or "—",
+            "poDescription": (
+                first.po_description
+                or first.consumable_name
+                or "—"
+            ),
+            "consumableName": (
+                first.consumable_name
+                or first.po_description
+                or "—"
+            ),
+            "category": first.category or "—",
+            "unit": first.unit or "—",
+            "supplier": clean_supplier(first.supplier) or "—",
+            "warehouses": warehouses,
+            "grnNumbers": [g.grn_number for g in grns],
+            "receivedQty": float(total_received),
+            "issuedQty": float(total_issued),
+            "returnedQty": float(total_returned),
+            "availableQty": float(total_available),
+        }
+
+        # -------- TIMELINE --------
+        timeline = []
+
+        for grn in grns:
+            timeline.append({
+                "type": "GRN",
+                "date": (
+                    grn.created_at.strftime("%Y-%m-%d")
+                    if grn.created_at else ""
+                ),
+                "time": (
+                    grn.created_at.strftime("%H:%M:%S")
+                    if grn.created_at else ""
+                ),
+                "referenceNumber": grn.grn_number,
+                "quantity": float(grn.received_quantity or 0),
+                "unit": grn.unit or "",
+                "user": grn.received_by or "",
+                "department": "",
+                "jobCard": "",
+                "warehouse": grn.warehouse or "",
+                "remarks": grn.remarks or "",
+            })
+
+        for issue in issues:
+            timeline.append({
+                "type": "Issue",
+                "date": (
+                    issue.created_at.strftime("%Y-%m-%d")
+                    if issue.created_at else ""
+                ),
+                "time": (
+                    issue.created_at.strftime("%H:%M:%S")
+                    if issue.created_at else ""
+                ),
+                "referenceNumber": issue.issue_number,
+                "quantity": float(issue.quantity_issued or 0),
+                "unit": issue.unit or "",
+                "user": issue.employee_name or "",
+                "department": issue.department or "",
+                "jobCard": issue.job_card or "",
+                "warehouse": issue.warehouse or "",
+                "remarks": issue.remarks or "",
+            })
+
+        for ret in returns:
+            timeline.append({
+                "type": "Return",
+                "date": (
+                    ret.created_at.strftime("%Y-%m-%d")
+                    if ret.created_at else ""
+                ),
+                "time": (
+                    ret.created_at.strftime("%H:%M:%S")
+                    if ret.created_at else ""
+                ),
+                "referenceNumber": ret.return_number,
+                "quantity": float(ret.quantity_returned or 0),
+                "unit": ret.unit or "",
+                "user": ret.returned_by or "",
+                "department": (
+                    ret.issue.department if ret.issue else ""
+                ),
+                "jobCard": (
+                    ret.issue.job_card if ret.issue else ""
+                ),
+                "warehouse": ret.warehouse or "",
+                "remarks": ret.remarks or "",
+            })
+
+        timeline.sort(
+            key=lambda t: (t["date"], t["time"]),
+            reverse=True,
+        )
+
+        return Response({
+            "summary": summary,
+            "timeline": timeline,
+        })

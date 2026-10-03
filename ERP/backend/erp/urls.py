@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, JournalAPIView, JournalDetailAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, JournalAPIView, JournalDetailAPIView, 
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, PurchaseOrderConfirmAPIView,
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
@@ -382,6 +382,19 @@ urlpatterns = [
         ConsumableIssueCreateAPIView.as_view(),
         name="consumable-issue-create",
     ),
+
+    path("consumable-grn/returnable-issues/", ConsumableReturnableIssueListAPIView.as_view(), name="consumable-returnable-issues"),
+path("consumable-grn/return/<int:issue_id>/", ConsumableReturnCreateAPIView.as_view(), name="consumable-return-create"),
+path(
+    "consumable-grn/movement-groups/",
+    ConsumableMovementGroupListAPIView.as_view(),
+    name="consumable-movement-groups",
+),
+path(
+    "consumable-grn/movements/detail/",
+    ConsumableMovementDetailAPIView.as_view(),
+    name="consumable-movement-detail",
+),
 
    
 
