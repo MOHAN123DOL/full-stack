@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Search,
   X,
   ArrowLeft,
-  Layers,
   AlertTriangle,
   PackageSearch,
   Building2,
@@ -13,371 +12,67 @@ import {
   ArrowRight,
   Plus,
   Truck,
-  Send,
+  RefreshCw,
 } from "lucide-react";
+
 import Header from "../../components/Header";
+import Loading from "../../components/loading";
+import Error from "../../components/error";
+
+import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
+import useFilterOptions from "../../hooks/useFilterOptions";
+
 import "./IssueToJobWork.css";
 
-// =====================================================================
-// Mock reference data
-// Kept identical to MaterialStock.jsx so records line up when a stock
-// item is passed over from the Material Stock page.
-// =====================================================================
-const units = ["Unit 1", "Unit 2"];
-const sourceTypes = ["PO", "Dummy PO", "Job Remaining", "Cutting Remaining"];
-const materialOptions = [
-  "Plate",
-  "Pipe",
-  "Channel",
-  "Angle",
-  "Flat",
-  "Beam",
-  "Round Bar",
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+
+const API_BASE = "/erp/material";
+
+const UNITS = ["Unit 1", "Unit 2"];
+
+const SOURCE_TYPES = [
+  "PO",
+  "Dummy PO",
+  "Job Remaining",
+  "Cutting Remaining",
+  "Rework",
+  "Other",
 ];
 
-const initialStock = [
-  {
-    id: "stk-1",
-    stockId: "STK-1001",
-    unit: "Unit 1",
-    sourceType: "PO",
-    poNumber: "PO-001",
-    description: "Description-1",
-    material: "Plate",
-    materialCode: "15110292000",
-    materialSpec: "IS2062 E250A",
-    thickness: "8 mm",
-    size: "1500 x 3000",
-    heatNumber: "HN-24581",
-    plateNumber: "PL-001",
-    originalQuantity: 5,
-    availableQuantity: 5,
-    uom: "Nos",
-    project: "BHEL Boiler Fabrication",
-    dwgDescription: "DWG-001 / Description-1",
-    revision: "REV-01",
-    stockStatus: "Available",
-    reworkRequired: "No",
-  },
-  {
-    id: "stk-2",
-    stockId: "STK-1002",
-    unit: "Unit 1",
-    sourceType: "Dummy PO",
-    poNumber: "DPO-001",
-    description: "Description-1",
-    material: "Channel",
-    materialCode: "15010135000",
-    materialSpec: "IS2062 E250A",
-    thickness: "6 mm",
-    size: "100 x 50 x 5",
-    heatNumber: "—",
-    plateNumber: "—",
-    originalQuantity: 6,
-    availableQuantity: 6,
-    uom: "Nos",
-    project: "—",
-    dwgDescription: "—",
-    revision: "—",
-    stockStatus: "Available",
-    reworkRequired: "No",
-  },
-  {
-    id: "stk-3",
-    stockId: "STK-1003",
-    unit: "Unit 2",
-    sourceType: "Job Remaining",
-    poNumber: "PO-002",
-    description: "Description-2",
-    material: "Pipe",
-    materialCode: "15038626610",
-    materialSpec: "IS1161 YST240",
-    thickness: "4 mm",
-    size: "100 NB",
-    heatNumber: "HN-19042",
-    plateNumber: "—",
-    originalQuantity: 10,
-    availableQuantity: 3,
-    uom: "Mtr",
-    project: "NTPC Structural Project",
-    dwgDescription: "DWG-101 / Description-2",
-    revision: "REV-01",
-    stockStatus: "Remaining",
-    reworkRequired: "No",
-  },
-  {
-    id: "stk-4",
-    stockId: "STK-1004",
-    unit: "Unit 1",
-    sourceType: "Cutting Remaining",
-    poNumber: "PO-001",
-    description: "Description-1",
-    material: "Plate",
-    materialCode: "15110292000",
-    materialSpec: "IS2062 E250A",
-    thickness: "8 mm",
-    size: "2000 x 2000",
-    heatNumber: "HN-24581",
-    plateNumber: "PL-001-R1",
-    originalQuantity: 1,
-    availableQuantity: 1,
-    uom: "Nos",
-    project: "BHEL Boiler Fabrication",
-    dwgDescription: "DWG-001 / Description-1",
-    revision: "REV-01",
-    stockStatus: "Cutting Remaining",
-    reworkRequired: "Yes",
-  },
-  {
-    id: "stk-5",
-    stockId: "STK-1005",
-    unit: "Unit 1",
-    sourceType: "PO",
-    poNumber: "PO-002",
-    description: "Description-2",
-    material: "Pipe",
-    materialCode: "15038626610",
-    materialSpec: "IS1161 YST240",
-    thickness: "4 mm",
-    size: "100 NB",
-    heatNumber: "HN-19043",
-    plateNumber: "—",
-    originalQuantity: 4,
-    availableQuantity: 2,
-    uom: "Mtr",
-    project: "NTPC Structural Project",
-    dwgDescription: "DWG-101 / Description-2",
-    revision: "REV-01",
-    stockStatus: "Available",
-    reworkRequired: "No",
-  },
-  {
-    id: "stk-6",
-    stockId: "STK-1006",
-    unit: "Unit 1",
-    sourceType: "PO",
-    poNumber: "PO-002",
-    description: "Description-2",
-    material: "Pipe",
-    materialCode: "15038626610",
-    materialSpec: "IS1161 YST240",
-    thickness: "4 mm",
-    size: "150 NB",
-    heatNumber: "HN-19044",
-    plateNumber: "—",
-    originalQuantity: 4,
-    availableQuantity: 4,
-    uom: "Mtr",
-    project: "NTPC Structural Project",
-    dwgDescription: "DWG-101 / Description-2",
-    revision: "REV-01",
-    stockStatus: "Available",
-    reworkRequired: "No",
-  },
-  {
-    id: "stk-7",
-    stockId: "STK-1007",
-    unit: "Unit 1",
-    sourceType: "PO",
-    poNumber: "PO-002",
-    description: "Description-2",
-    material: "Pipe",
-    materialCode: "15038626610",
-    materialSpec: "IS1161 YST240",
-    thickness: "6 mm",
-    size: "100 NB",
-    heatNumber: "HN-19045",
-    plateNumber: "—",
-    originalQuantity: 5,
-    availableQuantity: 5,
-    uom: "Mtr",
-    project: "NTPC Structural Project",
-    dwgDescription: "DWG-101 / Description-2",
-    revision: "REV-01",
-    stockStatus: "Available",
-    reworkRequired: "No",
-  },
-  {
-    id: "stk-8",
-    stockId: "STK-1008",
-    unit: "Unit 1",
-    sourceType: "PO",
-    poNumber: "PO-003",
-    description: "Description-1",
-    material: "Angle",
-    materialCode: "15013159000",
-    materialSpec: "IS2062 E250A",
-    thickness: "6 mm",
-    size: "65 x 65 x 6",
-    heatNumber: "HN-30021",
-    plateNumber: "—",
-    originalQuantity: 12,
-    availableQuantity: 0,
-    uom: "Nos",
-    project: "—",
-    dwgDescription: "—",
-    revision: "—",
-    stockStatus: "Available",
-    reworkRequired: "No",
-  },
-  {
-    id: "stk-9",
-    stockId: "STK-1009",
-    unit: "Unit 2",
-    sourceType: "PO",
-    poNumber: "PO-002",
-    description: "Description-3",
-    material: "Angle",
-    materialCode: "15013160000",
-    materialSpec: "IS2062 E250A",
-    thickness: "6 mm",
-    size: "65 x 65 x 6",
-    heatNumber: "HN-30099",
-    plateNumber: "—",
-    originalQuantity: 8,
-    availableQuantity: 8,
-    uom: "Nos",
-    project: "—",
-    dwgDescription: "—",
-    revision: "—",
-    stockStatus: "Available",
-    reworkRequired: "No",
-  },
-  {
-    id: "stk-10",
-    stockId: "STK-1010",
-    unit: "Unit 2",
-    sourceType: "Cutting Remaining",
-    poNumber: "PO-002",
-    description: "Description-2",
-    material: "Pipe",
-    materialCode: "15038626610",
-    materialSpec: "IS1161 YST240",
-    thickness: "4 mm",
-    size: "100 NB",
-    heatNumber: "HN-19042-R",
-    plateNumber: "—",
-    originalQuantity: 1,
-    availableQuantity: 1,
-    uom: "Mtr",
-    project: "NTPC Structural Project",
-    dwgDescription: "DWG-101 / Description-2",
-    revision: "REV-01",
-    stockStatus: "Cutting Remaining",
-    reworkRequired: "No",
-  },
-];
+const GENERIC_ERROR = "Something went wrong. Please try again.";
 
-// Which PO + Description pairs have already been integrated with a
-// DWG/BOM in the PO Integration process. Anything not listed here is
-// treated as "Not Integrated".
-const integrationMap = {
-  "PO-001|Description-1": {
-    project: "BHEL Boiler Fabrication",
-    dwg: "DWG-001",
-    description: "Description-1",
-    revision: "REV-01",
-    requirements: [
-      {
-        material: "Plate",
-        thickness: "8 mm",
-        requiredQty: 24,
-        uom: "Nos",
-        size: "300 x 400 mm",
-      },
-      {
-        material: "Plate",
-        thickness: "10 mm",
-        requiredQty: 12,
-        uom: "Nos",
-        size: "500 x 600 mm",
-      },
-      {
-        material: "Pipe",
-        thickness: "4 mm",
-        requiredQty: 10,
-        uom: "Mtr",
-        size: "100 NB",
-      },
-    ],
-  },
-  "PO-002|Description-2": {
-    project: "NTPC Structural Project",
-    dwg: "DWG-101",
-    description: "Description-2",
-    revision: "REV-01",
-    requirements: [
-      {
-        material: "Pipe",
-        thickness: "4 mm",
-        requiredQty: 10,
-        uom: "Mtr",
-        size: "100 NB",
-      },
-    ],
-  },
-};
-// Not integrated (intentionally excluded above):
-//   DPO-001 | Description-1  — dummy PO, not yet linked to a drawing
-//   PO-002  | Description-3  — received but BOM integration pending
+/* ============================================================
+   HELPERS
+   ============================================================ */
 
-const processesInitial = [
-  { name: "Cutting", pid: "CUT01" },
-  { name: "Rolling", pid: "ROLL01" },
-  { name: "Bending", pid: "BEND01" },
-  { name: "Drilling", pid: "DRL01" },
-  { name: "Machining", pid: "MACH01" },
-  { name: "Welding", pid: "WELD01" },
-  { name: "Fabrication", pid: "FAB01" },
-];
+function getApiError(error, fallback = GENERIC_ERROR) {
+  const data = error?.response?.data;
+  if (typeof data?.detail === "string") return data.detail;
+  if (typeof data?.message === "string") return data.message;
+  if (data && typeof data === "object") {
+    const first = Object.values(data)
+      .flat()
+      .find((v) => typeof v === "string");
+    if (first) return first;
+  }
+  if (error?.message) return error.message;
+  return fallback;
+}
 
-const employees = ["Arun", "Kumar", "Suresh", "Ravi", "Manoj"];
+function fmt(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
 
-const vendors = [
-  "Shree Fabricators",
-  "Om Engineering Works",
-  "Precision Metal Works",
-  "Bharat CNC Solutions",
-];
+/* ============================================================
+   SHARED COMPONENTS
+   ============================================================ */
 
-const initialHistory = [
-  {
-    id: "ISS-001",
-    date: "2026-08-28",
-    poNumber: "PO-001",
-    description: "Description-1",
-    material: "Plate",
-    process: "Cutting",
-    processId: "CUT01",
-    jobWorkType: "In-House",
-    unit: "Unit 1",
-    vendor: "—",
-    quantity: 6,
-    uom: "Nos",
-    issuedBy: "Arun",
-    status: "Issued",
-  },
-  {
-    id: "ISS-002",
-    date: "2026-08-30",
-    poNumber: "PO-002",
-    description: "Description-2",
-    material: "Pipe",
-    process: "Welding",
-    processId: "WELD01",
-    jobWorkType: "Outsourcing",
-    unit: "—",
-    vendor: "Shree Fabricators",
-    quantity: 4,
-    uom: "Mtr",
-    issuedBy: "Suresh",
-    status: "Issued",
-  },
-];
-
-// =====================================================================
-// Shared UI helpers
-// =====================================================================
 function StatusBadge({ status, tone }) {
   const STATUS_STYLES = {
     Available: "success",
@@ -386,11 +81,16 @@ function StatusBadge({ status, tone }) {
     PO: "info",
     "Dummy PO": "amber-outline",
     "Job Remaining": "warning",
+    Rework: "info",
+    Other: "neutral",
     Yes: "warning",
     No: "neutral",
     "In-House": "info",
     Outsourcing: "amber-outline",
     Issued: "success",
+    "Partially Returned": "warning",
+    "Fully Returned": "success",
+    Cancelled: "danger",
   };
   const resolvedTone = tone || STATUS_STYLES[status] || "neutral";
   return (
@@ -404,10 +104,7 @@ function Modal({ open, title, subtitle, onClose, children }) {
   if (!open) return null;
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal-box"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
             <h3 className="modal-title">{title}</h3>
@@ -427,58 +124,169 @@ function Modal({ open, title, subtitle, onClose, children }) {
   );
 }
 
-// =====================================================================
-// Main Component
-// =====================================================================
-const emptyAdvancedFilters = {
+/* ============================================================
+   EMPTY FILTERS
+   ============================================================ */
+
+const emptyFilters = {
   material: "All",
-  thickness: "",
-  size: "",
+  thickness: "All",
+  length: "All",
+  width: "All",
   poNumber: "",
-  materialCode: "",
-  materialSpec: "",
-  heatNumber: "",
-  plateNumber: "",
-  project: "",
-  dwgDescription: "",
+  project: "All",
   sourceType: "All",
   reworkRequired: "All",
 };
 
+const emptyIssueForm = {
+  jobWorkType: null,
+  jobWorkUnit: "Unit 1",
+  process: "",
+  issueQty: "",
+  issuedBy: "",
+  remarks: "",
+  vendor: "",
+  vendorContact: "",
+  jobWorkLocation: "",
+  expectedReturnDate: "",
+};
+
+/* ============================================================
+   MAIN COMPONENT
+   ============================================================ */
+
 export default function IssueToJobWork() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { accessToken } = useAuth();
 
-  const [stock, setStock] = useState(initialStock);
-  const [processes, setProcesses] = useState(processesInitial);
-  const [history, setHistory] = useState(initialHistory);
+  /* -------------------- data -------------------- */
+  const [stock, setStock] = useState([]);
+  const [processes, setProcesses] = useState([]);
+  const [history, setHistory] = useState([]);
 
+  /* -------------------- ui state -------------------- */
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+
+  /* -------------------- filters -------------------- */
   const [search, setSearch] = useState("");
   const [unitTab, setUnitTab] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState(emptyAdvancedFilters);
+  const [filters, setFilters] = useState(emptyFilters);
 
+  /* -------------------- issue modal -------------------- */
   const [issueTargetId, setIssueTargetId] = useState(null);
-  const [successMsg, setSuccessMsg] = useState("");
+  const [issueForm, setIssueForm] = useState(emptyIssueForm);
+  const [formError, setFormError] = useState("");
+  const [savingIssue, setSavingIssue] = useState(false);
 
-  // Job work form state
-  const [jobWorkType, setJobWorkType] = useState(null);
-  const [jobWorkUnit, setJobWorkUnit] = useState("Unit 1");
-  const [process, setProcess] = useState("");
+  /* -------------------- create process -------------------- */
   const [showCreateProcess, setShowCreateProcess] = useState(false);
   const [newProcessName, setNewProcessName] = useState("");
   const [newProcessId, setNewProcessId] = useState("");
   const [processError, setProcessError] = useState("");
-  const [issueQty, setIssueQty] = useState("");
-  const [issuedBy, setIssuedBy] = useState("");
-  const [remarks, setRemarks] = useState("");
-  const [vendor, setVendor] = useState("");
-  const [vendorContact, setVendorContact] = useState("");
-  const [jobWorkLocation, setJobWorkLocation] = useState("");
-  const [expectedReturnDate, setExpectedReturnDate] = useState("");
-  const [formError, setFormError] = useState("");
 
-  // Pick up a stock record handed over from Material Stock's "Issue" action.
+  /* -------------------- filter options -------------------- */
+  const { options: filterOptions, refresh: refreshFilterOptions } =
+    useFilterOptions("material-job-work", { enabled: !!accessToken });
+
+  /* ============================================================
+     AUTH HEADERS
+     ============================================================ */
+
+  const authHeaders = useCallback(
+    () => ({ Authorization: `Bearer ${accessToken}` }),
+    [accessToken],
+  );
+
+  /* ============================================================
+     FETCHERS
+     ============================================================ */
+
+  const fetchStock = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!accessToken) return;
+      try {
+        if (!silent) setIsLoading(true);
+        setError("");
+
+        const res = await api.get(`${API_BASE}/job-work/stock/`, {
+          headers: authHeaders(),
+        });
+
+        const list = Array.isArray(res.data?.data)
+          ? res.data.data
+          : Array.isArray(res.data)
+            ? res.data
+            : [];
+
+        setStock(list);
+      } catch (err) {
+        console.error("Failed to load stock:", err);
+        setError(getApiError(err, "Failed to load stock."));
+        setStock([]);
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [accessToken, authHeaders],
+  );
+
+  const fetchProcesses = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const res = await api.get(`${API_BASE}/job-work/processes/`, {
+        headers: authHeaders(),
+      });
+      const list = Array.isArray(res.data?.data) ? res.data.data : [];
+      setProcesses(list);
+    } catch (err) {
+      console.error("Failed to load processes:", err);
+      setProcesses([]);
+    }
+  }, [accessToken, authHeaders]);
+
+  const fetchHistory = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!accessToken) return;
+      try {
+        if (!silent) setIsLoading(true);
+        const res = await api.get(`${API_BASE}/job-work/issues/`, {
+          headers: authHeaders(),
+        });
+        const list = Array.isArray(res.data?.data) ? res.data.data : [];
+        setHistory(list);
+      } catch (err) {
+        console.error("Failed to load issue history:", err);
+        setHistory([]);
+      }
+    },
+    [accessToken, authHeaders],
+  );
+
+  /* ============================================================
+     INITIAL LOAD
+     ============================================================ */
+
+  useEffect(() => {
+    if (!accessToken) {
+      setError("Your session has expired. Please login again.");
+      setIsLoading(false);
+      return;
+    }
+    fetchStock();
+    fetchProcesses();
+    fetchHistory();
+  }, [accessToken, fetchStock, fetchProcesses, fetchHistory]);
+
+  /* ============================================================
+     PICK UP STOCK ID FROM ROUTER STATE (Material Stock → Issue)
+     ============================================================ */
+
   useEffect(() => {
     const stockId = location.state?.stockId;
     if (stockId) {
@@ -486,110 +294,107 @@ export default function IssueToJobWork() {
     }
   }, [location.state]);
 
-  // Reset the form whenever a new stock item is opened for issuing.
+  /* ============================================================
+     RESET FORM WHEN MODAL OPENS
+     ============================================================ */
+
   useEffect(() => {
     if (issueTargetId) {
-      setJobWorkType(null);
-      setJobWorkUnit("Unit 1");
-      setProcess("");
-      setShowCreateProcess(false);
-      setNewProcessName("");
-      setNewProcessId("");
-      setProcessError("");
-      setIssueQty("");
-      setIssuedBy("");
-      setRemarks("");
-      setVendor("");
-      setVendorContact("");
-      setJobWorkLocation("");
-      setExpectedReturnDate("");
+      setIssueForm(emptyIssueForm);
       setFormError("");
     }
   }, [issueTargetId]);
+
+  /* ============================================================
+     FILTER HANDLERS
+     ============================================================ */
 
   function updateFilter(key, value) {
     setFilters((prev) => ({ ...prev, [key]: value }));
   }
 
-  const projectOptions = useMemo(
-    () => [...new Set(stock.map((s) => s.project).filter((p) => p !== "—"))],
-    [stock],
-  );
+  function clearFilters() {
+    setSearch("");
+    setUnitTab("All");
+    setFilters(emptyFilters);
+  }
 
-  // Only material with Available Quantity > 0 can be issued.
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    unitTab !== "All" ||
+    filters.material !== "All" ||
+    filters.thickness !== "All" ||
+    filters.length !== "All" ||
+    filters.width !== "All" ||
+    filters.poNumber.trim() !== "" ||
+    filters.project !== "All" ||
+    filters.sourceType !== "All" ||
+    filters.reworkRequired !== "All";
+
+  /* ============================================================
+     DERIVED ROWS
+     ============================================================ */
+
   const activeStock = useMemo(
-    () => stock.filter((s) => s.availableQuantity > 0),
+    () => stock.filter((s) => Number(s.availableQty) > 0),
     [stock],
   );
 
   const filteredStock = useMemo(() => {
     const q = search.trim().toLowerCase();
+
     return activeStock.filter((s) => {
       const matchesSearch =
         !q ||
         [
+          s.stockId,
           s.poNumber,
           s.description,
           s.material,
           s.materialCode,
           s.materialSpec,
           s.thickness,
-          s.size,
+          s.length,
+          s.width,
           s.heatNumber,
           s.plateNumber,
           s.project,
           s.dwgDescription,
         ]
+          .filter(Boolean)
           .join(" ")
           .toLowerCase()
           .includes(q);
 
       const matchesUnit = unitTab === "All" || s.unit === unitTab;
+
       const matchesMaterial =
         filters.material === "All" || s.material === filters.material;
+
       const matchesThickness =
-        !filters.thickness.trim() ||
-        s.thickness
-          .toLowerCase()
-          .includes(filters.thickness.trim().toLowerCase());
-      const matchesSize =
-        !filters.size.trim() ||
-        s.size.toLowerCase().includes(filters.size.trim().toLowerCase());
+        filters.thickness === "All" ||
+        String(s.thickness ?? "").trim() === filters.thickness;
+
+      const matchesLength =
+        filters.length === "All" ||
+        String(s.length ?? "").trim() === filters.length;
+
+      const matchesWidth =
+        filters.width === "All" ||
+        String(s.width ?? "").trim() === filters.width;
+
       const matchesPo =
         !filters.poNumber.trim() ||
-        s.poNumber
+        String(s.poNumber ?? "")
           .toLowerCase()
           .includes(filters.poNumber.trim().toLowerCase());
-      const matchesCode =
-        !filters.materialCode.trim() ||
-        s.materialCode
-          .toLowerCase()
-          .includes(filters.materialCode.trim().toLowerCase());
-      const matchesSpec =
-        !filters.materialSpec.trim() ||
-        s.materialSpec
-          .toLowerCase()
-          .includes(filters.materialSpec.trim().toLowerCase());
-      const matchesHeat =
-        !filters.heatNumber.trim() ||
-        s.heatNumber
-          .toLowerCase()
-          .includes(filters.heatNumber.trim().toLowerCase());
-      const matchesPlate =
-        !filters.plateNumber.trim() ||
-        s.plateNumber
-          .toLowerCase()
-          .includes(filters.plateNumber.trim().toLowerCase());
+
       const matchesProject =
-        !filters.project.trim() ||
-        s.project.toLowerCase().includes(filters.project.trim().toLowerCase());
-      const matchesDwg =
-        !filters.dwgDescription.trim() ||
-        s.dwgDescription
-          .toLowerCase()
-          .includes(filters.dwgDescription.trim().toLowerCase());
+        filters.project === "All" || s.project === filters.project;
+
       const matchesSource =
         filters.sourceType === "All" || s.sourceType === filters.sourceType;
+
       const matchesRework =
         filters.reworkRequired === "All" ||
         s.reworkRequired === filters.reworkRequired;
@@ -599,66 +404,62 @@ export default function IssueToJobWork() {
         matchesUnit &&
         matchesMaterial &&
         matchesThickness &&
-        matchesSize &&
+        matchesLength &&
+        matchesWidth &&
         matchesPo &&
-        matchesCode &&
-        matchesSpec &&
-        matchesHeat &&
-        matchesPlate &&
         matchesProject &&
-        matchesDwg &&
         matchesSource &&
         matchesRework
       );
     });
   }, [activeStock, search, unitTab, filters]);
 
-  const hasActiveFilters =
-    search.trim() !== "" ||
-    unitTab !== "All" ||
-    Object.entries(filters).some(([key, val]) =>
-      ["material", "sourceType", "reworkRequired"].includes(key)
-        ? val !== "All"
-        : val.trim() !== "",
-    );
+  /* ============================================================
+     SUMMARY
+     ============================================================ */
 
-  function clearFilters() {
-    setSearch("");
-    setUnitTab("All");
-    setFilters(emptyAdvancedFilters);
-  }
-
-  function isIntegratedRecord(s) {
-    return !!integrationMap[`${s.poNumber}|${s.description}`];
-  }
-
-  // ---------------- summary cards ----------------
   const summary = useMemo(() => {
     const total = activeStock.length;
     const unit1 = activeStock.filter((s) => s.unit === "Unit 1").length;
     const unit2 = activeStock.filter((s) => s.unit === "Unit 2").length;
-    const readyToIssue = activeStock.filter(isIntegratedRecord).length;
+    const readyToIssue = activeStock.filter(
+      (s) => s.project && s.project !== "—",
+    ).length;
     return { total, unit1, unit2, readyToIssue };
   }, [activeStock]);
 
-  // ---------------- issue modal ----------------
+  /* ============================================================
+     ISSUE MODAL STATE
+     ============================================================ */
+
   const issueStock = useMemo(
-    () => stock.find((s) => s.id === issueTargetId) || null,
+    () => stock.find((s) => String(s.id) === String(issueTargetId)) || null,
     [stock, issueTargetId],
   );
 
-  const integration = issueStock
-    ? integrationMap[`${issueStock.poNumber}|${issueStock.description}`]
-    : null;
-  const isIntegrated = !!integration;
+  const isIntegrated = !!(
+    issueStock &&
+    issueStock.project &&
+    issueStock.project !== "—"
+  );
 
-  function openIssue(stockItem) {
-    setIssueTargetId(stockItem.id);
+  function openIssue(s) {
+    setIssueTargetId(s.id);
   }
 
   function closeIssue() {
     setIssueTargetId(null);
+    setIssueForm(emptyIssueForm);
+    setFormError("");
   }
+
+  function setFormField(key, value) {
+    setIssueForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  /* ============================================================
+     PROCESS CREATION
+     ============================================================ */
 
   function handleProcessChange(e) {
     const val = e.target.value;
@@ -666,174 +467,256 @@ export default function IssueToJobWork() {
       setShowCreateProcess(true);
       return;
     }
-    setProcess(val);
+    setFormField("process", val);
   }
 
-  function handleCreateProcess() {
+  async function handleCreateProcess() {
     const name = newProcessName.trim();
     const pid = newProcessId.trim().toUpperCase();
+
     if (!name || !pid) {
       setProcessError("Enter both a process name and a process ID.");
       return;
     }
-    if (processes.some((p) => p.pid.toLowerCase() === pid.toLowerCase())) {
-      setProcessError("This Process ID already exists. Use a unique ID.");
-      return;
+
+    try {
+      const res = await api.post(
+        `${API_BASE}/job-work/processes/`,
+        { name, processId: pid },
+        { headers: authHeaders() },
+      );
+
+      const created = res.data?.data;
+      if (created) {
+        setProcesses((prev) => [...prev, created]);
+        setFormField("process", created.processId);
+      }
+
+      setShowCreateProcess(false);
+      setNewProcessName("");
+      setNewProcessId("");
+      setProcessError("");
+    } catch (err) {
+      console.error("Failed to create process:", err);
+      setProcessError(getApiError(err, "Failed to create process."));
     }
-    setProcesses((prev) => [...prev, { name, pid }]);
-    setProcess(pid);
-    setShowCreateProcess(false);
-    setNewProcessName("");
-    setNewProcessId("");
-    setProcessError("");
   }
 
+  /* ============================================================
+     VALIDATION
+     ============================================================ */
+
   const liveQtyError = useMemo(() => {
-    if (!issueStock || issueQty === "") return "";
-    const n = Number(issueQty);
+    if (!issueStock || issueForm.issueQty === "") return "";
+    const n = Number(issueForm.issueQty);
     if (Number.isNaN(n)) return "Enter a valid number.";
     if (n <= 0) return "Issue quantity must be greater than 0.";
-    if (n > issueStock.availableQuantity)
-      return `Only ${issueStock.availableQuantity} ${issueStock.uom} are available to issue.`;
+    if (n > Number(issueStock.availableQty))
+      return `Only ${fmt(issueStock.availableQty)} ${issueStock.uom} are available.`;
     return "";
-  }, [issueQty, issueStock]);
+  }, [issueForm.issueQty, issueStock]);
 
-  function validateCommon() {
+  function validateForm() {
     if (!issueStock) return "Select a material to issue.";
     if (!isIntegrated)
       return "Complete DWG/BOM integration before issuing this material.";
-    if (!jobWorkType) return "Select a job work type.";
-    if (!process) return "Select a process.";
-    const n = Number(issueQty);
-    if (issueQty === "" || Number.isNaN(n) || n <= 0)
+    if (!issueForm.jobWorkType) return "Select a job work type.";
+    if (!issueForm.process) return "Select a process.";
+
+    const n = Number(issueForm.issueQty);
+    if (issueForm.issueQty === "" || Number.isNaN(n) || n <= 0)
       return "Enter a valid issue quantity.";
-    if (n > issueStock.availableQuantity)
-      return `Only ${issueStock.availableQuantity} ${issueStock.uom} are available to issue.`;
-    if (!issuedBy) return "Select who is issuing this material.";
-    if (jobWorkType === "In-House" && !jobWorkUnit)
+    if (n > Number(issueStock.availableQty))
+      return `Only ${fmt(issueStock.availableQty)} ${issueStock.uom} are available to issue.`;
+
+    if (!issueForm.issuedBy.trim())
+      return "Enter who is issuing this material.";
+
+    if (issueForm.jobWorkType === "In-House" && !issueForm.jobWorkUnit)
       return "Select the job work unit.";
-    if (jobWorkType === "Outsourcing") {
-      if (!vendor) return "Select a vendor.";
-      if (!jobWorkLocation.trim()) return "Enter the job work location.";
-      if (!expectedReturnDate) return "Enter the expected return date.";
+
+    if (issueForm.jobWorkType === "Outsourcing") {
+      if (!issueForm.vendor.trim()) return "Enter the vendor name.";
+      if (!issueForm.jobWorkLocation.trim())
+        return "Enter the job work location.";
+      if (!issueForm.expectedReturnDate)
+        return "Enter the expected return date.";
     }
+
     return "";
   }
 
-  function nextIssueId() {
-    return `ISS-${String(history.length + 1).padStart(3, "0")}`;
-  }
+  /* ============================================================
+     ISSUE MATERIAL — IN-HOUSE FLOW
+     ============================================================ */
 
-  function applyStockDeduction(qty) {
-    setStock((prev) =>
-      prev.map((s) =>
-        s.id === issueStock.id
-          ? { ...s, availableQuantity: s.availableQuantity - qty }
-          : s,
-      ),
-    );
-  }
-
-  function handleIssueMaterial() {
-    const err = validateCommon();
+  async function handleIssueMaterial() {
+    const err = validateForm();
     if (err) {
       setFormError(err);
       return;
     }
-    const qty = Number(issueQty);
-    const procMeta = processes.find((p) => p.pid === process);
-    applyStockDeduction(qty);
-    setHistory((prev) => [
-      {
-        id: nextIssueId(),
-        date: new Date().toISOString().slice(0, 10),
-        poNumber: issueStock.poNumber,
-        description: issueStock.description,
-        material: issueStock.material,
-        process: procMeta ? procMeta.name : process,
-        processId: process,
-        jobWorkType: "In-House",
-        unit: jobWorkUnit,
-        vendor: "—",
-        quantity: qty,
-        uom: issueStock.uom,
-        issuedBy,
-        status: "Issued",
-      },
-      ...prev,
-    ]);
-    setSuccessMsg(
-      `${qty} ${issueStock.uom} of ${issueStock.material} issued to ${jobWorkUnit} for ${procMeta ? procMeta.name : process}.`,
-    );
-    closeIssue();
-  }
 
-  function handleContinueToChallan() {
-    const err = validateCommon();
-    if (err) {
-      setFormError(err);
-      return;
-    }
-    const qty = Number(issueQty);
-    const procMeta = processes.find((p) => p.pid === process);
+    const procMeta = processes.find((p) => p.processId === issueForm.process);
+
     const payload = {
+      stockId: issueStock.id,
+      jobWorkType: "In-House",
+      processId: issueForm.process,
+      quantityIssued: Number(issueForm.issueQty),
+      issuedBy: issueForm.issuedBy.trim(),
+      remarks: issueForm.remarks.trim(),
+      jobWorkUnit: issueForm.jobWorkUnit,
+    };
+
+    try {
+      setSavingIssue(true);
+
+      await api.post(`${API_BASE}/job-work/issue/`, payload, {
+        headers: authHeaders(),
+      });
+
+      setSuccessMsg(
+        `${issueForm.issueQty} ${issueStock.uom} of ${
+          issueStock.material || issueStock.description
+        } issued for ${procMeta ? procMeta.name : issueForm.process}.`,
+      );
+
+      closeIssue();
+
+      await Promise.all([
+        fetchStock({ silent: true }),
+        fetchHistory({ silent: true }),
+        refreshFilterOptions(),
+      ]);
+
+      setTimeout(() => setSuccessMsg(""), 4000);
+    } catch (err) {
+      console.error("Issue failed:", err);
+      setFormError(getApiError(err, "Failed to issue material."));
+    } finally {
+      setSavingIssue(false);
+    }
+  }
+
+  /* ============================================================
+     ISSUE MATERIAL — OUTSOURCING FLOW → DELIVERY CHALLAN
+     ============================================================ */
+
+  async function handleContinueToChallan() {
+    const err = validateForm();
+    if (err) {
+      setFormError(err);
+      return;
+    }
+
+    const procMeta = processes.find((p) => p.processId === issueForm.process);
+
+    // Payload handed off to the Delivery Challan page.
+    const dcPayload = {
+      stockId: issueStock.id,
+      stockCode: issueStock.stockId,
+
       poNumber: issueStock.poNumber,
       poDescription: issueStock.description,
+
       material: issueStock.material,
       materialCode: issueStock.materialCode,
       specification: issueStock.materialSpec,
       thickness: issueStock.thickness,
-      size: issueStock.size,
-      quantity: qty,
+      length: issueStock.length,
+      width: issueStock.width,
       uom: issueStock.uom,
-      project: integration?.project,
-      dwg: integration?.dwg,
-      revision: integration?.revision,
-      process: procMeta ? procMeta.name : process,
-      processId: process,
+
+      quantity: Number(issueForm.issueQty),
+
+      project: issueStock.project,
+      dwg: issueStock.dwgDescription,
+      revision: issueStock.revision,
+
+      process: procMeta ? procMeta.name : issueForm.process,
+      processId: issueForm.process,
+
       jobWorkType: "Outsourcing",
-      vendor,
-      vendorContact,
-      jobWorkLocation,
-      expectedReturnDate,
-      remarks,
+
+      vendor: issueForm.vendor.trim(),
+      vendorContact: issueForm.vendorContact.trim(),
+      jobWorkLocation: issueForm.jobWorkLocation.trim(),
+      expectedReturnDate: issueForm.expectedReturnDate,
+
+      issuedBy: issueForm.issuedBy.trim(),
+      remarks: issueForm.remarks.trim(),
     };
-    applyStockDeduction(qty);
-    setHistory((prev) => [
-      {
-        id: nextIssueId(),
-        date: new Date().toISOString().slice(0, 10),
-        poNumber: issueStock.poNumber,
-        description: issueStock.description,
-        material: issueStock.material,
-        process: procMeta ? procMeta.name : process,
-        processId: process,
-        jobWorkType: "Outsourcing",
-        unit: "—",
-        vendor,
-        quantity: qty,
-        uom: issueStock.uom,
-        issuedBy,
-        status: "Issued",
-      },
-      ...prev,
-    ]);
-    closeIssue();
-    navigate("/accounts/DeliveryChallan", { state: payload });
+
+    try {
+      setSavingIssue(true);
+
+      // Create the issue record first — stock drops immediately.
+      await api.post(
+        `${API_BASE}/job-work/issue/`,
+        {
+          stockId: issueStock.id,
+          jobWorkType: "Outsourcing",
+          processId: issueForm.process,
+          quantityIssued: Number(issueForm.issueQty),
+          issuedBy: issueForm.issuedBy.trim(),
+          remarks: issueForm.remarks.trim(),
+          vendor: issueForm.vendor.trim(),
+          vendorContact: issueForm.vendorContact.trim(),
+          jobWorkLocation: issueForm.jobWorkLocation.trim(),
+          expectedReturnDate: issueForm.expectedReturnDate,
+        },
+        { headers: authHeaders() },
+      );
+
+      await Promise.all([
+        fetchStock({ silent: true }),
+        fetchHistory({ silent: true }),
+        refreshFilterOptions(),
+      ]);
+
+      closeIssue();
+
+      navigate("/accounts/DeliveryChallan", { state: dcPayload });
+    } catch (err) {
+      console.error("Issue failed:", err);
+      setFormError(getApiError(err, "Failed to issue material."));
+    } finally {
+      setSavingIssue(false);
+    }
   }
 
-  // ---------------- Back Handler ----------------
+  /* ============================================================
+     REFRESH / BACK
+     ============================================================ */
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await Promise.all([
+      fetchStock({ silent: true }),
+      fetchProcesses(),
+      fetchHistory({ silent: true }),
+      refreshFilterOptions(),
+    ]);
+    setRefreshing(false);
+  }
+
   function handleBack() {
     navigate("/inventory/material");
   }
 
-  // ---------------- Render ----------------
+  /* ============================================================
+     RENDER
+     ============================================================ */
+
   return (
     <>
       <Header />
+
       <div className="material-page">
         <div className="material-content">
-          {/* Page Header with Back Button */}
+          {/* ---------------- HEADER ---------------- */}
+
           <div className="page-header-wrap">
             <div className="page-header-left">
               <button className="back-button" onClick={handleBack}>
@@ -847,6 +730,17 @@ export default function IssueToJobWork() {
                 </p>
               </div>
             </div>
+
+            <div className="page-header-actions">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleRefresh}
+                disabled={refreshing || isLoading}
+              >
+                <RefreshCw size={14} className={refreshing ? "spin" : ""} />
+                {refreshing ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
           </div>
 
           {successMsg && (
@@ -859,428 +753,462 @@ export default function IssueToJobWork() {
             </div>
           )}
 
-          {/* Summary cards */}
-          <div className="summary-cards">
-            <div className="summary-card">
-              <div className="summary-card-icon summary-card-icon-neutral">
-                <PackageSearch size={18} strokeWidth={1.8} />
-              </div>
-              <div>
-                <span className="summary-card-value">{summary.total}</span>
-                <span className="summary-card-label">Available Materials</span>
-              </div>
+          {isLoading && (
+            <div className="grn-state-block">
+              <Loading />
             </div>
-            <div className="summary-card">
-              <div className="summary-card-icon summary-card-icon-info">
-                <Building2 size={18} strokeWidth={1.8} />
-              </div>
-              <div>
-                <span className="summary-card-value">{summary.unit1}</span>
-                <span className="summary-card-label">Unit 1</span>
-              </div>
-            </div>
-            <div className="summary-card">
-              <div className="summary-card-icon summary-card-icon-info">
-                <Warehouse size={18} strokeWidth={1.8} />
-              </div>
-              <div>
-                <span className="summary-card-value">{summary.unit2}</span>
-                <span className="summary-card-label">Unit 2</span>
-              </div>
-            </div>
-            <div className="summary-card">
-              <div className="summary-card-icon summary-card-icon-success">
-                <CheckCircle2 size={18} strokeWidth={1.8} />
-              </div>
-              <div>
-                <span className="summary-card-value">{summary.readyToIssue}</span>
-                <span className="summary-card-label">Ready to Issue</span>
-              </div>
-            </div>
-          </div>
+          )}
 
-          {/* Available material */}
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="panel-head-title">Available Material</div>
-                <p className="panel-head-subtitle">
-                  Select material to issue for in-house or outsourced job work.
-                </p>
+          {!isLoading && error && (
+            <div className="grn-state-block">
+              <Error onRetry={() => fetchStock()} />
+            </div>
+          )}
+
+          {!isLoading && !error && (
+            <>
+              {/* ---------------- SUMMARY CARDS ---------------- */}
+
+              <div className="summary-cards">
+                <div className="summary-card">
+                  <div className="summary-card-icon summary-card-icon-neutral">
+                    <PackageSearch size={18} strokeWidth={1.8} />
+                  </div>
+                  <div>
+                    <span className="summary-card-value">{summary.total}</span>
+                    <span className="summary-card-label">
+                      Available Materials
+                    </span>
+                  </div>
+                </div>
+
+                <div className="summary-card">
+                  <div className="summary-card-icon summary-card-icon-info">
+                    <Building2 size={18} strokeWidth={1.8} />
+                  </div>
+                  <div>
+                    <span className="summary-card-value">{summary.unit1}</span>
+                    <span className="summary-card-label">Unit 1</span>
+                  </div>
+                </div>
+
+                <div className="summary-card">
+                  <div className="summary-card-icon summary-card-icon-info">
+                    <Warehouse size={18} strokeWidth={1.8} />
+                  </div>
+                  <div>
+                    <span className="summary-card-value">{summary.unit2}</span>
+                    <span className="summary-card-label">Unit 2</span>
+                  </div>
+                </div>
+
+                <div className="summary-card">
+                  <div className="summary-card-icon summary-card-icon-success">
+                    <CheckCircle2 size={18} strokeWidth={1.8} />
+                  </div>
+                  <div>
+                    <span className="summary-card-value">
+                      {summary.readyToIssue}
+                    </span>
+                    <span className="summary-card-label">Ready to Issue</span>
+                  </div>
+                </div>
               </div>
-              <div className="unit-tabs">
-                {["All", ...units].map((u) => (
+
+              {/* ---------------- AVAILABLE MATERIAL ---------------- */}
+
+              <section className="panel">
+                <div className="panel-head">
+                  <div>
+                    <div className="panel-head-title">Available Material</div>
+                    <p className="panel-head-subtitle">
+                      Select material to issue for in-house or outsourced job
+                      work.
+                    </p>
+                  </div>
+
+                  <div className="unit-tabs">
+                    {["All", ...UNITS].map((u) => (
+                      <button
+                        key={u}
+                        className={`unit-tab ${
+                          unitTab === u ? "unit-tab-active" : ""
+                        }`}
+                        onClick={() => setUnitTab(u)}
+                      >
+                        {u}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="panel-toolbar">
+                  <div className="panel-toolbar-search">
+                    <Search size={14} />
+                    <input
+                      placeholder="Search PO, description, material, size, project..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </div>
+
                   <button
-                    key={u}
-                    className={`unit-tab ${unitTab === u ? "unit-tab-active" : ""}`}
-                    onClick={() => setUnitTab(u)}
+                    className={`btn btn-secondary btn-sm ${
+                      showFilters ? "btn-outline-active" : ""
+                    }`}
+                    onClick={() => setShowFilters((v) => !v)}
                   >
-                    {u}
+                    <Search size={14} />
+                    Filters
                   </button>
-                ))}
-              </div>
-            </div>
 
-            <div className="panel-toolbar">
-              <div className="panel-toolbar-search">
-                <Search size={14} />
-                <input
-                  placeholder="Search materials... (PO, description, material, code, size, heat no, project, DWG)"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <select
-                className="panel-toolbar-filter"
-                value={unitTab}
-                onChange={(e) => setUnitTab(e.target.value)}
-              >
-                <option value="All">All Units</option>
-                {units.map((u) => (
-                  <option key={u}>{u}</option>
-                ))}
-              </select>
-              <button
-                className={`btn btn-secondary btn-sm ${showFilters ? "btn-outline-active" : ""}`}
-                onClick={() => setShowFilters((v) => !v)}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="4" y1="21" x2="4" y2="14" />
-                  <line x1="4" y1="10" x2="4" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="12" />
-                  <line x1="12" y1="8" x2="12" y2="3" />
-                  <line x1="20" y1="21" x2="20" y2="16" />
-                  <line x1="20" y1="12" x2="20" y2="3" />
-                  <line x1="1" y1="14" x2="7" y2="14" />
-                  <line x1="9" y1="8" x2="15" y2="8" />
-                  <line x1="17" y1="16" x2="23" y2="16" />
-                </svg>
-                Filters
-              </button>
-              {hasActiveFilters && (
-                <button className="btn btn-ghost btn-sm" onClick={clearFilters}>
-                  <X size={14} /> Clear Filters
-                </button>
-              )}
-            </div>
-
-            {showFilters && (
-              <div className="filters-grid">
-                <div className="form-field">
-                  <label htmlFor="issue-filter-material">Material</label>
-                  <select
-                    id="issue-filter-material"
-                    value={filters.material}
-                    onChange={(e) => updateFilter("material", e.target.value)}
-                  >
-                    <option>All</option>
-                    {materialOptions.map((m) => (
-                      <option key={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-thickness">Thickness</label>
-                  <input
-                    id="issue-filter-thickness"
-                    placeholder="e.g. 8"
-                    value={filters.thickness}
-                    onChange={(e) => updateFilter("thickness", e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-size">Size</label>
-                  <input
-                    id="issue-filter-size"
-                    placeholder="e.g. 100 NB, 1500 x 3000"
-                    value={filters.size}
-                    onChange={(e) => updateFilter("size", e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-po-number">PO Number</label>
-                  <input
-                    id="issue-filter-po-number"
-                    placeholder="e.g. PO-001"
-                    value={filters.poNumber}
-                    onChange={(e) => updateFilter("poNumber", e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-material-code">Material Code</label>
-                  <input
-                    id="issue-filter-material-code"
-                    value={filters.materialCode}
-                    onChange={(e) => updateFilter("materialCode", e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-material-spec">Specification</label>
-                  <input
-                    id="issue-filter-material-spec"
-                    placeholder="e.g. IS2062 E250A"
-                    value={filters.materialSpec}
-                    onChange={(e) => updateFilter("materialSpec", e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-heat-number">Heat Number</label>
-                  <input
-                    id="issue-filter-heat-number"
-                    value={filters.heatNumber}
-                    onChange={(e) => updateFilter("heatNumber", e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-plate-number">Plate Number</label>
-                  <input
-                    id="issue-filter-plate-number"
-                    value={filters.plateNumber}
-                    onChange={(e) => updateFilter("plateNumber", e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-project">Project</label>
-                  <input
-                    id="issue-filter-project"
-                    list="issue-project-options"
-                    placeholder="e.g. BHEL Boiler Fabrication"
-                    value={filters.project}
-                    onChange={(e) => updateFilter("project", e.target.value)}
-                  />
-                  <datalist id="issue-project-options">
-                    {projectOptions.map((p) => (
-                      <option key={p} value={p} />
-                    ))}
-                  </datalist>
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-dwg-description">
-                    DWG / Description
-                  </label>
-                  <input
-                    id="issue-filter-dwg-description"
-                    placeholder="e.g. DWG-001"
-                    value={filters.dwgDescription}
-                    onChange={(e) => updateFilter("dwgDescription", e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-unit">Unit</label>
-                  <select
-                    id="issue-filter-unit"
-                    value={unitTab}
-                    onChange={(e) => setUnitTab(e.target.value)}
-                  >
-                    <option value="All">All</option>
-                    {units.map((u) => (
-                      <option key={u}>{u}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-source-type">Source Type</label>
-                  <select
-                    id="issue-filter-source-type"
-                    value={filters.sourceType}
-                    onChange={(e) => updateFilter("sourceType", e.target.value)}
-                  >
-                    <option>All</option>
-                    {sourceTypes.map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-field">
-                  <label htmlFor="issue-filter-rework">Rework Required</label>
-                  <select
-                    id="issue-filter-rework"
-                    value={filters.reworkRequired}
-                    onChange={(e) => updateFilter("reworkRequired", e.target.value)}
-                  >
-                    <option>All</option>
-                    <option>Yes</option>
-                    <option>No</option>
-                  </select>
-                </div>
-              </div>
-            )}
-
-            <div className="table-scroll-wrapper">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Stock ID</th>
-                    <th>Unit</th>
-                    <th>PO Number</th>
-                    <th>Description</th>
-                    <th>Material</th>
-                    <th>Material Code</th>
-                    <th>Specification</th>
-                    <th>Thickness</th>
-                    <th>Size</th>
-                    <th>Available Qty</th>
-                    <th>Project</th>
-                    <th>DWG / Description</th>
-                    <th>Revision</th>
-                    <th>Rework Required</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredStock.map((s) => (
-                    <tr key={s.id}>
-                      <td className="cell-mono">{s.stockId}</td>
-                      <td>{s.unit}</td>
-                      <td className="cell-mono">{s.poNumber}</td>
-                      <td>{s.description}</td>
-                      <td>{s.material}</td>
-                      <td className="cell-mono">{s.materialCode}</td>
-                      <td>{s.materialSpec}</td>
-                      <td>{s.thickness}</td>
-                      <td>{s.size}</td>
-                      <td>
-                        <strong>{s.availableQuantity}</strong> {s.uom}
-                      </td>
-                      <td className={s.project === "—" ? "cell-muted" : ""}>
-                        {s.project}
-                      </td>
-                      <td className={s.dwgDescription === "—" ? "cell-muted" : ""}>
-                        {s.dwgDescription}
-                      </td>
-                      <td className={s.revision === "—" ? "cell-muted" : ""}>
-                        {s.revision}
-                      </td>
-                      <td>
-                        <StatusBadge status={s.reworkRequired} />
-                      </td>
-                      <td>
-                        <button
-                          className="btn btn-primary btn-sm"
-                          onClick={() => openIssue(s)}
-                        >
-                          Issue
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {filteredStock.length === 0 && (
-                    <tr>
-                      <td colSpan={15}>
-                        <div className="empty-state">
-                          <p className="empty-state-title">
-                            No material matches your search or filters
-                          </p>
-                          <p className="empty-state-desc">
-                            Try a different thickness, size, PO number or clear
-                            filters to see all available material.
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
+                  {hasActiveFilters && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={clearFilters}
+                    >
+                      <X size={14} />
+                      Clear Filters
+                    </button>
                   )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                </div>
 
-          {/* Issue history */}
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="panel-head-title">Issue History</div>
-                <p className="panel-head-subtitle">
-                  Material already issued for in-house or outsourced job work.
-                </p>
-              </div>
-            </div>
-            <div className="table-scroll-wrapper">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Issue ID</th>
-                    <th>Date</th>
-                    <th>PO Number</th>
-                    <th>Description</th>
-                    <th>Material</th>
-                    <th>Process</th>
-                    <th>Process ID</th>
-                    <th>Job Work Type</th>
-                    <th>Unit</th>
-                    <th>Vendor</th>
-                    <th>Quantity</th>
-                    <th>Issued By</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((h) => (
-                    <tr key={h.id}>
-                      <td className="cell-mono">{h.id}</td>
-                      <td>{h.date}</td>
-                      <td className="cell-mono">{h.poNumber}</td>
-                      <td>{h.description}</td>
-                      <td>{h.material}</td>
-                      <td>{h.process}</td>
-                      <td className="cell-mono">{h.processId}</td>
-                      <td>
-                        <StatusBadge status={h.jobWorkType} />
-                      </td>
-                      <td className={h.unit === "—" ? "cell-muted" : ""}>
-                        {h.unit}
-                      </td>
-                      <td className={h.vendor === "—" ? "cell-muted" : ""}>
-                        {h.vendor}
-                      </td>
-                      <td>
-                        <strong>{h.quantity}</strong> {h.uom}
-                      </td>
-                      <td>{h.issuedBy}</td>
-                      <td>
-                        <StatusBadge status={h.status} />
-                      </td>
-                    </tr>
-                  ))}
-                  {history.length === 0 && (
-                    <tr>
-                      <td colSpan={13}>
-                        <div className="empty-state">
-                          <p className="empty-state-title">
-                            No material has been issued yet
-                          </p>
-                          <p className="empty-state-desc">
-                            Issued material for job work will appear here.
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                {showFilters && (
+                  <div className="filters-grid">
+                    <div className="form-field">
+                      <label>Thickness</label>
+                      <select
+                        value={filters.thickness}
+                        onChange={(e) =>
+                          updateFilter("thickness", e.target.value)
+                        }
+                      >
+                        <option value="All">All</option>
+                        {(filterOptions.thickness || []).map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-          {/* Issue to Job Work modal */}
+                    <div className="form-field">
+                      <label>Project</label>
+                      <select
+                        value={filters.project}
+                        onChange={(e) =>
+                          updateFilter("project", e.target.value)
+                        }
+                      >
+                        <option value="All">All</option>
+                        {(filterOptions.project || []).map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-field">
+                      <label>Length</label>
+                      <select
+                        value={filters.length}
+                        onChange={(e) => updateFilter("length", e.target.value)}
+                      >
+                        <option value="All">All</option>
+                        {(filterOptions.length || []).map((v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-field">
+                      <label>Width</label>
+                      <select
+                        value={filters.width}
+                        onChange={(e) => updateFilter("width", e.target.value)}
+                      >
+                        <option value="All">All</option>
+                        {(filterOptions.width || []).map((v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-field">
+                      <label>Material</label>
+                      <select
+                        value={filters.material}
+                        onChange={(e) =>
+                          updateFilter("material", e.target.value)
+                        }
+                      >
+                        <option value="All">All</option>
+                        {(filterOptions.material || []).map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-field">
+                      <label>PO Number</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. PO-001"
+                        value={filters.poNumber}
+                        onChange={(e) =>
+                          updateFilter("poNumber", e.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div className="form-field">
+                      <label>Source Type</label>
+                      <select
+                        value={filters.sourceType}
+                        onChange={(e) =>
+                          updateFilter("sourceType", e.target.value)
+                        }
+                      >
+                        <option value="All">All</option>
+                        {SOURCE_TYPES.map((s) => (
+                          <option key={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-field">
+                      <label>Rework Required</label>
+                      <select
+                        value={filters.reworkRequired}
+                        onChange={(e) =>
+                          updateFilter("reworkRequired", e.target.value)
+                        }
+                      >
+                        <option value="All">All</option>
+                        <option>Yes</option>
+                        <option>No</option>
+                      </select>
+                    </div>
+
+                    <div className="form-field">
+                      <label>Unit</label>
+                      <select
+                        value={unitTab}
+                        onChange={(e) => setUnitTab(e.target.value)}
+                      >
+                        <option value="All">All</option>
+                        {UNITS.map((u) => (
+                          <option key={u}>{u}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="table-scroll-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Stock ID</th>
+                        <th>Unit</th>
+                        <th>PO Number</th>
+                        <th>Description</th>
+
+                        <th>Thickness</th>
+                        <th>Length</th>
+                        <th>Width</th>
+                        <th>Available Qty</th>
+                        <th>Project</th>
+                        <th>DWG / Description</th>
+                        <th>Revision</th>
+                        <th>Rework Required</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredStock.map((s) => (
+                        <tr key={s.id}>
+                          <td className="cell-mono">{s.stockId}</td>
+                          <td>{s.unit}</td>
+                          <td className="cell-mono">{s.poNumber}</td>
+                          <td>{s.description}</td>
+                          <td>{s.thickness || "—"}</td>
+                          <td>{s.length || "—"}</td>
+                          <td>{s.width || "—"}</td>
+                          <td>
+                            <strong>{fmt(s.availableQty)}</strong> {s.uom}
+                          </td>
+                          <td
+                            className={
+                              !s.project || s.project === "—"
+                                ? "cell-muted"
+                                : ""
+                            }
+                          >
+                            {s.project || "—"}
+                          </td>
+                          <td
+                            className={
+                              !s.dwgDescription || s.dwgDescription === "—"
+                                ? "cell-muted"
+                                : ""
+                            }
+                          >
+                            {s.dwgDescription || "—"}
+                          </td>
+                          <td
+                            className={
+                              !s.revision || s.revision === "—"
+                                ? "cell-muted"
+                                : ""
+                            }
+                          >
+                            {s.revision || "—"}
+                          </td>
+                          <td>
+                            <StatusBadge status={s.reworkRequired} />
+                          </td>
+                          <td>
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => openIssue(s)}
+                            >
+                              Issue
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {filteredStock.length === 0 && (
+                        <tr>
+                          <td colSpan={13}>
+                            <div className="empty-state">
+                              <p className="empty-state-title">
+                                No material matches your search or filters
+                              </p>
+                              <p className="empty-state-desc">
+                                Try clearing filters or search by PO number,
+                                project, thickness, length or width.
+                              </p>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {/* ---------------- ISSUE HISTORY ---------------- */}
+
+              <section className="panel">
+                <div className="panel-head">
+                  <div>
+                    <div className="panel-head-title">Issue History</div>
+                    <p className="panel-head-subtitle">
+                      Material already issued for in-house or outsourced job
+                      work.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="table-scroll-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Issue ID</th>
+                        <th>Date</th>
+                        <th>PO Number</th>
+                        <th>Description</th>
+                        <th>Material</th>
+                        <th>Process</th>
+                        <th>Process ID</th>
+                        <th>Job Work Type</th>
+                        <th>Unit</th>
+                        <th>Vendor</th>
+                        <th>Quantity</th>
+                        <th>Returned</th>
+                        <th>Balance</th>
+                        <th>Issued By</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((h) => (
+                        <tr key={h.id}>
+                          <td className="cell-mono">{h.issueNumber}</td>
+                          <td>{h.issueDate}</td>
+                          <td className="cell-mono">{h.poNumber}</td>
+                          <td>{h.description}</td>
+                          <td>{h.material || "—"}</td>
+                          <td>{h.processName || "—"}</td>
+                          <td className="cell-mono">{h.processId || "—"}</td>
+                          <td>
+                            <StatusBadge status={h.jobWorkType} />
+                          </td>
+                          <td className={!h.jobWorkUnit ? "cell-muted" : ""}>
+                            {h.jobWorkUnit || "—"}
+                          </td>
+                          <td className={!h.vendor ? "cell-muted" : ""}>
+                            {h.vendor || "—"}
+                          </td>
+                          <td>
+                            <strong>{fmt(h.quantityIssued)}</strong> {h.uom}
+                          </td>
+                          <td>{fmt(h.quantityReturned)}</td>
+                          <td>
+                            <strong>{fmt(h.balanceQty)}</strong>
+                          </td>
+                          <td>{h.issuedBy || "—"}</td>
+                          <td>
+                            <StatusBadge status={h.status} />
+                          </td>
+                        </tr>
+                      ))}
+
+                      {history.length === 0 && (
+                        <tr>
+                          <td colSpan={15}>
+                            <div className="empty-state">
+                              <p className="empty-state-title">
+                                No material has been issued yet
+                              </p>
+                              <p className="empty-state-desc">
+                                Issued material for job work will appear here.
+                              </p>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
+
+          {/* ---------------- ISSUE MODAL ---------------- */}
+
           <Modal
             open={!!issueStock}
             title="Issue to Job Work"
             subtitle={
-              issueStock ? `${issueStock.poNumber} · ${issueStock.description}` : ""
+              issueStock
+                ? `${issueStock.poNumber} · ${issueStock.description}`
+                : ""
             }
             onClose={closeIssue}
           >
             {issueStock && (
               <div className="issue-form">
-                {/* Selected material — shown first, always */}
+                {/* Selected material */}
                 <div className="selected-material-card">
                   <div className="selected-material-head">
                     <span className="selected-material-id">
@@ -1288,6 +1216,7 @@ export default function IssueToJobWork() {
                     </span>
                     <StatusBadge status={issueStock.sourceType} />
                   </div>
+
                   <div className="kv-grid kv-grid-compact">
                     <div className="kv">
                       <span>PO Number</span>
@@ -1299,24 +1228,28 @@ export default function IssueToJobWork() {
                     </div>
                     <div className="kv">
                       <span>Material</span>
-                      <strong>{issueStock.material}</strong>
+                      <strong>{issueStock.material || "—"}</strong>
                     </div>
                     <div className="kv">
                       <span>Specification</span>
-                      <strong>{issueStock.materialSpec}</strong>
+                      <strong>{issueStock.materialSpec || "—"}</strong>
                     </div>
                     <div className="kv">
                       <span>Thickness</span>
-                      <strong>{issueStock.thickness}</strong>
+                      <strong>{issueStock.thickness || "—"}</strong>
                     </div>
                     <div className="kv">
-                      <span>Size</span>
-                      <strong>{issueStock.size}</strong>
+                      <span>Length</span>
+                      <strong>{issueStock.length || "—"}</strong>
+                    </div>
+                    <div className="kv">
+                      <span>Width</span>
+                      <strong>{issueStock.width || "—"}</strong>
                     </div>
                     <div className="kv">
                       <span>Available Quantity</span>
                       <strong>
-                        {issueStock.availableQuantity} {issueStock.uom}
+                        {fmt(issueStock.availableQty)} {issueStock.uom}
                       </strong>
                     </div>
                     <div className="kv">
@@ -1340,39 +1273,17 @@ export default function IssueToJobWork() {
                     <div className="kv-grid kv-grid-compact">
                       <div className="kv">
                         <span>Project</span>
-                        <strong>{integration.project}</strong>
+                        <strong>{issueStock.project}</strong>
                       </div>
                       <div className="kv">
                         <span>DWG</span>
-                        <strong>{integration.dwg}</strong>
+                        <strong>{issueStock.dwgDescription || "—"}</strong>
                       </div>
                       <div className="kv">
-                        <span>Description</span>
-                        <strong>{integration.description}</strong>
+                        <span>Revision</span>
+                        <strong>{issueStock.revision || "—"}</strong>
                       </div>
                     </div>
-                    <table className="mini-table">
-                      <thead>
-                        <tr>
-                          <th>Material</th>
-                          <th>Thickness</th>
-                          <th>Required Qty</th>
-                          <th>Size</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {integration.requirements.map((r, i) => (
-                          <tr key={i}>
-                            <td>{r.material}</td>
-                            <td>{r.thickness}</td>
-                            <td>
-                              {r.requiredQty} {r.uom}
-                            </td>
-                            <td>{r.size}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
                   </div>
                 ) : (
                   <div className="integration-block integration-warning">
@@ -1399,187 +1310,210 @@ export default function IssueToJobWork() {
                   </div>
                 )}
 
-                {/* Remaining form only unlocks once integration is confirmed */}
                 {isIntegrated && (
                   <>
+                    {/* Job work type */}
                     <div className="form-field">
-                      <label id="job-work-type-label">Job Work Type</label>
-                      <div
-                        className="segment-toggle"
-                        role="group"
-                        aria-labelledby="job-work-type-label"
-                      >
+                      <label>Job Work Type</label>
+                      <div className="segment-toggle" role="group">
                         <button
                           type="button"
-                          className={`segment-btn ${jobWorkType === "In-House" ? "segment-btn-active" : ""}`}
-                          onClick={() => setJobWorkType("In-House")}
+                          className={`segment-btn ${
+                            issueForm.jobWorkType === "In-House"
+                              ? "segment-btn-active"
+                              : ""
+                          }`}
+                          onClick={() =>
+                            setFormField("jobWorkType", "In-House")
+                          }
                         >
                           <Building2 size={14} /> In-House
                         </button>
                         <button
                           type="button"
-                          className={`segment-btn ${jobWorkType === "Outsourcing" ? "segment-btn-active" : ""}`}
-                          onClick={() => setJobWorkType("Outsourcing")}
+                          className={`segment-btn ${
+                            issueForm.jobWorkType === "Outsourcing"
+                              ? "segment-btn-active"
+                              : ""
+                          }`}
+                          onClick={() =>
+                            setFormField("jobWorkType", "Outsourcing")
+                          }
                         >
                           <Truck size={14} /> Outsourcing
                         </button>
                       </div>
                     </div>
 
-                    {jobWorkType === "In-House" && (
+                    {issueForm.jobWorkType === "In-House" && (
                       <div className="form-field">
-                        <label htmlFor="job-work-unit">
-                          Receiving / Job Work Unit
-                        </label>
+                        <label>Receiving / Job Work Unit</label>
                         <select
-                          id="job-work-unit"
-                          value={jobWorkUnit}
-                          onChange={(e) => setJobWorkUnit(e.target.value)}
+                          value={issueForm.jobWorkUnit}
+                          onChange={(e) =>
+                            setFormField("jobWorkUnit", e.target.value)
+                          }
                         >
-                          <option>Unit 1</option>
-                          <option>Unit 2</option>
+                          {UNITS.map((u) => (
+                            <option key={u}>{u}</option>
+                          ))}
                         </select>
                       </div>
                     )}
 
-                    {jobWorkType && (
+                    {issueForm.jobWorkType && (
                       <>
                         <div className="form-field">
-                          <label htmlFor="issue-process">Process</label>
+                          <label>Process</label>
                           <select
-                            id="issue-process"
-                            value={process}
+                            value={issueForm.process}
                             onChange={handleProcessChange}
                           >
                             <option value="">Select process</option>
                             {processes.map((p) => (
-                              <option key={p.pid} value={p.pid}>
-                                {p.name} - {p.pid}
+                              <option key={p.processId} value={p.processId}>
+                                {p.name} - {p.processId}
                               </option>
                             ))}
-                            <option value="__create__">+ Create New Process</option>
+                            <option value="__create__">
+                              + Create New Process
+                            </option>
                           </select>
                         </div>
 
                         <div className="form-row-2">
                           <div className="form-field">
-                            <label htmlFor="issue-available-qty">
-                              Available Quantity
-                            </label>
+                            <label>Available Quantity</label>
                             <input
-                              id="issue-available-qty"
-                              value={`${issueStock.availableQuantity} ${issueStock.uom}`}
+                              value={`${fmt(issueStock.availableQty)} ${issueStock.uom}`}
                               disabled
                             />
                           </div>
-                          <div className="form-field">
-                            <label htmlFor="issue-qty">Issue Quantity</label>
+
+                          <div
+                            className={`form-field ${
+                              liveQtyError ? "form-field-error" : ""
+                            }`}
+                          >
+                            <label>Issue Quantity</label>
                             <input
-                              id="issue-qty"
                               type="number"
                               min="1"
                               placeholder="e.g. 6"
-                              value={issueQty}
-                              onChange={(e) => setIssueQty(e.target.value)}
+                              value={issueForm.issueQty}
+                              onChange={(e) =>
+                                setFormField("issueQty", e.target.value)
+                              }
                             />
-                            {liveQtyError && (
-                              <span className="field-error">{liveQtyError}</span>
+                            {liveQtyError ? (
+                              <span className="form-error-text">
+                                {liveQtyError}
+                              </span>
+                            ) : (
+                              <span className="form-hint">
+                                Up to {fmt(issueStock.availableQty)}{" "}
+                                {issueStock.uom}.
+                              </span>
                             )}
                           </div>
                         </div>
 
+                        {/* Issued By — free text */}
                         <div className="form-field">
-                          <label htmlFor="issued-by">Issued By</label>
-                          <select
-                            id="issued-by"
-                            value={issuedBy}
-                            onChange={(e) => setIssuedBy(e.target.value)}
-                          >
-                            <option value="">Select employee</option>
-                            {employees.map((emp) => (
-                              <option key={emp}>{emp}</option>
-                            ))}
-                          </select>
+                          <label>Issued By</label>
+                          <input
+                            type="text"
+                            placeholder="Enter name"
+                            value={issueForm.issuedBy}
+                            onChange={(e) =>
+                              setFormField("issuedBy", e.target.value)
+                            }
+                          />
                         </div>
 
-                        {jobWorkType === "In-House" && (
+                        {issueForm.jobWorkType === "In-House" && (
                           <div className="form-field">
-                            <label htmlFor="issue-remarks">Remarks (optional)</label>
+                            <label>Remarks (optional)</label>
                             <textarea
-                              id="issue-remarks"
                               rows={2}
-                              value={remarks}
-                              onChange={(e) => setRemarks(e.target.value)}
+                              value={issueForm.remarks}
+                              onChange={(e) =>
+                                setFormField("remarks", e.target.value)
+                              }
                             />
                           </div>
                         )}
 
-                        {jobWorkType === "Outsourcing" && (
+                        {issueForm.jobWorkType === "Outsourcing" && (
                           <div className="outsourcing-block">
                             <div className="outsourcing-block-title">
                               Outsourcing Details
                             </div>
+
+                            {/* Vendor — free text */}
                             <div className="form-field">
-                              <label htmlFor="outsourcing-vendor">Vendor</label>
-                              <select
-                                id="outsourcing-vendor"
-                                value={vendor}
-                                onChange={(e) => setVendor(e.target.value)}
-                              >
-                                <option value="">Select vendor</option>
-                                {vendors.map((v) => (
-                                  <option key={v}>{v}</option>
-                                ))}
-                              </select>
+                              <label>Vendor</label>
+                              <input
+                                type="text"
+                                placeholder="Enter vendor name"
+                                value={issueForm.vendor}
+                                onChange={(e) =>
+                                  setFormField("vendor", e.target.value)
+                                }
+                              />
                             </div>
+
                             <div className="form-row-2">
                               <div className="form-field">
-                                <label htmlFor="outsourcing-vendor-contact">
-                                  Vendor Contact
-                                </label>
+                                <label>Vendor Contact</label>
                                 <input
-                                  id="outsourcing-vendor-contact"
                                   placeholder="Phone / email"
-                                  value={vendorContact}
-                                  onChange={(e) => setVendorContact(e.target.value)}
+                                  value={issueForm.vendorContact}
+                                  onChange={(e) =>
+                                    setFormField(
+                                      "vendorContact",
+                                      e.target.value,
+                                    )
+                                  }
                                 />
                               </div>
                               <div className="form-field">
-                                <label htmlFor="outsourcing-location">
-                                  Job Work Location
-                                </label>
+                                <label>Job Work Location</label>
                                 <input
-                                  id="outsourcing-location"
                                   placeholder="Vendor works address / city"
-                                  value={jobWorkLocation}
+                                  value={issueForm.jobWorkLocation}
                                   onChange={(e) =>
-                                    setJobWorkLocation(e.target.value)
+                                    setFormField(
+                                      "jobWorkLocation",
+                                      e.target.value,
+                                    )
                                   }
                                 />
                               </div>
                             </div>
+
                             <div className="form-field">
-                              <label htmlFor="outsourcing-return-date">
-                                Expected Return Date
-                              </label>
+                              <label>Expected Return Date</label>
                               <input
-                                id="outsourcing-return-date"
                                 type="date"
-                                value={expectedReturnDate}
+                                value={issueForm.expectedReturnDate}
                                 onChange={(e) =>
-                                  setExpectedReturnDate(e.target.value)
+                                  setFormField(
+                                    "expectedReturnDate",
+                                    e.target.value,
+                                  )
                                 }
                               />
                             </div>
+
                             <div className="form-field">
-                              <label htmlFor="outsourcing-remarks">
-                                Remarks (optional)
-                              </label>
+                              <label>Remarks (optional)</label>
                               <textarea
-                                id="outsourcing-remarks"
                                 rows={2}
-                                value={remarks}
-                                onChange={(e) => setRemarks(e.target.value)}
+                                value={issueForm.remarks}
+                                onChange={(e) =>
+                                  setFormField("remarks", e.target.value)
+                                }
                               />
                             </div>
                           </div>
@@ -1593,22 +1527,32 @@ export default function IssueToJobWork() {
                         )}
 
                         <div className="modal-actions">
-                          <button className="btn btn-secondary" onClick={closeIssue}>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={closeIssue}
+                            disabled={savingIssue}
+                          >
                             Cancel
                           </button>
-                          {jobWorkType === "In-House" ? (
+
+                          {issueForm.jobWorkType === "In-House" ? (
                             <button
                               className="btn btn-primary"
                               onClick={handleIssueMaterial}
+                              disabled={savingIssue}
                             >
-                              Issue Material
+                              {savingIssue ? "Saving..." : "Issue Material"}
                             </button>
                           ) : (
                             <button
                               className="btn btn-primary"
                               onClick={handleContinueToChallan}
+                              disabled={savingIssue}
                             >
-                              Continue to Delivery Challan <ArrowRight size={14} />
+                              {savingIssue
+                                ? "Saving..."
+                                : "Continue to Delivery Challan"}
+                              <ArrowRight size={14} />
                             </button>
                           )}
                         </div>
@@ -1620,7 +1564,8 @@ export default function IssueToJobWork() {
             )}
           </Modal>
 
-          {/* Create New Process modal */}
+          {/* ---------------- CREATE PROCESS MODAL ---------------- */}
+
           <Modal
             open={showCreateProcess}
             title="Create New Process"
@@ -1630,29 +1575,30 @@ export default function IssueToJobWork() {
             }}
           >
             <div className="form-field">
-              <label htmlFor="new-process-name">Process Name</label>
+              <label>Process Name</label>
               <input
-                id="new-process-name"
                 placeholder="e.g. Shot Blasting"
                 value={newProcessName}
                 onChange={(e) => setNewProcessName(e.target.value)}
               />
             </div>
+
             <div className="form-field" style={{ marginTop: 12 }}>
-              <label htmlFor="new-process-id">Process ID</label>
+              <label>Process ID</label>
               <input
-                id="new-process-id"
                 placeholder="e.g. SHOT01"
                 value={newProcessId}
                 onChange={(e) => setNewProcessId(e.target.value.toUpperCase())}
               />
             </div>
+
             {processError && (
               <div className="form-error-banner" style={{ marginTop: 12 }}>
                 <AlertTriangle size={14} />
                 {processError}
               </div>
             )}
+
             <div className="modal-actions">
               <button
                 className="btn btn-secondary"

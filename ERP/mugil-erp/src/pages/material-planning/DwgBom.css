@@ -1233,3 +1233,97 @@ a {
     min-width: 600px;
   }
 }
+
+
+/* Search box above the project select */
+.dwgbom-project-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  width: 100%;
+  max-width: 520px;
+}
+
+.dwgbom-project-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  background: transparent;
+}
+
+.dwgbom-project-search-clear {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  color: #667085;
+  padding: 2px;
+}
+
+.dwgbom-project-search-clear:hover {
+  color: #101828;
+}
+
+.dwgbom-match-count {
+  font-weight: 400;
+  color: #667085;
+  font-size: 12px;
+}
+
+/* Project search box */
+.dwgbom-project-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  width: 100%;
+  max-width: 520px;
+}
+.dwgbom-project-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  background: transparent;
+}
+.dwgbom-project-search-clear {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  color: #667085;
+  padding: 2px;
+}
+.dwgbom-project-search-clear:hover { color: #101828; }
+.dwgbom-match-count {
+  font-weight: 400;
+  color: #667085;
+  font-size: 12px;
+}
+
+/* Nested description grid inside the BOM modal */
+.form-grid-inner {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 6px;
+  padding: 12px;
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+.form-sublabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: #475467;
+}

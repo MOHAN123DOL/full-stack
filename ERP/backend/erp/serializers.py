@@ -2,7 +2,7 @@ from django.contrib.auth import authenticate
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import ConsumableIssue, ConsumableReturn, User
+from .models import BOMPOIntegration, ConsumableIssue, ConsumableReturn, PurchaseOrder, User
 
 #for login 
 class LoginSerializer(serializers.Serializer):
@@ -373,12 +373,22 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 from rest_framework import serializers
 
-from .models import PurchaseOrder
+
 from rest_framework import serializers
 
-from .models import PurchaseOrder
+from .models import PurchaseOrderItem
 
-
+class PurchaseOrderItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PurchaseOrderItem
+        fields = [
+            "id",
+            "item_code",
+            "description",
+            "quantity",
+            "unit",
+        ]
+        read_only_fields = fields
 class PurchaseOrderSerializer(serializers.ModelSerializer):
 
     created_by_name = serializers.CharField(
@@ -390,6 +400,11 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         source="created_by.user_type",
         read_only=True,
     )
+    po_items = PurchaseOrderItemSerializer(
+        many=True,
+        read_only=True,
+    )
+  
 
     class Meta:
         model = PurchaseOrder
@@ -405,6 +420,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             "prepared_by",
 
             "vendor",
+            "po_items",
 
             "intro_text",
 
@@ -2398,3 +2414,1036 @@ class ConsumableReturnSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+#for material dwgbom
+from rest_framework import serializers
+from .models import Project, Drawing, BOMItem
+
+from decimal import Decimal, InvalidOperation
+
+from rest_framework import serializers
+
+from .models import Project, Drawing, BOMItem
+
+
+# ---------------------------------------------------------------------
+# Canonical keys inside BOMItem.description
+# ---------------------------------------------------------------------
+_DESCRIPTION_STRING_KEYS = ("materialType", "grade", "remarks")
+_DESCRIPTION_NUMERIC_KEYS = ("thickness", "length", "width")
+_DESCRIPTION_ALL_KEYS = _DESCRIPTION_STRING_KEYS + _DESCRIPTION_NUMERIC_KEYS
+
+# snake_case -> camelCase aliases (tolerant to older clients)
+_KEY_ALIASES = {
+    "material_type": "materialType",
+    "materialtype": "materialType",
+}
+
+
+def _empty_description():
+    return {
+        "materialType": "",
+        "thickness": None,
+        "length": None,
+        "width": None,
+        "grade": "",
+        "remarks": "",
+    }
+
+
+def _normalize_description(raw):
+    """
+    Accepts:
+      - None / "" / {}                        → empty object
+      - dict with camelCase OR snake_case     → canonical dict
+      - plain string (legacy)                 → dumped into "remarks"
+
+    Always returns a dict with exactly the canonical keys.
+    Raises serializers.ValidationError on bad input.
+    """
+    if raw in (None, ""):
+        return _empty_description()
+
+    # Legacy plain string
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return _empty_description()
+        out = _empty_description()
+        out["remarks"] = stripped
+        return out
+
+    if not isinstance(raw, dict):
+        raise serializers.ValidationError(
+            "Description must be an object like "
+            '{"materialType": "Plate", "thickness": 6, "length": 530, "width": 530}.'
+        )
+
+    # Fold snake_case keys into camelCase
+    folded = {}
+    for k, v in raw.items():
+        folded[_KEY_ALIASES.get(k, k)] = v
+
+    out = _empty_description()
+
+    # Strings
+    for key in _DESCRIPTION_STRING_KEYS:
+        v = folded.get(key)
+        out[key] = ("" if v is None else str(v)).strip()
+
+    # Numbers
+    for key in _DESCRIPTION_NUMERIC_KEYS:
+        v = folded.get(key)
+        if v in (None, "", "null"):
+            out[key] = None
+            continue
+        try:
+            d = Decimal(str(v))
+        except (InvalidOperation, TypeError, ValueError):
+            raise serializers.ValidationError(
+                f"{key} must be a number, got {v!r}."
+            )
+        if d < 0:
+            raise serializers.ValidationError(f"{key} cannot be negative.")
+        out[key] = float(d)
+
+    # Reject unknown keys so typos surface immediately
+    unknown = set(folded.keys()) - set(_DESCRIPTION_ALL_KEYS)
+    if unknown:
+        raise serializers.ValidationError(
+            f"Unknown description keys: {', '.join(sorted(unknown))}."
+        )
+
+    return out
+
+
+class DescriptionField(serializers.Field):
+    """
+    Normalizes BOMItem.description on read AND write.
+    Always emits the canonical camelCase shape.
+    """
+
+    def to_representation(self, value):
+        return _normalize_description(value)
+
+    def to_internal_value(self, data):
+        try:
+            return _normalize_description(data)
+        except serializers.ValidationError:
+            raise
+        except Exception as exc:
+            raise serializers.ValidationError(str(exc))
+
+
+class BOMItemSerializer(serializers.ModelSerializer):
+    drawingId = serializers.PrimaryKeyRelatedField(
+        source="drawing",
+        queryset=Drawing.objects.all(),
+    )
+    variantNumber = serializers.CharField(
+        source="variant_number", required=False, allow_blank=True
+    )
+    itemNumber = serializers.CharField(
+        source="item_number", required=False, allow_blank=True
+    )
+    drawingNumber = serializers.CharField(
+        source="drawing_number", required=False, allow_blank=True
+    )
+    itemNo = serializers.CharField(
+        source="item_no", required=False, allow_blank=True
+    )
+    varNo = serializers.CharField(
+        source="var_no", required=False, allow_blank=True
+    )
+    materialCode = serializers.CharField(source="material_code")
+    materialSpecn = serializers.CharField(
+        source="material_specn", required=False, allow_blank=True
+    )
+    unitWeight = serializers.FloatField(source="unit_weight", required=False)
+    quantity = serializers.FloatField()
+
+    # Normalized JSON object — DescriptionField handles both directions
+    description = DescriptionField(required=False)
+
+    class Meta:
+        model = BOMItem
+        fields = [
+            "id",
+            "drawingId",
+            "variantNumber",
+            "itemNumber",
+            "description",
+            "std",
+            "drawingNumber",
+            "itemNo",
+            "varNo",
+            "materialCode",
+            "materialSpecn",
+            "acp",
+            "di",
+            "unit",
+            "unitWeight",
+            "quantity",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    # -----------------------------------------------------------------
+    # Validation
+    # -----------------------------------------------------------------
+    def validate_description(self, value):
+        # Field is optional on PATCH — fall back to model default when absent
+        if value is None:
+            return _empty_description()
+
+        # Reject a totally empty description on CREATE/PATCH
+        has_content = any(
+            (
+                value.get("materialType"),
+                value.get("thickness"),
+                value.get("length"),
+                value.get("width"),
+                value.get("grade"),
+                value.get("remarks"),
+            )
+        )
+        if not has_content:
+            raise serializers.ValidationError(
+                "Enter at least one of: materialType, thickness, length, "
+                "width, grade, or remarks."
+            )
+        return value
+
+    def validate_quantity(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Quantity must be greater than 0.")
+        return value
+
+    def validate_unit_weight(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Unit weight cannot be negative.")
+        return value
+
+    def validate_quantity(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Quantity must be greater than 0.")
+        return value
+
+
+class DrawingSerializer(serializers.ModelSerializer):
+    projectId = serializers.PrimaryKeyRelatedField(
+        source="project",
+        queryset=Project.objects.all(),
+    )
+    dwgNumber = serializers.CharField(source="dwg_number")
+
+    class Meta:
+        model = Drawing
+        fields = [
+            "id",
+            "projectId",
+            "dwgNumber",
+            "name",
+            "revision",
+            "date",
+            "file",
+            "remarks",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+    startDate = serializers.DateField(source="start_date", required=False, allow_null=True)
+    endDate = serializers.DateField(source="end_date", required=False, allow_null=True)
+
+    class Meta:
+        model = Project
+        fields = [
+            "id",
+            "name",
+            "code",
+            "description",
+            "status",
+            "startDate",
+            "endDate",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+        if start_date and end_date and end_date < start_date:
+            raise serializers.ValidationError({
+                "endDate": "Expected End Date cannot be earlier than Start Date."
+            })
+        return attrs
+
+
+
+#for project integration
+# =====================================================================
+# PROJECT-LEVEL BOM ↔ PO INTEGRATION
+# =====================================================================
+
+class ProjectIntegrationRowSerializer(serializers.Serializer):
+    
+    # --- BOM side ---
+    bomItemId = serializers.IntegerField()
+    bomItemNumber = serializers.CharField(allow_blank=True)
+    bomDescription = serializers.CharField(allow_blank=True)
+    bomUnit = serializers.CharField(allow_blank=True)
+    bomQuantity = serializers.DecimalField(
+        max_digits=15, decimal_places=3,
+    )
+    bomIntegrated = serializers.DecimalField(
+        max_digits=15, decimal_places=3,
+    )
+    bomRemaining = serializers.DecimalField(
+        max_digits=15, decimal_places=3,
+    )
+
+    # --- Drawing info (read-only context) ---
+    drawingId = serializers.IntegerField()
+    drawingNumber = serializers.CharField(allow_blank=True)
+
+    # --- PO side ---
+    poItemId = serializers.IntegerField()
+    poNumber = serializers.CharField(allow_blank=True)
+    poItemCode = serializers.CharField(allow_blank=True)
+    poDescription = serializers.CharField(allow_blank=True)
+    poUnit = serializers.CharField(allow_blank=True)
+    poQuantity = serializers.DecimalField(
+        max_digits=15, decimal_places=3,
+    )
+    poIntegrated = serializers.DecimalField(
+        max_digits=15, decimal_places=3,
+    )
+    poRemaining = serializers.DecimalField(
+        max_digits=15, decimal_places=3,
+    )
+
+    # How much can still be integrated on this exact row
+    maximumIntegratable = serializers.DecimalField(
+        max_digits=15, decimal_places=3,
+    )
+
+
+class ProjectIntegrationSaveRowSerializer(serializers.Serializer):
+    """
+    One row payload when saving.
+    """
+
+    bomItemId = serializers.IntegerField()
+    poItemId = serializers.IntegerField()
+    quantity = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        min_value=Decimal("0.001"),
+    )
+
+
+class ProjectIntegrationSaveSerializer(serializers.Serializer):
+
+
+    projectId = serializers.IntegerField()
+    rows = ProjectIntegrationSaveRowSerializer(many=True)
+
+    def validate_rows(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "At least one row is required."
+            )
+        return value
+
+from .models import DummyPurchaseOrder, DummyPurchaseOrderItem
+
+
+class DummyPurchaseOrderItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DummyPurchaseOrderItem
+        fields = [
+            "id",
+            "item_code",
+            "description",
+            "material",
+            "length",
+            "width",
+            "thickness",
+            "quantity",
+            "unit",
+            "remarks",
+        ]
+        read_only_fields = fields
+
+
+class DummyPurchaseOrderSerializer(serializers.ModelSerializer):
+    items = DummyPurchaseOrderItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = DummyPurchaseOrder
+        fields = [
+            "id",
+            "po_number",
+            "remarks",
+            "items",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+
+#MATERIAL GRN SERIALIZER
+
+
+from .models import MaterialGRN
+
+
+class MaterialGRNSerializer(serializers.ModelSerializer):
+    """
+    Read serializer — emits the exact camelCase shape the frontend
+    expects for a GRN history row.
+    """
+
+    id = serializers.SerializerMethodField()
+    grnNumber = serializers.CharField(
+        source="grn_number",
+        read_only=True,
+    )
+    grnDate = serializers.DateField(
+        source="grn_date",
+        read_only=True,
+    )
+    poNumber = serializers.CharField(
+        source="po_number",
+        read_only=True,
+    )
+    description = serializers.CharField(
+        read_only=True,
+    )
+    material = serializers.CharField(
+        read_only=True,
+    )
+    receivedQty = serializers.DecimalField(
+        source="received_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    unit = serializers.CharField(
+        source="receiving_unit",
+        read_only=True,
+    )
+    receivedBy = serializers.SerializerMethodField()
+    remarks = serializers.CharField(
+        read_only=True,
+    )
+
+    class Meta:
+        model = MaterialGRN
+        fields = [
+            "id",
+            "grnNumber",
+            "grnDate",
+            "poNumber",
+            "description",
+            "material",
+            "receivedQty",
+            "unit",
+            "receivedBy",
+            "remarks",
+        ]
+        read_only_fields = fields
+
+    def get_id(self, obj):
+        return f"grn-{obj.id}"
+
+    def get_receivedBy(self, obj):
+        return obj.received_by or "—"
+
+
+
+# =====================================================================
+# MATERIAL STOCK SERIALIZERS
+# =====================================================================
+
+from .models import MaterialStock, MaterialStockMovement
+
+
+class MaterialStockMovementSerializer(serializers.ModelSerializer):
+
+    direction = serializers.CharField(read_only=True)
+    movementType = serializers.CharField(
+        source="movement_type",
+        read_only=True,
+    )
+    quantity = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    referenceType = serializers.CharField(
+        source="reference_type",
+        read_only=True,
+    )
+    referenceId = serializers.IntegerField(
+        source="reference_id",
+        read_only=True,
+    )
+    remarks = serializers.CharField(read_only=True)
+    createdAt = serializers.DateTimeField(
+        source="created_at",
+        read_only=True,
+    )
+
+    class Meta:
+        model = MaterialStockMovement
+        fields = [
+            "id",
+            "direction",
+            "movementType",
+            "quantity",
+            "referenceType",
+            "referenceId",
+            "remarks",
+            "createdAt",
+        ]
+        read_only_fields = fields
+
+
+class MaterialStockSerializer(serializers.ModelSerializer):
+
+    id = serializers.IntegerField(read_only=True)
+    stockId = serializers.CharField(source="stock_id", read_only=True)
+    sourceType = serializers.CharField(source="source_type", read_only=True)
+    poNumber = serializers.CharField(source="po_number", read_only=True)
+    description = serializers.CharField(read_only=True)
+    material = serializers.CharField(read_only=True)
+    materialCode = serializers.CharField(source="material_code", read_only=True)
+    materialSpec = serializers.CharField(source="material_spec", read_only=True)
+    thickness = serializers.CharField(read_only=True)
+    length = serializers.CharField(read_only=True)
+    width = serializers.CharField(read_only=True)
+    heatNumber = serializers.CharField(source="heat_number", read_only=True)
+    plateNumber = serializers.CharField(source="plate_number", read_only=True)
+    originalQty = serializers.DecimalField(
+        source="original_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    availableQty = serializers.SerializerMethodField()
+    uom = serializers.CharField(read_only=True)
+    project = serializers.SerializerMethodField()
+    projectId = serializers.IntegerField(source="project_id", read_only=True)
+    dwgDescription = serializers.CharField(
+        source="dwg_description",
+        read_only=True,
+    )
+    revision = serializers.CharField(read_only=True)
+    stockStatus = serializers.CharField(source="stock_status", read_only=True)
+    reworkRequired = serializers.SerializerMethodField()
+    remarks = serializers.CharField(read_only=True)
+    unit = serializers.CharField(read_only=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
+
+    class Meta:
+        model = MaterialStock
+        fields = [
+            "id",
+            "stockId",
+            "unit",
+            "sourceType",
+            "poNumber",
+            "description",
+            "material",
+            "materialCode",
+            "materialSpec",
+            "thickness",
+            "length",
+            "width",
+            "heatNumber",
+            "plateNumber",
+            "originalQty",
+            "availableQty",
+            "uom",
+            "project",
+            "projectId",
+            "dwgDescription",
+            "revision",
+            "stockStatus",
+            "reworkRequired",
+            "remarks",
+            "createdAt",
+            "updatedAt",
+        ]
+        read_only_fields = fields
+
+    def get_availableQty(self, obj):
+        # Uses the model @property — always computed from movements.
+        value = obj.available_qty
+        return float(value) if value is not None else 0.0
+
+    def get_project(self, obj):
+        return obj.project.name if obj.project else "—"
+
+    def get_reworkRequired(self, obj):
+        return "Yes" if obj.rework_required else "No"
+
+
+
+# =====================================================================
+# JOB WORK SERIALIZERS
+# =====================================================================
+
+from .models import JobWorkIssue, JobWorkProcess
+
+
+class JobWorkProcessSerializer(serializers.ModelSerializer):
+
+    processId = serializers.CharField(source="process_id")
+
+    class Meta:
+        model = JobWorkProcess
+        fields = [
+            "id",
+            "name",
+            "processId",
+            "is_active",
+        ]
+        read_only_fields = ["id"]
+
+    def validate_processId(self, value):
+        value = (value or "").strip().upper()
+        if not value:
+            raise serializers.ValidationError(
+                "Process ID is required."
+            )
+        qs = JobWorkProcess.objects.filter(process_id__iexact=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                "This Process ID already exists."
+            )
+        return value
+
+
+class JobWorkIssueSerializer(serializers.ModelSerializer):
+
+    id = serializers.SerializerMethodField()
+    issueNumber = serializers.CharField(source="issue_number", read_only=True)
+    issueDate = serializers.DateField(source="issue_date", read_only=True)
+    stockId = serializers.IntegerField(source="stock_id", read_only=True)
+    stockCode = serializers.CharField(source="stock.stock_id", read_only=True)
+    poNumber = serializers.CharField(source="po_number", read_only=True)
+    description = serializers.CharField(read_only=True)
+    material = serializers.CharField(read_only=True)
+    materialCode = serializers.CharField(source="material_code", read_only=True)
+    materialSpec = serializers.CharField(source="material_spec", read_only=True)
+    thickness = serializers.CharField(read_only=True)
+    length = serializers.CharField(read_only=True)
+    width = serializers.CharField(read_only=True)
+    uom = serializers.CharField(read_only=True)
+    project = serializers.SerializerMethodField()
+    projectId = serializers.IntegerField(source="project_id", read_only=True)
+    dwgDescription = serializers.CharField(source="dwg_description", read_only=True)
+    revision = serializers.CharField(read_only=True)
+    jobWorkType = serializers.CharField(source="job_work_type", read_only=True)
+    processName = serializers.CharField(source="process_name", read_only=True)
+    processId = serializers.CharField(source="process_id", read_only=True)
+    jobWorkUnit = serializers.CharField(source="job_work_unit", read_only=True)
+    vendor = serializers.CharField(read_only=True)
+    vendorContact = serializers.CharField(source="vendor_contact", read_only=True)
+    jobWorkLocation = serializers.CharField(source="job_work_location", read_only=True)
+    expectedReturnDate = serializers.DateField(
+        source="expected_return_date", read_only=True
+    )
+    quantityIssued = serializers.DecimalField(
+        source="quantity_issued", max_digits=15, decimal_places=3, read_only=True
+    )
+    quantityReturned = serializers.DecimalField(
+        source="quantity_returned", max_digits=15, decimal_places=3, read_only=True
+    )
+    balanceQty = serializers.SerializerMethodField()
+    issuedBy = serializers.CharField(source="issued_by", read_only=True)
+    remarks = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = JobWorkIssue
+        fields = [
+            "id",
+            "issueNumber",
+            "issueDate",
+            "stockId",
+            "stockCode",
+            "poNumber",
+            "description",
+            "material",
+            "materialCode",
+            "materialSpec",
+            "thickness",
+            "length",
+            "width",
+            "uom",
+            "project",
+            "projectId",
+            "dwgDescription",
+            "revision",
+            "jobWorkType",
+            "processName",
+            "processId",
+            "jobWorkUnit",
+            "vendor",
+            "vendorContact",
+            "jobWorkLocation",
+            "expectedReturnDate",
+            "quantityIssued",
+            "quantityReturned",
+            "balanceQty",
+            "issuedBy",
+            "remarks",
+            "status",
+            "createdAt",
+        ]
+        read_only_fields = fields
+
+    def get_id(self, obj):
+        return f"ISS-{obj.id}"
+
+    def get_project(self, obj):
+        return obj.project.name if obj.project else "—"
+
+    def get_balanceQty(self, obj):
+        balance = (obj.quantity_issued or 0) - (obj.quantity_returned or 0)
+        return float(max(balance, 0))
+
+
+# =====================================================================
+# JOB WORK RECEIVE SERIALIZERS
+# =====================================================================
+
+from .models import (
+    JobWorkReceive,
+    JobWorkReceivePiece,
+    JobWorkReceiveRemaining,
+)
+
+
+class JobWorkReceivePieceSerializer(serializers.ModelSerializer):
+
+    pieceNo = serializers.CharField(source="piece_no")
+    length = serializers.CharField()
+    width = serializers.CharField()
+    thickness = serializers.CharField()
+    qty = serializers.DecimalField(
+        max_digits=15, decimal_places=3, read_only=True
+    )
+    weight = serializers.DecimalField(
+        max_digits=15, decimal_places=3, read_only=True
+    )
+    remarks = serializers.CharField()
+
+    class Meta:
+        model = JobWorkReceivePiece
+        fields = [
+            "id",
+            "pieceNo",
+            "length",
+            "width",
+            "thickness",
+            "qty",
+            "weight",
+            "remarks",
+        ]
+        read_only_fields = ["id"]
+
+
+class JobWorkReceiveRemainingSerializer(serializers.ModelSerializer):
+
+    plateNo = serializers.CharField(source="plate_no")
+    length = serializers.CharField()
+    width = serializers.CharField()
+    thickness = serializers.CharField()
+    weight = serializers.DecimalField(
+        max_digits=15, decimal_places=3, read_only=True
+    )
+    remarks = serializers.CharField()
+    reworkRequired = serializers.CharField(
+        source="rework_required", read_only=True
+    )
+
+    class Meta:
+        model = JobWorkReceiveRemaining
+        fields = [
+            "id",
+            "plateNo",
+            "length",
+            "width",
+            "thickness",
+            "weight",
+            "remarks",
+            "reworkRequired",
+        ]
+        read_only_fields = ["id"]
+
+
+class JobWorkReceiveSerializer(serializers.ModelSerializer):
+
+    id = serializers.SerializerMethodField()
+    receiveNumber = serializers.CharField(
+        source="receive_number", read_only=True
+    )
+    receiveDate = serializers.DateField(source="receive_date", read_only=True)
+    issueId = serializers.IntegerField(source="issue_id", read_only=True)
+    jobWorkId = serializers.CharField(source="job_work_id", read_only=True)
+    poNumber = serializers.CharField(source="po_number", read_only=True)
+    description = serializers.CharField(read_only=True)
+    material = serializers.CharField(read_only=True)
+    materialCode = serializers.CharField(
+        source="material_code", read_only=True
+    )
+    materialSpec = serializers.CharField(
+        source="material_spec", read_only=True
+    )
+    thickness = serializers.CharField(read_only=True)
+    length = serializers.CharField(read_only=True)
+    width = serializers.CharField(read_only=True)
+    uom = serializers.CharField(read_only=True)
+    project = serializers.SerializerMethodField()
+    projectId = serializers.IntegerField(source="project_id", read_only=True)
+    dwgDescription = serializers.CharField(
+        source="dwg_description", read_only=True
+    )
+    revision = serializers.CharField(read_only=True)
+    processName = serializers.CharField(
+        source="process_name", read_only=True
+    )
+    processId = serializers.CharField(source="process_id", read_only=True)
+    completedInputQty = serializers.DecimalField(
+        source="completed_input_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    remainingInputQty = serializers.DecimalField(
+        source="remaining_input_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    totalOutputQty = serializers.DecimalField(
+        source="total_output_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    totalOutputWeight = serializers.DecimalField(
+        source="total_output_weight",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    totalRemainingWeight = serializers.DecimalField(
+        source="total_remaining_weight",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    receivedBy = serializers.CharField(source="received_by", read_only=True)
+    remarks = serializers.CharField(read_only=True)
+    outputPieces = JobWorkReceivePieceSerializer(
+        source="output_pieces", many=True, read_only=True
+    )
+    remainingPieces = JobWorkReceiveRemainingSerializer(
+        source="remaining_pieces", many=True, read_only=True
+    )
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = JobWorkReceive
+        fields = [
+            "id",
+            "receiveNumber",
+            "receiveDate",
+            "issueId",
+            "jobWorkId",
+            "poNumber",
+            "description",
+            "material",
+            "materialCode",
+            "materialSpec",
+            "thickness",
+            "length",
+            "width",
+            "uom",
+            "project",
+            "projectId",
+            "dwgDescription",
+            "revision",
+            "processName",
+            "processId",
+            "completedInputQty",
+            "remainingInputQty",
+            "totalOutputQty",
+            "totalOutputWeight",
+            "totalRemainingWeight",
+            "receivedBy",
+            "remarks",
+            "outputPieces",
+            "remainingPieces",
+            "createdAt",
+        ]
+        read_only_fields = fields
+
+    def get_id(self, obj):
+        return f"JWR-{obj.id}"
+
+    def get_project(self, obj):
+        return obj.project.name if obj.project else "—"
+
+
+
+
+
+# =====================================================================
+# PRODUCTION ISSUE SERIALIZERS
+# =====================================================================
+
+from .models import ProductionIssue
+
+
+class ProductionIssueSerializer(serializers.ModelSerializer):
+
+    id = serializers.SerializerMethodField()
+    issueId = serializers.CharField(source="issue_number", read_only=True)
+    issueDate = serializers.DateField(source="issue_date", read_only=True)
+
+    jobWorkReceiveId = serializers.IntegerField(
+        source="job_work_receive_id", read_only=True
+    )
+    jobWorkPieceId = serializers.IntegerField(
+        source="job_work_piece_id", read_only=True
+    )
+    materialStockId = serializers.IntegerField(
+        source="material_stock_id", read_only=True
+    )
+
+    jobWorkId = serializers.CharField(source="job_work_id", read_only=True)
+    poNumber = serializers.CharField(source="po_number", read_only=True)
+    poType = serializers.CharField(source="po_type", read_only=True)
+    supplier = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    material = serializers.CharField(read_only=True)
+    materialCode = serializers.CharField(source="material_code", read_only=True)
+    materialSpec = serializers.CharField(source="material_spec", read_only=True)
+    thickness = serializers.CharField(read_only=True)
+    length = serializers.CharField(read_only=True)
+    width = serializers.CharField(read_only=True)
+    size = serializers.SerializerMethodField()
+    unit = serializers.CharField(read_only=True)
+    jobWorkType = serializers.CharField(source="job_work_type", read_only=True)
+    jobWorkUnit = serializers.CharField(source="job_work_unit", read_only=True)
+    process = serializers.CharField(source="process_name", read_only=True)
+    processId = serializers.CharField(source="process_id", read_only=True)
+    project = serializers.SerializerMethodField()
+    projectId = serializers.IntegerField(source="project_id", read_only=True)
+    dwgDescription = serializers.CharField(
+        source="dwg_description", read_only=True
+    )
+    revision = serializers.CharField(read_only=True)
+
+    pieceNo = serializers.CharField(source="piece_no", read_only=True)
+    uom = serializers.CharField(read_only=True)
+
+    originalReceivedQty = serializers.DecimalField(
+        source="original_received_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    previouslyIssuedQty = serializers.DecimalField(
+        source="previously_issued_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    issuedNow = serializers.DecimalField(
+        source="issued_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+    remainingAvailableQty = serializers.DecimalField(
+        source="remaining_available_qty",
+        max_digits=15,
+        decimal_places=3,
+        read_only=True,
+    )
+
+    issuedBy = serializers.CharField(source="issued_by", read_only=True)
+    remarks = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = ProductionIssue
+        fields = [
+            "id",
+            "issueId",
+            "issueDate",
+            "jobWorkReceiveId",
+            "jobWorkPieceId",
+            "materialStockId",
+            "jobWorkId",
+            "poNumber",
+            "poType",
+            "supplier",
+            "description",
+            "material",
+            "materialCode",
+            "materialSpec",
+            "thickness",
+            "length",
+            "width",
+            "size",
+            "unit",
+            "jobWorkType",
+            "jobWorkUnit",
+            "process",
+            "processId",
+            "project",
+            "projectId",
+            "dwgDescription",
+            "revision",
+            "pieceNo",
+            "uom",
+            "originalReceivedQty",
+            "previouslyIssuedQty",
+            "issuedNow",
+            "remainingAvailableQty",
+            "issuedBy",
+            "remarks",
+            "status",
+            "createdAt",
+        ]
+        read_only_fields = fields
+
+    def get_id(self, obj):
+        return f"IP-{obj.id}"
+
+    def get_project(self, obj):
+        return obj.project.name if obj.project else "—"
+
+    def get_size(self, obj):
+        if obj.length and obj.width:
+            return f"{obj.length} × {obj.width}"
+        return ""

@@ -1149,3 +1149,105 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+/* ======== GRN — STATE BLOCKS ======== */
+
+.grn-state-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.grn-submit-error {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--danger-soft);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.spin {
+  animation: grn-spin 0.9s linear infinite;
+}
+
+@keyframes grn-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+
+/* ======== GRN — STATE BLOCKS ======== */
+
+.grn-state-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.grn-submit-error {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--danger-soft);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.spin {
+  animation: grn-spin 0.9s linear infinite;
+}
+
+@keyframes grn-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+/* ======== GRN — STATE BLOCKS ======== */
+
+.grn-state-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.grn-submit-error {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--danger-soft);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.spin {
+  animation: grn-spin 0.9s linear infinite;
+}
+
+@keyframes grn-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

@@ -3,12 +3,33 @@ from django.shortcuts import render
 from django.db import transaction
 from decimal import Decimal
 from django.db.models import Sum
+from decimal import Decimal, InvalidOperation
 
+from django.db import transaction
+from django.db.models import Sum
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from .models import (
+    PurchaseOrder,
+    PurchaseOrderItem,
+    DummyPurchaseOrderItem,
+    ConsumableIssue,
+    BOMPOIntegration,
+    MaterialGRN,
+    MaterialGRNNumberSettings,
+)
+from .serializers import JobWorkReceiveSerializer, MaterialGRNSerializer, ProductionIssueSerializer
+from .permissions import IsMaterialPlanning
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from .models import (
+    BOMPOIntegration,
     ConsumableIssue,
     ConsumableReturn,
     PurchaseOrder,
@@ -50,7 +71,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from .models import Quotation, QuotationNumberSettings
 
-from .permissions import IsAccounts
+from .permissions import IsAccounts, IsAccountsOrMaterialPlanning
 from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework import status
@@ -703,7 +724,7 @@ class PurchaseOrderListCreateAPIView(
 
     serializer_class = PurchaseOrderSerializer
 
-    permission_classes = [IsAccounts]
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
 
@@ -2265,7 +2286,7 @@ from .serializers import (
 # NEXT DC NUMBER
 # ==================================================================
 class DeliveryChallanNextNumberAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsAccounts]
+    permission_classes = [IsAuthenticated,IsAccountsOrMaterialPlanning ]
 
     def get(self, request):
 
@@ -2386,7 +2407,7 @@ class DeliveryChallanNextNumberAPIView(APIView):
 # ==================================================================
 class DeliveryChallanCustomerAPIView(APIView):
 
-    permission_classes = [IsAuthenticated, IsAccounts]
+    permission_classes = [IsAuthenticated, IsAccountsOrMaterialPlanning]
 
     # =========================
     # GET
@@ -2552,7 +2573,7 @@ class DeliveryChallanCustomerAPIView(APIView):
 # CREATE / UPDATE DC
 # ==================================================================
 class DeliveryChallanCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsAccounts]
+    permission_classes = [IsAuthenticated, IsAccountsOrMaterialPlanning]
 
     def post(self, request):
 
@@ -2706,7 +2727,7 @@ class DeliveryChallanCreateAPIView(APIView):
 @method_decorator(csrf_protect, name="dispatch")
 class DeliveryChallanConfirmAPIView(APIView):
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsAccountsOrMaterialPlanning,IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, dc_number):
@@ -7410,86 +7431,104 @@ class ConsumableDashboardView(APIView):
                 },
             ]
         })
+
     
-
-
+    
 class ConsumableGRNPOItemListAPIView(APIView):
+    """
+    GET /erp/consumable-grn/po-items/
+
+    List every receivable PO item for the Consumable GRN flow.
+
+    Rule:
+      Skip any PO item whose (po_number, description) already
+      appears in MaterialGRN. Once a PO line has been received
+      via the Material GRN page, it must not appear here.
+    """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
-        items = PurchaseOrderItem.objects.filter(
-            purchase_order__status=PurchaseOrder.Status.CONFIRMED
-        ).select_related(
-            "purchase_order"
-        ).order_by(
-            "purchase_order__po_number",
-            "id"
+        # ---------------------------------------------------------
+        # 1. Collect every (po_number, description) pair that has
+        #    already been received through a Material GRN.
+        # ---------------------------------------------------------
+        material_grn_pairs = set(
+            MaterialGRN.objects
+            .exclude(po_number="")
+            .exclude(description="")
+            .values_list("po_number", "description")
+            .distinct()
+        )
+
+        # ---------------------------------------------------------
+        # 2. Pull confirmed PO items
+        # ---------------------------------------------------------
+        items = (
+            PurchaseOrderItem.objects
+            .filter(
+                purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+            )
+            .select_related("purchase_order")
+            .order_by("purchase_order__po_number", "id")
         )
 
         data = []
 
         for item in items:
 
-            # Already received against this PO item
+            # -----------------------------------------------------
+            # 3. Skip if Material GRN already covers this (po, desc)
+            # -----------------------------------------------------
+            pair = (
+                str(item.po_number or ""),
+                str(item.description or ""),
+            )
+
+            if pair in material_grn_pairs:
+                continue
+
+            # -----------------------------------------------------
+            # 4. Aggregate Consumable receipts for this PO item
+            # -----------------------------------------------------
             received = (
-                ConsumableGRN.objects.filter(
-                    purchase_order_item=item
-                ).aggregate(
-                    total=Sum("received_quantity")
-                )["total"]
+                ConsumableGRN.objects
+                .filter(purchase_order_item=item)
+                .aggregate(total=Sum("received_quantity"))["total"]
                 or 0
             )
 
             ordered = item.quantity or 0
-
-            pending = max(
-                ordered - received,
-                0
-            )
+            pending = max(ordered - received, 0)
 
             if received <= 0:
                 status = "Pending"
-
             elif received >= ordered:
                 status = "Fully Received"
-
             else:
                 status = "Partially Received"
 
+            # -----------------------------------------------------
+            # 5. Build row
+            # -----------------------------------------------------
             data.append({
                 "id": item.id,
-
                 "poNumber": item.po_number,
-
-                "itemCode": item.item_code, 
-
+                "itemCode": item.item_code,
                 "description": item.description,
-
                 "orderedQty": ordered,
-
                 "receivedQty": received,
-
                 "pendingQty": pending,
-
                 "unit": item.unit,
-
                 "status": status,
-
-                "supplier": (
-                    item.purchase_order.vendor
-                ),
-
+                "supplier": item.purchase_order.vendor,
                 "consumableName": item.description,
-
                 "category": "",
-
                 "warehouse": "",
             })
 
         return Response(data)
-
 
 
 
@@ -8668,3 +8707,4200 @@ class ConsumableMovementDetailAPIView(APIView):
             "summary": summary,
             "timeline": timeline,
         })
+
+
+# for material drwbom
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.db import transaction
+
+from .models import Project, Drawing, BOMItem
+from .serializers import ProjectSerializer, DrawingSerializer, BOMItemSerializer
+from .permissions import IsMaterialPlanning
+
+
+# =====================================================================
+# PROJECT VIEWS
+# =====================================================================
+
+class ProjectListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        projects = Project.objects.all().order_by("-created_at")
+        serializer = ProjectSerializer(projects, many=True)
+        return Response({
+            "success": True,
+            "data": serializer.data,
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = ProjectSerializer(data=request.data)
+        if serializer.is_valid():
+            project = serializer.save(created_by=request.user)
+            return Response({
+                "success": True,
+                "message": "Project created successfully.",
+                "data": ProjectSerializer(project).data,
+            }, status=status.HTTP_201_CREATED)
+        return Response({
+            "success": False,
+            "errors": serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProjectDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get_object(self, pk):
+        try:
+            return Project.objects.get(pk=pk)
+        except Project.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        project = self.get_object(pk)
+        if not project:
+            return Response({"success": False, "message": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ProjectSerializer(project)
+        return Response({"success": True, "data": serializer.data}, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        project = self.get_object(pk)
+        if not project:
+            return Response({"success": False, "message": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ProjectSerializer(project, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"success": True, "data": serializer.data}, status=status.HTTP_200_OK)
+        return Response({"success": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        project = self.get_object(pk)
+        if not project:
+            return Response({"success": False, "message": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
+        project.delete()
+        return Response({"success": True, "message": "Project deleted successfully."}, status=status.HTTP_200_OK)
+
+
+# =====================================================================
+# DRAWING VIEWS
+# =====================================================================
+
+class DrawingListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        qs = Drawing.objects.select_related("project").all().order_by("-created_at")
+        project_id = request.query_params.get("projectId") or request.query_params.get("project_id")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        serializer = DrawingSerializer(qs, many=True)
+        return Response({
+            "success": True,
+            "data": serializer.data,
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = DrawingSerializer(data=request.data)
+        if serializer.is_valid():
+            drawing = serializer.save()
+            return Response({
+                "success": True,
+                "message": "Drawing created successfully.",
+                "data": DrawingSerializer(drawing).data,
+            }, status=status.HTTP_201_CREATED)
+        return Response({
+            "success": False,
+            "errors": serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DrawingDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get_object(self, pk):
+        try:
+            return Drawing.objects.get(pk=pk)
+        except Drawing.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        drawing = self.get_object(pk)
+        if not drawing:
+            return Response({"success": False, "message": "Drawing not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DrawingSerializer(drawing)
+        return Response({"success": True, "data": serializer.data}, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        drawing = self.get_object(pk)
+        if not drawing:
+            return Response({"success": False, "message": "Drawing not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DrawingSerializer(drawing, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"success": True, "data": serializer.data}, status=status.HTTP_200_OK)
+        return Response({"success": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        drawing = self.get_object(pk)
+        if not drawing:
+            return Response({"success": False, "message": "Drawing not found."}, status=status.HTTP_404_NOT_FOUND)
+        drawing.delete()
+        return Response({"success": True, "message": "Drawing deleted successfully."}, status=status.HTTP_200_OK)
+
+
+# =====================================================================
+# BOM ITEM VIEWS
+# =====================================================================
+
+class BOMItemListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        qs = BOMItem.objects.select_related("drawing").all().order_by("id")
+        drawing_id = request.query_params.get("drawingId") or request.query_params.get("drawing_id")
+        if drawing_id:
+            qs = qs.filter(drawing_id=drawing_id)
+        serializer = BOMItemSerializer(qs, many=True)
+        return Response({
+            "success": True,
+            "data": serializer.data,
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = BOMItemSerializer(data=request.data)
+        if serializer.is_valid():
+            bom_item = serializer.save()
+            return Response({
+                "success": True,
+                "message": "BOM item added successfully.",
+                "data": BOMItemSerializer(bom_item).data,
+            }, status=status.HTTP_201_CREATED)
+        return Response({
+            "success": False,
+            "errors": serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class BOMItemDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get_object(self, pk):
+        try:
+            return BOMItem.objects.get(pk=pk)
+        except BOMItem.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        item = self.get_object(pk)
+        if not item:
+            return Response({"success": False, "message": "BOM item not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = BOMItemSerializer(item)
+        return Response({"success": True, "data": serializer.data}, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        item = self.get_object(pk)
+        if not item:
+            return Response({"success": False, "message": "BOM item not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = BOMItemSerializer(item, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"success": True, "data": serializer.data}, status=status.HTTP_200_OK)
+        return Response({"success": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        item = self.get_object(pk)
+        if not item:
+            return Response({"success": False, "message": "BOM item not found."}, status=status.HTTP_404_NOT_FOUND)
+        item.delete()
+        return Response({"success": True, "message": "BOM item deleted successfully."}, status=status.HTTP_200_OK)
+
+
+# =====================================================================
+# BOM BATCH SAVE VIEW (For the 'Save BOM' frontend button)
+# =====================================================================
+
+class BOMBatchSaveAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request):
+        drawing_id = request.data.get("drawingId")
+        items = request.data.get("items", [])
+
+        if not drawing_id:
+            return Response(
+                {"success": False, "message": "drawingId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            drawing = Drawing.objects.get(id=drawing_id)
+        except Drawing.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Drawing not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        saved_items = []
+        for raw_item in items:
+            raw_item["drawingId"] = drawing.id
+            item_id = raw_item.get("id")
+
+            instance = None
+            if item_id and not str(item_id).startswith("bom-"):
+                instance = BOMItem.objects.filter(id=item_id, drawing=drawing).first()
+
+            serializer = BOMItemSerializer(instance=instance, data=raw_item, partial=True)
+            serializer.is_valid(raise_exception=True)
+            saved_instance = serializer.save(drawing=drawing)
+            saved_items.append(BOMItemSerializer(saved_instance).data)
+
+        return Response({
+            "success": True,
+            "message": f"Successfully saved {len(saved_items)} BOM items.",
+            "data": saved_items,
+        }, status=status.HTTP_200_OK)
+
+from decimal import Decimal, InvalidOperation
+
+from django.db import transaction
+from django.db.models import Sum, Exists, OuterRef
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from .models import (
+    BOMItem,
+    PurchaseOrderItem,
+  
+    ConsumableIssue,
+    PurchaseOrder,
+)
+
+
+
+# =========================================================
+# PO ITEM CONSUMABLE ISSUE CHECK
+# =========================================================
+
+def po_item_has_consumable_issue(po_item_id):
+    """
+    Returns True if this exact PurchaseOrderItem has already
+    been issued to Consumable.
+
+    Relationship:
+
+        PurchaseOrderItem
+              ↓
+        ConsumableGRN
+              ↓
+        ConsumableIssue
+    """
+
+    return ConsumableIssue.objects.filter(
+        grn__purchase_order_item_id=po_item_id
+    ).exists()
+
+
+# =========================================================
+# DUMMY PURCHASE ORDER
+# =========================================================
+from .serializers import (
+    DummyPurchaseOrderSerializer,
+    DummyPurchaseOrderItemSerializer,
+)
+from .models import DummyPurchaseOrder, DummyPurchaseOrderItem
+
+
+class DummyPurchaseOrderCreateAPIView(APIView):
+    """
+    POST /erp/material/dummy-purchase-orders/
+
+    Body:
+        {
+          "poNumber": "DUMMY-001",
+          "itemCode": "",
+          "description": "MS Plate",
+          "material": "Plate",
+          "length": "500",
+          "width": "500",
+          "thickness": "6",
+          "quantity": 10,
+          "unit": "Nos",
+          "remarks": ""
+        }
+
+    Creates a DummyPurchaseOrder + one DummyPurchaseOrderItem.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request):
+        po_number = str(request.data.get("poNumber", "")).strip()
+        description = str(request.data.get("description", "")).strip()
+        unit = str(request.data.get("unit", "")).strip()
+
+        if not po_number:
+            return Response(
+                {"success": False, "message": "Dummy PO number is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not description:
+            return Response(
+                {"success": False, "message": "Description is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not unit:
+            return Response(
+                {"success": False, "message": "Unit is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            quantity = Decimal(str(request.data.get("quantity", "0")))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {"success": False, "message": "Invalid quantity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity <= 0:
+            return Response(
+                {"success": False, "message": "Quantity must be greater than zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if DummyPurchaseOrder.objects.filter(po_number=po_number).exists():
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Dummy PO '{po_number}' already exists.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        dummy_po = DummyPurchaseOrder.objects.create(
+            po_number=po_number,
+            remarks=str(request.data.get("remarks", "")).strip(),
+            created_by=request.user,
+        )
+
+        item = DummyPurchaseOrderItem.objects.create(
+            dummy_po=dummy_po,
+            item_code=str(request.data.get("itemCode", "")).strip(),
+            description=description,
+            material=str(request.data.get("material", "")).strip(),
+            length=str(request.data.get("length", "")).strip(),
+            width=str(request.data.get("width", "")).strip(),
+            thickness=str(request.data.get("thickness", "")).strip(),
+            quantity=quantity,
+            unit=unit,
+            remarks=str(request.data.get("remarks", "")).strip(),
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Dummy Purchase Order created.",
+                "data": {
+                    "poId": dummy_po.id,
+                    "poNumber": dummy_po.po_number,
+                    "poItemId": item.id,
+                    "isDummy": True,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+# =====================================================================
+# PROJECT-LEVEL BOM ↔ PO INTEGRATION
+
+# =====================================================================
+
+from django.db.models import Sum
+
+from .serializers import (
+    ProjectIntegrationRowSerializer,
+    ProjectIntegrationSaveSerializer,
+)
+
+
+def _get_issued_po_item_ids():
+    """
+    PO items that have at least one ConsumableIssue.
+    Those PO items are excluded from Material Planning entirely.
+    """
+    return set(
+        ConsumableIssue.objects
+        .exclude(grn__purchase_order_item__isnull=True)
+        .values_list("grn__purchase_order_item_id", flat=True)
+        .distinct()
+    )
+
+
+class ProjectIntegrationListAPIView(APIView):
+    """
+    GET /erp/material/project-integration/?projectId=<id>
+
+    Returns a flat list of (BOM × PO Item) rows for the given project.
+
+    Rules:
+      - BOM quantities are informational only. Fully-allocated BOMs
+        still appear so the user can see them.
+      - The only ceiling on the input is the PO item's remaining qty.
+      - PO items issued to Consumable are completely excluded.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        project_id = request.query_params.get("projectId")
+
+        if not project_id:
+            return Response(
+                {"success": False, "message": "projectId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -------------------------------------------------------------
+        # 1. BOM items for this project
+        # -------------------------------------------------------------
+        bom_items = (
+            BOMItem.objects
+            .select_related("drawing")
+            .filter(drawing__project_id=project_id)
+            .order_by("drawing_id", "id")
+        )
+
+        if not bom_items.exists():
+            return Response(
+                {"success": True, "data": []},
+                status=status.HTTP_200_OK,
+            )
+
+        # -------------------------------------------------------------
+        # 2. PO items — confirmed POs only, exclude consumable-issued
+        # -------------------------------------------------------------
+        blocked_po_item_ids = _get_issued_po_item_ids()
+
+        po_items = list(
+            PurchaseOrderItem.objects
+            .select_related("purchase_order")
+            .filter(purchase_order__status=PurchaseOrder.Status.CONFIRMED)
+            .exclude(id__in=blocked_po_item_ids)
+            .order_by("purchase_order__po_number", "id")
+        )
+
+        if not po_items:
+            return Response(
+                {"success": True, "data": []},
+                status=status.HTTP_200_OK,
+            )
+
+        # -------------------------------------------------------------
+        # 3. Already-integrated quantities (aggregated once)
+        # -------------------------------------------------------------
+        bom_integrated_map = {
+            row["bom_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(bom_item__in=bom_items)
+                .values("bom_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        po_integrated_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(purchase_order_item__in=po_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        # -------------------------------------------------------------
+        # 4. Build the flat cross-product
+        #
+        # Rule: BOM remaining is informational. The input's ceiling
+        # is PO remaining only.
+        # -------------------------------------------------------------
+        rows = []
+
+        for bom in bom_items:
+            bom_qty = bom.quantity or Decimal("0")
+            bom_integrated = bom_integrated_map.get(bom.id, Decimal("0"))
+            bom_remaining = bom_qty - bom_integrated
+
+            # Normalise BOM description (JSON object) into a display label
+            bom_description = bom.description or {}
+            if isinstance(bom_description, str):
+                bom_label = bom_description
+            else:
+                material_type = (
+                    bom_description.get("materialType")
+                    or bom_description.get("material_type")
+                    or ""
+                )
+                dims = [
+                    bom_description.get("thickness"),
+                    bom_description.get("length"),
+                    bom_description.get("width"),
+                ]
+                dims_str = " × ".join(
+                    str(d) for d in dims if d not in (None, "")
+                )
+                bom_label = " ".join(
+                    p for p in [material_type, dims_str] if p
+                ) or "—"
+
+            for po_item in po_items:
+                po_qty = po_item.quantity or Decimal("0")
+                po_integrated = po_integrated_map.get(
+                    po_item.id, Decimal("0"),
+                )
+                po_remaining = po_qty - po_integrated
+
+                # No PO left — nothing to integrate on this row
+                if po_remaining <= 0:
+                    continue
+
+                # PO remaining is the only ceiling
+                maximum = po_remaining
+
+                rows.append({
+                    "bomItemId": bom.id,
+                    "bomItemNumber": bom.item_number or "",
+                    "bomDescription": bom_label,
+                    "bomUnit": bom.unit or "",
+                    "bomQuantity": bom_qty,
+                    "bomIntegrated": bom_integrated,
+                    "bomRemaining": bom_remaining,
+
+                    "drawingId": bom.drawing_id,
+                    "drawingNumber": bom.drawing.dwg_number or "",
+
+                    "poItemId": po_item.id,
+                    "poNumber": po_item.po_number or "",
+                    "poItemCode": po_item.item_code or "",
+                    "poDescription": po_item.description or "",
+                    "poUnit": po_item.unit or "",
+                    "poQuantity": po_qty,
+                    "poIntegrated": po_integrated,
+                    "poRemaining": po_remaining,
+
+                    "maximumIntegratable": maximum,
+                })
+
+        serializer = ProjectIntegrationRowSerializer(rows, many=True)
+
+        return Response(
+            {"success": True, "data": serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ProjectIntegrationSaveAPIView(APIView):
+    """
+    POST /erp/material/project-integration/save/
+
+    Body:
+        {
+          "projectId": 1,
+          "rows": [
+            {"bomItemId": 12, "poItemId": 42, "quantity": 5},
+            ...
+          ]
+        }
+
+    Rules:
+      - Only PO-side validation applies (qty > 0 and qty <= PO remaining).
+      - BOM quantity is not a constraint — a BOM can be over-allocated.
+      - Consumable-issued PO items are rejected.
+      - The whole request is atomic: any failing row aborts everything.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = ProjectIntegrationSaveSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid payload.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        project_id = serializer.validated_data["projectId"]
+        rows = serializer.validated_data["rows"]
+
+        # ---------------------------------------------------------
+        # Resolve BOM items — must belong to this project
+        # ---------------------------------------------------------
+        bom_ids = {r["bomItemId"] for r in rows}
+        po_ids = {r["poItemId"] for r in rows}
+
+        bom_map = {
+            b.id: b for b in BOMItem.objects.filter(
+                id__in=bom_ids,
+                drawing__project_id=project_id,
+            )
+        }
+
+        if len(bom_map) != len(bom_ids):
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "One or more BOM items do not belong to this "
+                        "project or do not exist."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------------------------------------------------
+        # Resolve PO items + reject consumable-issued ones
+        # ---------------------------------------------------------
+        blocked_po_item_ids = _get_issued_po_item_ids()
+
+        po_map = {
+            p.id: p for p in PurchaseOrderItem.objects.filter(
+                id__in=po_ids,
+            ).select_related("purchase_order")
+        }
+
+        if len(po_map) != len(po_ids):
+            return Response(
+                {
+                    "success": False,
+                    "message": "One or more PO items do not exist.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------------------------------------------------
+        # Validate each row (PO-side only)
+        # ---------------------------------------------------------
+        errors = []
+        prepared = []
+
+        # Current integrated qty per PO item
+        po_integrated_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(purchase_order_item_id__in=po_ids)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        # Running total so two rows in the same request can't oversell
+        # the same PO item.
+        running_po = dict(po_integrated_map)
+
+        for idx, row in enumerate(rows, start=1):
+            bom = bom_map[row["bomItemId"]]
+            po_item = po_map[row["poItemId"]]
+            qty = row["quantity"]
+
+            if po_item.id in blocked_po_item_ids:
+                errors.append({
+                    "row": idx,
+                    "bomItemId": bom.id,
+                    "poItemId": po_item.id,
+                    "error": (
+                        "This PO item has already been issued to "
+                        "Consumable and cannot be integrated."
+                    ),
+                })
+                continue
+
+            po_remaining = (
+                po_item.quantity - running_po.get(po_item.id, Decimal("0"))
+            )
+
+            if qty <= 0:
+                errors.append({
+                    "row": idx,
+                    "error": "Quantity must be greater than 0.",
+                })
+                continue
+
+            if qty > po_remaining:
+                errors.append({
+                    "row": idx,
+                    "error": (
+                        f"Quantity exceeds remaining PO quantity "
+                        f"({po_remaining})."
+                    ),
+                })
+                continue
+
+            running_po[po_item.id] = (
+                running_po.get(po_item.id, Decimal("0")) + qty
+            )
+
+            prepared.append({
+                "bom_item": bom,
+                "purchase_order_item": po_item,
+                "quantity": qty,
+            })
+
+        if errors:
+            transaction.set_rollback(True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "One or more rows failed validation.",
+                    "errors": errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------------------------------------------------
+        # Create the integrations
+        # ---------------------------------------------------------
+        created = []
+        for entry in prepared:
+            integration = BOMPOIntegration.objects.create(
+                bom_item=entry["bom_item"],
+                purchase_order_item=entry["purchase_order_item"],
+                quantity=entry["quantity"],
+                is_dummy=(
+                    entry["purchase_order_item"]
+                    .purchase_order
+                    .po_number
+                    .upper()
+                    .startswith("DUMMY")
+                ),
+            )
+            created.append(integration.id)
+
+        return Response(
+            {
+                "success": True,
+                "message": f"Saved {len(created)} integration rows.",
+                "integrationIds": created,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
+
+
+# =====================================================================
+# PROJECT PO ITEMS + PROJECT INTEGRATION (no BOM required)
+# =====================================================================
+class ProjectPOItemListAPIView(APIView):
+    """
+    GET /erp/material/project-po-items/?projectId=<id>
+
+    Returns:
+      history   — integrations already saved for this project
+      poItems   — real + dummy PO items with remaining quantity
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        project_id = request.query_params.get("projectId")
+
+        if not project_id:
+            return Response(
+                {"success": False, "message": "projectId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -------- Blocked real PO items (issued to Consumable) --------
+        blocked_ids = set(
+            ConsumableIssue.objects
+            .exclude(grn__purchase_order_item__isnull=True)
+            .values_list("grn__purchase_order_item_id", flat=True)
+            .distinct()
+        )
+
+        # -------- Real PO items --------
+        real_items = list(
+            PurchaseOrderItem.objects
+            .select_related("purchase_order")
+            .filter(purchase_order__status=PurchaseOrder.Status.CONFIRMED)
+            .exclude(id__in=blocked_ids)
+            .order_by("purchase_order__po_number", "id")
+        )
+
+        real_integrated_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        # -------- Dummy PO items --------
+        dummy_items = list(
+            DummyPurchaseOrderItem.objects
+            .select_related("dummy_po")
+            .order_by("dummy_po__po_number", "id")
+        )
+
+        dummy_integrated_map = {
+            row["dummy_purchase_order_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(dummy_purchase_order_item__in=dummy_items)
+                .values("dummy_purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        # -------- Merge into one list --------
+        po_items_out = []
+
+        for pi in real_items:
+            integrated = real_integrated_map.get(pi.id, Decimal("0"))
+            remaining = (pi.quantity or Decimal("0")) - integrated
+            if remaining <= 0:
+                continue
+            po_items_out.append({
+                "poItemId": pi.id,
+                "sourceType": "real",
+                "poNumber": pi.po_number or "",
+                "poItemCode": pi.item_code or "",
+                "description": pi.description or "",
+                "material": "",
+                "length": "",
+                "width": "",
+                "thickness": "",
+                "unit": pi.unit or "",
+                "poQuantity": pi.quantity or Decimal("0"),
+                "poIntegrated": integrated,
+                "poRemaining": remaining,
+                "isDummy": False,
+            })
+
+        for di in dummy_items:
+            integrated = dummy_integrated_map.get(di.id, Decimal("0"))
+            remaining = (di.quantity or Decimal("0")) - integrated
+            if remaining <= 0:
+                continue
+            po_items_out.append({
+                "poItemId": di.id,
+                "sourceType": "dummy",
+                "poNumber": di.dummy_po.po_number or "",
+                "poItemCode": di.item_code or "",
+                "description": di.description or "",
+                "material": di.material or "",
+                "length": di.length or "",
+                "width": di.width or "",
+                "thickness": di.thickness or "",
+                "unit": di.unit or "",
+                "poQuantity": di.quantity or Decimal("0"),
+                "poIntegrated": integrated,
+                "poRemaining": remaining,
+                "isDummy": True,
+            })
+
+        # -------- History --------
+        history_qs = (
+            BOMPOIntegration.objects
+            .filter(project_id=project_id)
+            .select_related(
+                "purchase_order_item",
+                "dummy_purchase_order_item",
+                "dummy_purchase_order_item__dummy_po",
+            )
+            .order_by("-created_at")
+        )
+
+        history_out = []
+        for row in history_qs:
+            if row.dummy_purchase_order_item_id:
+                di = row.dummy_purchase_order_item
+                history_out.append({
+                    "id": row.id,
+                    "quantity": row.quantity,
+                    "isDummy": True,
+                    "createdAt": row.created_at,
+                    "poItemId": di.id,
+                    "poNumber": di.dummy_po.po_number,
+                    "poDescription": di.description,
+                    "poUnit": di.unit,
+                })
+            elif row.purchase_order_item_id:
+                pi = row.purchase_order_item
+                history_out.append({
+                    "id": row.id,
+                    "quantity": row.quantity,
+                    "isDummy": False,
+                    "createdAt": row.created_at,
+                    "poItemId": pi.id,
+                    "poNumber": pi.po_number,
+                    "poDescription": pi.description,
+                    "poUnit": pi.unit,
+                })
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "history": history_out,
+                    "poItems": po_items_out,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+class ProjectIntegrationCreateAPIView(APIView):
+    """
+    POST /erp/material/project-po-integration/create/
+
+    Body:
+        {
+          "projectId": 1,
+          "rows": [
+            {"poItemId": 42, "sourceType": "real",  "quantity": 5},
+            {"poItemId": 7,  "sourceType": "dummy", "quantity": 3},
+            ...
+          ]
+        }
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request):
+        project_id = request.data.get("projectId")
+        rows = request.data.get("rows") or []
+
+        if not project_id:
+            return Response(
+                {"success": False, "message": "projectId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Project not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not rows:
+            return Response(
+                {"success": False, "message": "No rows provided."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --- Fetch items up-front ---
+        real_ids = {r["poItemId"] for r in rows if r.get("sourceType") == "real"}
+        dummy_ids = {r["poItemId"] for r in rows if r.get("sourceType") == "dummy"}
+
+        real_map = {
+            p.id: p for p in (
+                PurchaseOrderItem.objects
+                .filter(id__in=real_ids)
+                .select_related("purchase_order")
+            )
+        }
+        dummy_map = {
+            d.id: d for d in (
+                DummyPurchaseOrderItem.objects
+                .filter(id__in=dummy_ids)
+                .select_related("dummy_po")
+            )
+        }
+
+        # --- Current integrated totals ---
+        real_integrated = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(purchase_order_item_id__in=real_ids)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+        dummy_integrated = {
+            row["dummy_purchase_order_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(dummy_purchase_order_item_id__in=dummy_ids)
+                .values("dummy_purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        errors = []
+        prepared = []
+
+        running_real = dict(real_integrated)
+        running_dummy = dict(dummy_integrated)
+
+        for idx, r in enumerate(rows, start=1):
+            source = r.get("sourceType")
+            po_item_id = r.get("poItemId")
+            raw_qty = r.get("quantity")
+
+            try:
+                qty = Decimal(str(raw_qty))
+            except (InvalidOperation, TypeError, ValueError):
+                errors.append({"row": idx, "error": "Invalid quantity."})
+                continue
+
+            if qty <= 0:
+                errors.append({
+                    "row": idx,
+                    "error": "Quantity must be greater than 0.",
+                })
+                continue
+
+            if source == "real":
+                po_item = real_map.get(po_item_id)
+                if not po_item:
+                    errors.append({"row": idx, "error": "PO item not found."})
+                    continue
+
+                po_remaining = (
+                    (po_item.quantity or Decimal("0"))
+                    - running_real.get(po_item.id, Decimal("0"))
+                )
+                if qty > po_remaining:
+                    errors.append({
+                        "row": idx,
+                        "error": f"Quantity exceeds PO remaining ({po_remaining}).",
+                    })
+                    continue
+
+                running_real[po_item.id] = (
+                    running_real.get(po_item.id, Decimal("0")) + qty
+                )
+                prepared.append({
+                    "purchase_order_item": po_item,
+                    "dummy_purchase_order_item": None,
+                    "quantity": qty,
+                })
+
+            elif source == "dummy":
+                di = dummy_map.get(po_item_id)
+                if not di:
+                    errors.append({"row": idx, "error": "Dummy PO item not found."})
+                    continue
+
+                po_remaining = (
+                    (di.quantity or Decimal("0"))
+                    - running_dummy.get(di.id, Decimal("0"))
+                )
+                if qty > po_remaining:
+                    errors.append({
+                        "row": idx,
+                        "error": f"Quantity exceeds dummy PO remaining ({po_remaining}).",
+                    })
+                    continue
+
+                running_dummy[di.id] = (
+                    running_dummy.get(di.id, Decimal("0")) + qty
+                )
+                prepared.append({
+                    "purchase_order_item": None,
+                    "dummy_purchase_order_item": di,
+                    "quantity": qty,
+                })
+
+            else:
+                errors.append({
+                    "row": idx,
+                    "error": f"Unknown sourceType: {source!r}.",
+                })
+
+        if errors:
+            transaction.set_rollback(True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "One or more rows failed validation.",
+                    "errors": errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created_ids = []
+        for entry in prepared:
+            intg = BOMPOIntegration.objects.create(
+                project=project,
+                bom_item=None,
+                purchase_order_item=entry["purchase_order_item"],
+                dummy_purchase_order_item=entry["dummy_purchase_order_item"],
+                quantity=entry["quantity"],
+                is_dummy=entry["dummy_purchase_order_item"] is not None,
+            )
+            created_ids.append(intg.id)
+
+        return Response(
+            {
+                "success": True,
+                "message": f"Saved {len(created_ids)} integrations.",
+                "integrationIds": created_ids,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# =====================================================================
+# MATERIAL GRN
+# -----------------------------------------------------------------
+# Receive material against real + dummy PO items.
+#
+#   GET    /erp/material/receive/list/           → receivable rows
+#   POST   /erp/material/receive/                → record a GRN
+#   GET    /erp/material/receive/history/        → list all GRNs
+#   PATCH  /erp/material/receive/history/<id>/   → edit a GRN
+#   DELETE /erp/material/receive/history/<id>/   → delete a GRN
+#
+# Row shape now includes:
+#   - length, width, thickness   (from PO item)
+#   - project                    (resolved via BOMPOIntegration)
+#   - NO material, NO materialSpec
+# =====================================================================
+
+from django.db import transaction, IntegrityError
+
+from .models import (
+    MaterialGRN,
+    MaterialGRNNumberSettings,
+    DummyPurchaseOrderItem,
+    BOMPOIntegration,
+    Project,
+)
+from .serializers import MaterialGRNSerializer
+
+
+# ---------------------------------------------------------------------
+# GRN NUMBER GENERATOR — concurrency-safe, auto-seeds on first call
+# ---------------------------------------------------------------------
+def generate_material_grn_number():
+    """
+    Concurrency-safe GRN number generator.
+
+    - Locks the settings row and increments the counter.
+    - Auto-creates the row on first use → GRN-0001.
+    - Must be called inside a transaction (select_for_update).
+    """
+    settings_obj = (
+        MaterialGRNNumberSettings.objects
+        .select_for_update()
+        .filter(is_active=True)
+        .first()
+    )
+
+    if settings_obj is None:
+        try:
+            settings_obj = MaterialGRNNumberSettings.objects.create(
+                prefix="GRN",
+                next_number=1,
+                number_padding=4,
+                is_active=True,
+            )
+        except IntegrityError:
+            # Another request created it first — re-read with lock.
+            settings_obj = (
+                MaterialGRNNumberSettings.objects
+                .select_for_update()
+                .filter(is_active=True)
+                .first()
+            )
+
+    number = (
+        f"{settings_obj.prefix}"
+        f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
+    )
+
+    settings_obj.next_number += 1
+    settings_obj.save(
+        update_fields=["next_number", "updated_at"]
+    )
+
+    return number
+
+
+# ---------------------------------------------------------------------
+# SUPPLIER NAME RESOLVER
+# ---------------------------------------------------------------------
+def _material_grn_supplier(vendor):
+    """
+    PurchaseOrder.vendor is a JSONField, so it may hold a dict or
+    a stringified dict. Return a readable supplier name.
+    """
+    if not vendor:
+        return "—"
+
+    if isinstance(vendor, dict):
+        return vendor.get("companyName") or "—"
+
+    text = str(vendor).strip()
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            import ast
+            parsed = ast.literal_eval(text)
+            if isinstance(parsed, dict):
+                return parsed.get("companyName") or "—"
+        except (ValueError, SyntaxError):
+            pass
+
+    return text or "—"
+
+
+# ---------------------------------------------------------------------
+# PROJECT RESOLVERS
+# ---------------------------------------------------------------------
+def _project_for_po_item(po_item_id):
+    """
+    Return the project name this real PO item is integrated into,
+    or "—" if not integrated yet.
+
+    Uses the most recent integration so the row reflects the latest
+    project the user linked.
+    """
+    integration = (
+        BOMPOIntegration.objects
+        .filter(purchase_order_item_id=po_item_id)
+        .select_related("project")
+        .order_by("-created_at")
+        .first()
+    )
+    if integration and integration.project:
+        return integration.project.name
+    return "—"
+
+
+def _project_for_dummy_item(dummy_item_id):
+    """Same idea, for dummy PO items."""
+    integration = (
+        BOMPOIntegration.objects
+        .filter(dummy_purchase_order_item_id=dummy_item_id)
+        .select_related("project")
+        .order_by("-created_at")
+        .first()
+    )
+    if integration and integration.project:
+        return integration.project.name
+    return "—"
+
+
+# =====================================================================
+# LIST — RECEIVABLE MATERIALS
+# =====================================================================
+class MaterialReceiveListAPIView(APIView):
+    """
+    GET /erp/material/receive/list/
+
+    One row per receivable line, sourced from:
+      - PurchaseOrderItem (confirmed POs, not consumable-issued)
+      - DummyPurchaseOrderItem
+
+    For every row:
+        poQty    = item.quantity
+        received = SUM(MaterialGRN.received_qty for that item)
+        balance  = poQty - received
+
+    Dimensions (length, width, thickness) come from the PO item.
+    Project comes from BOMPOIntegration (first linked project).
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        # ---- Blocked real PO items (already issued to Consumable) ----
+        blocked_ids = set(
+            ConsumableIssue.objects
+            .exclude(grn__purchase_order_item__isnull=True)
+            .values_list("grn__purchase_order_item_id", flat=True)
+            .distinct()
+        )
+
+        # ---- Real PO items ----
+        real_items = list(
+            PurchaseOrderItem.objects
+            .select_related("purchase_order")
+            .filter(
+                purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+            )
+            .exclude(id__in=blocked_ids)
+            .order_by("purchase_order__po_number", "id")
+        )
+
+        real_received_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                MaterialGRN.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_qty"))
+            )
+        }
+
+        real_integration_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        # ---- Dummy PO items ----
+        dummy_items = list(
+            DummyPurchaseOrderItem.objects
+            .select_related("dummy_po")
+            .order_by("dummy_po__po_number", "id")
+        )
+
+        dummy_received_map = {
+            row["dummy_purchase_order_item_id"]: row["total"]
+            for row in (
+                MaterialGRN.objects
+                .filter(dummy_purchase_order_item__in=dummy_items)
+                .values("dummy_purchase_order_item_id")
+                .annotate(total=Sum("received_qty"))
+            )
+        }
+
+        dummy_integration_map = {
+            row["dummy_purchase_order_item_id"]: row["total"]
+            for row in (
+                BOMPOIntegration.objects
+                .filter(dummy_purchase_order_item__in=dummy_items)
+                .values("dummy_purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        rows = []
+
+        # =========================================================
+        # REAL ROWS
+        # =========================================================
+        for pi in real_items:
+            po_qty = pi.quantity or Decimal("0")
+            received = real_received_map.get(pi.id, Decimal("0"))
+            balance = po_qty - received
+
+            integrated_qty = real_integration_map.get(pi.id, Decimal("0"))
+            if integrated_qty <= 0:
+                integration_status = "Not Integrated"
+            elif integrated_qty >= po_qty:
+                integration_status = "Integrated"
+            else:
+                integration_status = "Partially Integrated"
+
+            rows.append({
+                "id": f"real-{pi.id}",
+                "poItemId": pi.id,
+                "sourceType": "real",
+                "poType": "Actual PO",
+                "poNumber": pi.po_number or "",
+                "supplier": _material_grn_supplier(
+                    pi.purchase_order.vendor
+                ),
+                "description": pi.description or "",
+
+                # ---- Dimensions from PurchaseOrderItem ----
+                "length": pi.length or "",
+                "width": pi.width or "",
+                "thickness": pi.thickness or "",
+
+                # ---- Project resolved via integration ----
+                "project": _project_for_po_item(pi.id),
+
+                "unit": pi.unit or "",
+                "poQty": float(po_qty),
+                "received": float(received),
+                "balance": float(balance),
+                "integrationStatus": integration_status,
+                "deliveryDate": (
+                    pi.created_at.date().isoformat()
+                    if pi.created_at else ""
+                ),
+                "receivingUnit": None,
+            })
+
+        # =========================================================
+        # DUMMY ROWS
+        # =========================================================
+        for di in dummy_items:
+            po_qty = di.quantity or Decimal("0")
+            received = dummy_received_map.get(di.id, Decimal("0"))
+            balance = po_qty - received
+
+            integrated_qty = dummy_integration_map.get(di.id, Decimal("0"))
+            if integrated_qty <= 0:
+                integration_status = "Not Integrated"
+            elif integrated_qty >= po_qty:
+                integration_status = "Integrated"
+            else:
+                integration_status = "Partially Integrated"
+
+            rows.append({
+                "id": f"dummy-{di.id}",
+                "poItemId": di.id,
+                "sourceType": "dummy",
+                "poType": "Dummy PO",
+                "poNumber": di.dummy_po.po_number or "",
+                "supplier": "Dummy / Internal",
+                "description": di.description or "",
+
+                # ---- Dimensions (dummy already has them) ----
+                "length": di.length or "",
+                "width": di.width or "",
+                "thickness": di.thickness or "",
+
+                # ---- Project ----
+                "project": _project_for_dummy_item(di.id),
+
+                "unit": di.unit or "",
+                "poQty": float(po_qty),
+                "received": float(received),
+                "balance": float(balance),
+                "integrationStatus": integration_status,
+                "deliveryDate": (
+                    di.created_at.date().isoformat()
+                    if di.created_at else ""
+                ),
+                "receivingUnit": None,
+            })
+
+        return Response(rows, status=status.HTTP_200_OK)
+
+from django.db import transaction
+from django.db.models import Sum
+from decimal import Decimal, InvalidOperation
+
+from .models import (
+    MaterialGRN,
+    MaterialGRNNumberSettings,
+    MaterialStock,
+    MaterialStockMovement,
+    DummyPurchaseOrderItem,
+    BOMPOIntegration,
+    Project,
+)
+# =====================================================================
+# CREATE — RECORD ONE GRN
+# =====================================================================
+class MaterialGRNCreateAPIView(APIView):
+    """
+    POST /erp/material/receive/
+
+    Body:
+        {
+          "sourceType": "real" | "dummy",
+          "poItemId": 42,
+          "receivingUnit": "Unit 1",
+          "receivedQty": 2,
+          "receivedBy": "Kumar",
+          "remarks": ""
+        }
+
+    Creates:
+      1. MaterialGRN          (the receipt)
+      2. MaterialStock        (the physical lot)
+      3. MaterialStockMovement (the IN event that grows available_qty)
+
+    All inside one transaction — either everything commits or nothing does.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request):
+
+        source_type = request.data.get("sourceType")
+        po_item_id = request.data.get("poItemId")
+        receiving_unit = str(
+            request.data.get("receivingUnit", "")
+        ).strip()
+        received_by = str(
+            request.data.get("receivedBy", "")
+        ).strip()
+        remarks = str(
+            request.data.get("remarks", "")
+        ).strip()
+
+        # ---------------- VALIDATION ----------------
+        if source_type not in ("real", "dummy"):
+            return Response(
+                {"success": False, "message": "Invalid sourceType."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not po_item_id:
+            return Response(
+                {"success": False, "message": "poItemId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            received_qty = Decimal(
+                str(request.data.get("receivedQty", "0"))
+            )
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {"success": False, "message": "Invalid quantity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if received_qty <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Quantity must be greater than 0.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if receiving_unit not in ("Unit 1", "Unit 2"):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Receiving Unit must be Unit 1 or Unit 2.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not received_by:
+            return Response(
+                {"success": False, "message": "Received By is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------- RESOLVE PO ITEM ----------------
+        po_item = None
+        dummy_item = None
+        po_qty = Decimal("0")
+        prev_received = Decimal("0")
+
+        if source_type == "real":
+            try:
+                po_item = (
+                    PurchaseOrderItem.objects
+                    .select_for_update()
+                    .select_related("purchase_order")
+                    .get(id=po_item_id)
+                )
+            except PurchaseOrderItem.DoesNotExist:
+                return Response(
+                    {"success": False, "message": "PO item not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if (
+                po_item.purchase_order.status
+                != PurchaseOrder.Status.CONFIRMED
+            ):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "PO is not confirmed.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            po_qty = po_item.quantity or Decimal("0")
+            prev_received = (
+                MaterialGRN.objects
+                .filter(purchase_order_item=po_item)
+                .aggregate(total=Sum("received_qty"))["total"]
+                or Decimal("0")
+            )
+
+        else:
+            try:
+                dummy_item = (
+                    DummyPurchaseOrderItem.objects
+                    .select_for_update()
+                    .select_related("dummy_po")
+                    .get(id=po_item_id)
+                )
+            except DummyPurchaseOrderItem.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Dummy PO item not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            po_qty = dummy_item.quantity or Decimal("0")
+            prev_received = (
+                MaterialGRN.objects
+                .filter(dummy_purchase_order_item=dummy_item)
+                .aggregate(total=Sum("received_qty"))["total"]
+                or Decimal("0")
+            )
+
+        # ---------------- BALANCE CHECK ----------------
+        balance = po_qty - prev_received
+
+        if balance <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "message": "This PO item is already fully received.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if received_qty > balance:
+            unit = po_item.unit if po_item else dummy_item.unit
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Only {balance} {unit} can be received."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------- GENERATE GRN NUMBER ----------------
+        grn_number = generate_material_grn_number()
+
+        # ---------------- CREATE GRN ----------------
+        grn = MaterialGRN.objects.create(
+            grn_number=grn_number,
+            purchase_order_item=po_item,
+            dummy_purchase_order_item=dummy_item,
+            po_number=(
+                po_item.po_number
+                if po_item
+                else dummy_item.dummy_po.po_number
+            ),
+            description=(
+                po_item.description
+                if po_item
+                else dummy_item.description
+            ),
+            material=(dummy_item.material if dummy_item else ""),
+            receiving_unit=receiving_unit,
+            received_qty=received_qty,
+            received_by=received_by,
+            remarks=remarks,
+            created_by=request.user,
+        )
+
+        # ============================================================
+        # AUTO-CREATE MATERIAL STOCK LOT + IN MOVEMENT
+        # ------------------------------------------------------------
+        # Every GRN receipt lands in the warehouse as a physical lot.
+        # The lot is created with original_qty = 0, and an IN
+        # movement carries the received quantity. This keeps
+        # available_qty = SUM(IN) − SUM(OUT), computed live.
+        # ============================================================
+
+        # Resolve the project via integration (if any)
+        resolved_project = None
+
+        if po_item:
+            integration = (
+                BOMPOIntegration.objects
+                .filter(purchase_order_item_id=po_item.id)
+                .select_related("project")
+                .order_by("-created_at")
+                .first()
+            )
+            if integration:
+                resolved_project = integration.project
+
+        elif dummy_item:
+            integration = (
+                BOMPOIntegration.objects
+                .filter(dummy_purchase_order_item_id=dummy_item.id)
+                .select_related("project")
+                .order_by("-created_at")
+                .first()
+            )
+            if integration:
+                resolved_project = integration.project
+
+        # Snapshot the dimensions from the source PO item
+        thickness = ""
+        length = ""
+        width = ""
+        uom = "Nos"
+
+        if po_item:
+            thickness = po_item.thickness or ""
+            length = po_item.length or ""
+            width = po_item.width or ""
+            uom = po_item.unit or "Nos"
+        elif dummy_item:
+            thickness = dummy_item.thickness or ""
+            length = dummy_item.length or ""
+            width = dummy_item.width or ""
+            uom = dummy_item.unit or "Nos"
+
+        stock = MaterialStock.objects.create(
+            stock_id=generate_stock_id(),
+            unit=receiving_unit,
+            source_type=(
+                MaterialStock.SourceType.PO
+                if po_item
+                else MaterialStock.SourceType.DUMMY_PO
+            ),
+            material_grn=grn,
+            purchase_order_item=po_item,
+            dummy_purchase_order_item=dummy_item,
+            po_number=grn.po_number,
+            description=grn.description,
+            material=grn.material or "",
+            material_code="",
+            material_spec="",
+            thickness=thickness,
+            length=length,
+            width=width,
+            heat_number="",
+            plate_number="",
+            original_qty=Decimal("0"),
+            uom=uom,
+            project=resolved_project,
+            dwg_description="",
+            revision="",
+            stock_status=MaterialStock.StockStatus.AVAILABLE,
+            rework_required=False,
+            remarks="",
+            created_by=request.user,
+        )
+
+        MaterialStockMovement.objects.create(
+            stock=stock,
+            direction=MaterialStockMovement.Direction.IN,
+            movement_type=MaterialStockMovement.MovementType.GRN,
+            quantity=received_qty,
+            reference_type="MaterialGRN",
+            reference_id=grn.id,
+            remarks="",
+            created_by=request.user,
+        )
+
+        # ---------------- RESPONSE ----------------
+        return Response(
+            {
+                "success": True,
+                "message": f"{grn.grn_number} recorded.",
+                "data": {
+                    **MaterialGRNSerializer(grn).data,
+                    "stockId": stock.stock_id,
+                    "availableQty": float(stock.available_qty),
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+# =====================================================================
+# HISTORY — LIST / EDIT / DELETE
+# =====================================================================
+class MaterialGRNDetailAPIView(APIView):
+    """
+    GET    /erp/material/receive/history/
+    PATCH  /erp/material/receive/history/<id>/
+    DELETE /erp/material/receive/history/<id>/
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    # ---------------- GET ----------------
+    def get(self, request):
+        grns = (
+            MaterialGRN.objects
+            .all()
+            .order_by("-created_at")
+        )
+        return Response(
+            MaterialGRNSerializer(grns, many=True).data,
+            status=status.HTTP_200_OK,
+        )
+
+    # ---------------- PATCH ----------------
+    @transaction.atomic
+    def patch(self, request, pk):
+        try:
+            grn = (
+                MaterialGRN.objects
+                .select_for_update()
+                .select_related(
+                    "purchase_order_item",
+                    "dummy_purchase_order_item",
+                )
+                .get(id=pk)
+            )
+        except MaterialGRN.DoesNotExist:
+            return Response(
+                {"success": False, "message": "GRN not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---- Simple string fields ----
+        if "unit" in request.data:
+            value = str(request.data["unit"]).strip()
+            if value not in ("Unit 1", "Unit 2"):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Unit must be Unit 1 or Unit 2.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            grn.receiving_unit = value
+
+        if "receivedBy" in request.data:
+            grn.received_by = str(
+                request.data["receivedBy"]
+            ).strip()
+
+        if "remarks" in request.data:
+            grn.remarks = str(
+                request.data["remarks"]
+            ).strip()
+
+        # ---- Quantity (with re-validation) ----
+        if "receivedQty" in request.data:
+            try:
+                new_qty = Decimal(
+                    str(request.data["receivedQty"])
+                )
+            except (InvalidOperation, TypeError, ValueError):
+                return Response(
+                    {"success": False, "message": "Invalid quantity."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if new_qty <= 0:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Quantity must be greater than 0.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            po_qty = Decimal("0")
+            prev_other = Decimal("0")
+
+            if grn.purchase_order_item:
+                po_qty = (
+                    grn.purchase_order_item.quantity
+                    or Decimal("0")
+                )
+                prev_other = (
+                    MaterialGRN.objects
+                    .filter(
+                        purchase_order_item=grn.purchase_order_item
+                    )
+                    .exclude(pk=grn.pk)
+                    .aggregate(total=Sum("received_qty"))["total"]
+                    or Decimal("0")
+                )
+            elif grn.dummy_purchase_order_item:
+                po_qty = (
+                    grn.dummy_purchase_order_item.quantity
+                    or Decimal("0")
+                )
+                prev_other = (
+                    MaterialGRN.objects
+                    .filter(
+                        dummy_purchase_order_item=grn.dummy_purchase_order_item
+                    )
+                    .exclude(pk=grn.pk)
+                    .aggregate(total=Sum("received_qty"))["total"]
+                    or Decimal("0")
+                )
+
+            available = po_qty - prev_other
+
+            if new_qty > available:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            f"Quantity exceeds PO balance ({available})."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            grn.received_qty = new_qty
+
+        grn.save()
+
+        return Response(
+            {
+                "success": True,
+                "message": "GRN updated.",
+                "data": MaterialGRNSerializer(grn).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # ---------------- DELETE ----------------
+    @transaction.atomic
+    def delete(self, request, pk):
+        try:
+            grn = (
+                MaterialGRN.objects
+                .select_for_update()
+                .get(id=pk)
+            )
+        except MaterialGRN.DoesNotExist:
+            return Response(
+                {"success": False, "message": "GRN not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        grn.delete()
+
+        return Response(
+            {"success": True, "message": "GRN deleted."},
+            status=status.HTTP_200_OK,
+        )
+
+
+
+#FOR ALL PAGES FLITER
+# =====================================================================
+# GENERIC FILTER OPTIONS
+# -----------------------------------------------------------------
+# Every page that shows filter dropdowns can hit one endpoint:
+#
+#     GET /erp/filter-options/?source=<key>
+#
+# The view dispatches to a per-source resolver that returns
+# { "field": [distinct values...] }.
+#
+# Empty keys are omitted from the response — so a dropdown with
+# no data falls back to just "All" on the frontend.
+# =====================================================================
+
+from django.db import models as django_models
+
+
+def _sort_numeric(values):
+    """
+    Sort "6", "8", "10", "12" numerically.
+    Non-numeric values fall back to alphabetical.
+    """
+    def key(v):
+        try:
+            return (0, float(v))
+        except (TypeError, ValueError):
+            return (1, str(v).lower())
+    return sorted(values, key=key)
+
+
+def _non_empty(values):
+    """Trim, drop empty, de-dupe."""
+    return {
+        str(v).strip()
+        for v in values
+        if v is not None and str(v).strip() != ""
+    }
+
+# ---------------------------------------------------------------------
+# SOURCE RESOLVER — MATERIAL STOCK
+# ---------------------------------------------------------------------
+def _resolve_filter_options__material_stock(request):
+    """
+    Dropdown values for the Material Stock page.
+
+    Sources:
+      - MaterialStock (only lots with available_qty > 0)
+      - Project (via MaterialStock.project FK)
+    """
+    qs = MaterialStock.objects.all()
+
+    # Only non-depleted lots contribute to the dropdown
+    live_rows = [
+        s for s in qs
+        if s.available_qty > Decimal("0")
+    ]
+
+    thickness_set = _non_empty(
+        s.thickness for s in live_rows
+    )
+    length_set = _non_empty(
+        s.length for s in live_rows
+    )
+    width_set = _non_empty(
+        s.width for s in live_rows
+    )
+    material_set = _non_empty(
+        s.material for s in live_rows
+    )
+    po_number_set = _non_empty(
+        s.po_number for s in live_rows
+    )
+    project_set = _non_empty(
+        s.project.name for s in live_rows if s.project
+    )
+
+    payload = {}
+
+    if thickness_set:
+        payload["thickness"] = _sort_numeric(thickness_set)
+
+    if length_set:
+        payload["length"] = _sort_numeric(length_set)
+
+    if width_set:
+        payload["width"] = _sort_numeric(width_set)
+
+    if material_set:
+        payload["material"] = sorted(material_set)
+
+    if po_number_set:
+        payload["poNumber"] = sorted(po_number_set)
+
+    if project_set:
+        payload["project"] = sorted(project_set)
+
+    return payload
+# ---------------------------------------------------------------------
+# SOURCE RESOLVER — MATERIAL RECEIVE
+# ---------------------------------------------------------------------
+def _resolve_filter_options__material_receive(request):
+    """
+    Thickness, Length, Width, Project, Supplier for the Receive GRN page.
+
+    Sources:
+      - PurchaseOrderItem (confirmed POs, excluding Consumable-issued)
+      - DummyPurchaseOrderItem
+      - Project (via BOMPOIntegration)
+      - PurchaseOrder.vendor.companyName
+    """
+    blocked_ids = set(
+        ConsumableIssue.objects
+        .exclude(grn__purchase_order_item__isnull=True)
+        .values_list("grn__purchase_order_item_id", flat=True)
+        .distinct()
+    )
+
+    real_items = (
+        PurchaseOrderItem.objects
+        .select_related("purchase_order")
+        .filter(
+            purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+        )
+        .exclude(id__in=blocked_ids)
+        .values(
+            "thickness",
+            "length",
+            "width",
+            "purchase_order__vendor",
+        )
+    )
+
+    dummy_items = (
+        DummyPurchaseOrderItem.objects
+        .values("thickness", "length", "width")
+    )
+
+    thickness_set = set()
+    length_set = set()
+    width_set = set()
+    supplier_set = set()
+
+    for row in real_items:
+        thickness_set |= _non_empty([row.get("thickness")])
+        length_set |= _non_empty([row.get("length")])
+        width_set |= _non_empty([row.get("width")])
+
+        supplier = _material_grn_supplier(
+            row.get("purchase_order__vendor")
+        )
+        if supplier and supplier != "—":
+            supplier_set.add(supplier)
+
+    for row in dummy_items:
+        thickness_set |= _non_empty([row.get("thickness")])
+        length_set |= _non_empty([row.get("length")])
+        width_set |= _non_empty([row.get("width")])
+
+        supplier_set.add("Dummy / Internal")
+
+    project_set = _non_empty(
+        Project.objects
+        .filter(
+            django_models.Q(
+                po_integrations__purchase_order_item__isnull=False
+            )
+            | django_models.Q(
+                po_integrations__dummy_purchase_order_item__isnull=False
+            )
+        )
+        .values_list("name", flat=True)
+        .distinct()
+    )
+
+    payload = {}
+
+    if thickness_set:
+        payload["thickness"] = _sort_numeric(thickness_set)
+
+    if length_set:
+        payload["length"] = _sort_numeric(length_set)
+
+    if width_set:
+        payload["width"] = _sort_numeric(width_set)
+
+    if project_set:
+        payload["project"] = sorted(project_set)
+
+    if supplier_set:
+        payload["supplier"] = sorted(supplier_set)
+
+    return payload
+def _resolve_filter_options__material_job_work(request):
+    """
+    Dropdown values for the Issue to Job Work page.
+    Only lots with available_qty > 0 contribute.
+    """
+    qs = MaterialStock.objects.select_related("project").all()
+
+    live_rows = [
+        s for s in qs
+        if s.available_qty > Decimal("0")
+    ]
+
+    payload = {}
+
+    thickness_set = _non_empty(s.thickness for s in live_rows)
+    if thickness_set:
+        payload["thickness"] = _sort_numeric(thickness_set)
+
+    length_set = _non_empty(s.length for s in live_rows)
+    if length_set:
+        payload["length"] = _sort_numeric(length_set)
+
+    width_set = _non_empty(s.width for s in live_rows)
+    if width_set:
+        payload["width"] = _sort_numeric(width_set)
+
+    material_set = _non_empty(s.material for s in live_rows)
+    if material_set:
+        payload["material"] = sorted(material_set)
+
+    po_number_set = _non_empty(s.po_number for s in live_rows)
+    if po_number_set:
+        payload["poNumber"] = sorted(po_number_set)
+
+    project_set = _non_empty(
+        s.project.name for s in live_rows if s.project
+    )
+    if project_set:
+        payload["project"] = sorted(project_set)
+
+    return payload
+
+
+def _resolve_filter_options__job_work_receive(request):
+    """
+    Dropdown values for the Receive From Job Work page.
+
+    Only issues with balance_to_receive > 0 contribute.
+    """
+    issues = (
+        JobWorkIssue.objects
+        .select_related("stock", "project")
+        .exclude(status=JobWorkIssue.Status.FULLY_RETURNED)
+        .all()
+    )
+
+    thickness_set = set()
+    material_set = set()
+    size_set = set()
+    po_number_set = set()
+    project_set = set()
+    dwg_set = set()
+    unit_set = set()
+    job_work_type_set = set()
+    process_set = set()
+
+    for issue in issues:
+        issued = issue.quantity_issued or Decimal("0")
+        returned = issue.quantity_returned or Decimal("0")
+
+        if issued - returned <= 0:
+            continue
+
+        thickness_set |= _non_empty([issue.thickness])
+        material_set |= _non_empty([issue.material])
+
+        if issue.length and issue.width:
+            size_set.add(f"{issue.length} x {issue.width}")
+
+        po_number_set |= _non_empty([issue.po_number])
+
+        if issue.project:
+            project_set.add(issue.project.name)
+
+        dwg_set |= _non_empty([issue.dwg_description])
+
+        unit_set |= _non_empty([issue.job_work_unit])
+
+        job_work_type_set |= _non_empty([issue.job_work_type])
+
+        process_set |= _non_empty([issue.process_name])
+
+    payload = {}
+
+    if thickness_set:
+        payload["thickness"] = _sort_numeric(thickness_set)
+
+    if material_set:
+        payload["material"] = sorted(material_set)
+
+    if size_set:
+        payload["size"] = sorted(size_set)
+
+    if po_number_set:
+        payload["poNumber"] = sorted(po_number_set)
+
+    if project_set:
+        payload["project"] = sorted(project_set)
+
+    if dwg_set:
+        payload["dwg"] = sorted(dwg_set)
+
+    if unit_set:
+        payload["unit"] = sorted(unit_set)
+
+    if job_work_type_set:
+        payload["jobWorkType"] = sorted(job_work_type_set)
+
+    if process_set:
+        payload["process"] = sorted(process_set)
+
+    return payload
+
+def _resolve_filter_options__production_issue(request):
+    """
+    Dropdown values for the Issue to Production page.
+    Only pieces with available_qty > 0 contribute.
+    """
+    issued_map = {
+        row["job_work_piece_id"]: row["total"]
+        for row in (
+            ProductionIssue.objects
+            .exclude(job_work_piece__isnull=True)
+            .values("job_work_piece_id")
+            .annotate(total=Sum("issued_qty"))
+        )
+    }
+
+    pieces = (
+        JobWorkReceivePiece.objects
+        .select_related("receive", "receive__project", "receive__issue")
+        .all()
+    )
+
+    thickness_set = set()
+    material_set = set()
+    size_set = set()
+    po_number_set = set()
+    project_set = set()
+    dwg_set = set()
+    unit_set = set()
+    job_work_type_set = set()
+    process_set = set()
+    status_set = set()
+
+    for piece in pieces:
+        receive = piece.receive
+        issue = receive.issue
+
+        received = piece.qty or Decimal("0")
+        previously = issued_map.get(piece.id, Decimal("0"))
+        available = received - previously
+
+        if available <= 0:
+            continue
+
+        thickness_set |= _non_empty(
+            [piece.thickness or receive.thickness]
+        )
+        material_set |= _non_empty([receive.material])
+
+        if piece.length and piece.width:
+            size_set.add(f"{piece.length} × {piece.width}")
+
+        po_number_set |= _non_empty([receive.po_number])
+
+        if receive.project:
+            project_set.add(receive.project.name)
+
+        dwg_set |= _non_empty([receive.dwg_description])
+        unit_set |= _non_empty(
+            [issue.job_work_unit if issue else ""]
+        )
+        job_work_type_set |= _non_empty(
+            [issue.job_work_type if issue else ""]
+        )
+        process_set |= _non_empty([receive.process_name])
+
+        if previously <= 0:
+            status_set.add("Available")
+        elif previously >= received:
+            status_set.add("Fully Issued")
+        else:
+            status_set.add("Partially Issued")
+
+    payload = {}
+
+    if thickness_set:
+        payload["thickness"] = _sort_numeric(thickness_set)
+    if material_set:
+        payload["material"] = sorted(material_set)
+    if size_set:
+        payload["size"] = sorted(size_set)
+    if po_number_set:
+        payload["poNumber"] = sorted(po_number_set)
+    if project_set:
+        payload["project"] = sorted(project_set)
+    if dwg_set:
+        payload["dwg"] = sorted(dwg_set)
+    if unit_set:
+        payload["unit"] = sorted(unit_set)
+    if job_work_type_set:
+        payload["jobWorkType"] = sorted(job_work_type_set)
+    if process_set:
+        payload["process"] = sorted(process_set)
+    if status_set:
+        payload["status"] = sorted(status_set)
+
+    return payload
+
+
+# ---------------------------------------------------------------------
+# SOURCE REGISTRY — add new pages here
+# ---------------------------------------------------------------------
+FILTER_OPTION_SOURCES = {
+    "material-receive": _resolve_filter_options__material_receive,
+     "material-stock":    _resolve_filter_options__material_stock,
+      "material-job-work": _resolve_filter_options__material_job_work,
+       "job-work-receive": _resolve_filter_options__job_work_receive,
+       "production-issue": _resolve_filter_options__production_issue,
+    # "material-issue":    _resolve_filter_options__material_issue,
+    # "consumable-stock":  _resolve_filter_options__consumable_stock,
+    # ...
+}
+
+
+# ---------------------------------------------------------------------
+# THE VIEW
+# ---------------------------------------------------------------------
+class FilterOptionsAPIView(APIView):
+    
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        source = (request.query_params.get("source") or "").strip()
+
+        if not source:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Query parameter 'source' is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resolver = FILTER_OPTION_SOURCES.get(source)
+
+        if resolver is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Unknown filter-options source: '{source}'.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            payload = resolver(request)
+        except Exception as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Failed to build filter options: {exc}",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "source": source,
+                "data": payload,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# MATERIAL STOCK
+# -----------------------------------------------------------------
+#   GET    /erp/material/stock/              → list all lots
+#   GET    /erp/material/stock/<id>/         → one lot
+#   GET    /erp/material/stock/<id>/movements/ → movement history
+#   POST   /erp/material/stock/from-grn/     → create lot from GRN
+# =====================================================================
+
+from .models import MaterialStock, MaterialStockMovement
+from .serializers import (
+    MaterialStockSerializer,
+    MaterialStockMovementSerializer,
+)
+
+
+def generate_stock_id():
+    last = (
+        MaterialStock.objects
+        .order_by("-id")
+        .values_list("stock_id", flat=True)
+        .first()
+    )
+    if not last:
+        n = 1
+    else:
+        try:
+            n = int(last.replace("STK-", "")) + 1
+        except (ValueError, TypeError):
+            n = MaterialStock.objects.count() + 1
+    return f"STK-{n:04d}"
+
+
+class MaterialStockListAPIView(APIView):
+    """
+    GET /erp/material/stock/
+
+    Returns every lot whose available_qty > 0.
+    Optional query params:
+      unit, sourceType, poNumber, projectId, stockStatus,
+      material, thickness, length, width, search
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        qs = (
+            MaterialStock.objects
+            .select_related("project")
+            .all()
+            .order_by("-created_at")
+        )
+
+        params = request.query_params
+
+        if params.get("unit"):
+            qs = qs.filter(unit=params["unit"])
+
+        if params.get("sourceType"):
+            qs = qs.filter(source_type=params["sourceType"])
+
+        if params.get("poNumber"):
+            qs = qs.filter(po_number__icontains=params["poNumber"])
+
+        if params.get("projectId"):
+            qs = qs.filter(project_id=params["projectId"])
+
+        if params.get("stockStatus"):
+            qs = qs.filter(stock_status=params["stockStatus"])
+
+        if params.get("material"):
+            qs = qs.filter(material=params["material"])
+
+        if params.get("thickness"):
+            qs = qs.filter(thickness=params["thickness"])
+
+        if params.get("length"):
+            qs = qs.filter(length=params["length"])
+
+        if params.get("width"):
+            qs = qs.filter(width=params["width"])
+
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                models.Q(po_number__icontains=search)
+                | models.Q(description__icontains=search)
+                | models.Q(material__icontains=search)
+                | models.Q(material_code__icontains=search)
+                | models.Q(material_spec__icontains=search)
+                | models.Q(heat_number__icontains=search)
+                | models.Q(plate_number__icontains=search)
+                | models.Q(dwg_description__icontains=search)
+            )
+
+        # Hide depleted lots
+        rows = [
+            s for s in qs
+            if s.available_qty > Decimal("0")
+        ]
+
+        serializer = MaterialStockSerializer(rows, many=True)
+
+        return Response(
+            {"success": True, "data": serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class MaterialStockDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request, pk):
+        try:
+            stock = MaterialStock.objects.get(id=pk)
+        except MaterialStock.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Stock lot not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {"success": True, "data": MaterialStockSerializer(stock).data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class MaterialStockMovementListAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request, pk):
+        try:
+            stock = MaterialStock.objects.get(id=pk)
+        except MaterialStock.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Stock lot not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        movements = (
+            stock.movements
+            .select_related("created_by")
+            .order_by("-created_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": MaterialStockMovementSerializer(
+                    movements, many=True
+                ).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class MaterialStockFromGRNAPIView(APIView):
+    
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request):
+
+        grn_id = request.data.get("materialGrnId")
+        unit = str(request.data.get("unit", "")).strip()
+
+        if not grn_id:
+            return Response(
+                {"success": False, "message": "materialGrnId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if unit not in ("Unit 1", "Unit 2"):
+            return Response(
+                {"success": False, "message": "Invalid unit."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            grn = MaterialGRN.objects.get(id=grn_id)
+        except MaterialGRN.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Material GRN not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---------------------------------------------------------
+        # Resolve project from BOMPOIntegration (if any)
+        # ---------------------------------------------------------
+        project = None
+        if grn.purchase_order_item_id:
+            integration = (
+                BOMPOIntegration.objects
+                .filter(purchase_order_item_id=grn.purchase_order_item_id)
+                .select_related("project")
+                .first()
+            )
+            if integration:
+                project = integration.project
+
+        stock = MaterialStock.objects.create(
+            stock_id=generate_stock_id(),
+            unit=unit,
+            source_type=MaterialStock.SourceType.PO,
+            material_grn=grn,
+            purchase_order_item=grn.purchase_order_item,
+            dummy_purchase_order_item=grn.dummy_purchase_order_item,
+            po_number=grn.po_number,
+            description=grn.description,
+            material=grn.material or "",
+            material_code=str(request.data.get("materialCode", "")).strip(),
+            material_spec=str(request.data.get("materialSpec", "")).strip(),
+            thickness=str(request.data.get("thickness", "")).strip(),
+            length=str(request.data.get("length", "")).strip(),
+            width=str(request.data.get("width", "")).strip(),
+            heat_number=str(request.data.get("heatNumber", "")).strip(),
+            plate_number=str(request.data.get("plateNumber", "")).strip(),
+            original_qty=Decimal("0"),   # grows via movements
+            uom=str(request.data.get("uom", "Nos")).strip() or "Nos",
+            project=project,
+            remarks=str(request.data.get("remarks", "")).strip(),
+            created_by=request.user,
+        )
+
+        MaterialStockMovement.objects.create(
+            stock=stock,
+            direction=MaterialStockMovement.Direction.IN,
+            movement_type=MaterialStockMovement.MovementType.GRN,
+            quantity=grn.received_qty,
+            reference_type="MaterialGRN",
+            reference_id=grn.id,
+            created_by=request.user,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{stock.stock_id} created.",
+                "data": MaterialStockSerializer(stock).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+
+# =====================================================================
+# ISSUE TO JOB WORK
+# -----------------------------------------------------------------
+#   GET    /erp/material/job-work/stock/        → available stock lots
+#   GET    /erp/material/job-work/processes/    → process master list
+#   POST   /erp/material/job-work/processes/    → create a process
+#   GET    /erp/material/job-work/issues/       → issue history
+#   POST   /erp/material/job-work/issue/        → issue material
+#   POST   /erp/material/job-work/receive/      → return from job work
+#   GET    /erp/material/job-work/filter-options/ → dropdown values
+# =====================================================================
+
+from django.db import transaction, IntegrityError
+from .models import (
+    MaterialStock,
+    MaterialStockMovement,
+    JobWorkIssue,
+    JobWorkProcess,
+    JobWorkIssueNumberSettings,
+    BOMPOIntegration,
+)
+from .serializers import (
+    MaterialStockSerializer,
+    JobWorkIssueSerializer,
+    JobWorkProcessSerializer,
+)
+
+
+# ---------------------------------------------------------------------
+# ISSUE NUMBER GENERATOR
+# ---------------------------------------------------------------------
+def generate_job_work_issue_number():
+    settings_obj = (
+        JobWorkIssueNumberSettings.objects
+        .select_for_update()
+        .filter(is_active=True)
+        .first()
+    )
+
+    if settings_obj is None:
+        try:
+            settings_obj = JobWorkIssueNumberSettings.objects.create(
+                prefix="ISS",
+                next_number=1,
+                number_padding=3,
+                is_active=True,
+            )
+        except IntegrityError:
+            settings_obj = (
+                JobWorkIssueNumberSettings.objects
+                .select_for_update()
+                .filter(is_active=True)
+                .first()
+            )
+
+    number = (
+        f"{settings_obj.prefix}"
+        f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
+    )
+
+    settings_obj.next_number += 1
+    settings_obj.save(
+        update_fields=["next_number", "updated_at"]
+    )
+
+    return number
+
+
+# ---------------------------------------------------------------------
+# LIST AVAILABLE STOCK FOR JOB WORK
+# ---------------------------------------------------------------------
+class JobWorkStockListAPIView(APIView):
+    """
+    GET /erp/material/job-work/stock/
+
+    Returns every MaterialStock lot with available_qty > 0.
+    Same shape as MaterialStockListAPIView so the frontend can
+    reuse the same rendering logic.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        qs = (
+            MaterialStock.objects
+            .select_related("project")
+            .all()
+            .order_by("-created_at")
+        )
+
+        rows = [
+            s for s in qs
+            if s.available_qty > Decimal("0")
+        ]
+
+        serializer = MaterialStockSerializer(rows, many=True)
+
+        return Response(
+            {"success": True, "data": serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+DEFAULT_JOB_WORK_PROCESSES = [
+    ("Cutting",     "CUT01"),
+    ("Rolling",     "ROLL01"),
+    ("Bending",     "BEND01"),
+    ("Drilling",    "DRL01"),
+    ("Machining",   "MACH01"),
+    ("Welding",     "WELD01"),
+    ("Fabrication", "FAB01"),
+]
+
+
+def ensure_default_job_work_processes():
+    """
+    Idempotent. Fires on every visit to the process endpoint.
+    Seeds the 7 defaults only if the master is empty.
+    """
+    if JobWorkProcess.objects.exists():
+        return
+
+    for name, pid in DEFAULT_JOB_WORK_PROCESSES:
+        try:
+            JobWorkProcess.objects.create(
+                name=name,
+                process_id=pid,
+                is_active=True,
+            )
+        except IntegrityError:
+            pass
+# ---------------------------------------------------------------------
+# PROCESS MASTER — LIST / CREATE
+# ---------------------------------------------------------------------
+class JobWorkProcessListCreateAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        # ---- Seed defaults on first visit ----
+        ensure_default_job_work_processes()
+
+        qs = (
+            JobWorkProcess.objects
+            .filter(is_active=True)
+            .order_by("name")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": JobWorkProcessSerializer(qs, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        serializer = JobWorkProcessSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Process validation failed.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        process = serializer.save()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Process created.",
+                "data": JobWorkProcessSerializer(process).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ---------------------------------------------------------------------
+# ISSUE HISTORY
+# ---------------------------------------------------------------------
+class JobWorkIssueListAPIView(APIView):
+    """
+    GET /erp/material/job-work/issues/
+
+    Full history of job work issues.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        qs = (
+            JobWorkIssue.objects
+            .select_related("stock", "project")
+            .all()
+            .order_by("-created_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": JobWorkIssueSerializer(qs, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------
+# CREATE ISSUE
+# ---------------------------------------------------------------------
+class JobWorkIssueCreateAPIView(APIView):
+    """
+    POST /erp/material/job-work/issue/
+
+    Body:
+        {
+          "stockId": 12,
+          "jobWorkType": "In-House" | "Outsourcing",
+          "processId": "CUT01",
+          "quantityIssued": 3,
+          "issuedBy": "Arun",
+          "remarks": "",
+          # In-House only:
+          "jobWorkUnit": "Unit 1",
+          # Outsourcing only:
+          "vendor": "Shree Fabricators",
+          "vendorContact": "+91-...",
+          "jobWorkLocation": "Pune",
+          "expectedReturnDate": "2026-10-20"
+        }
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request):
+
+        stock_id = request.data.get("stockId")
+        job_work_type = str(request.data.get("jobWorkType", "")).strip()
+        process_id = str(request.data.get("processId", "")).strip()
+        issued_by = str(request.data.get("issuedBy", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        if not stock_id:
+            return Response(
+                {"success": False, "message": "stockId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if job_work_type not in ("In-House", "Outsourcing"):
+            return Response(
+                {"success": False, "message": "Invalid jobWorkType."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Process ----
+        process = (
+            JobWorkProcess.objects
+            .filter(process_id__iexact=process_id, is_active=True)
+            .first()
+        )
+        if process is None:
+            return Response(
+                {"success": False, "message": "Process not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---- Quantity ----
+        try:
+            quantity = Decimal(str(request.data.get("quantityIssued", "0")))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {"success": False, "message": "Invalid quantity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity <= 0:
+            return Response(
+                {"success": False, "message": "Quantity must be greater than 0."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not issued_by:
+            return Response(
+                {"success": False, "message": "Issued By is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Lock the stock lot ----
+        try:
+            stock = (
+                MaterialStock.objects
+                .select_for_update()
+                .select_related("project")
+                .get(id=stock_id)
+            )
+        except MaterialStock.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Stock lot not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---- Available check ----
+        available = stock.available_qty
+        if quantity > available:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Only {available} {stock.uom} available to issue."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Validate integration exists (project resolved via integration) ----
+        integration = None
+        if stock.purchase_order_item_id:
+            integration = (
+                BOMPOIntegration.objects
+                .filter(purchase_order_item_id=stock.purchase_order_item_id)
+                .select_related("project")
+                .order_by("-created_at")
+                .first()
+            )
+        elif stock.dummy_purchase_order_item_id:
+            integration = (
+                BOMPOIntegration.objects
+                .filter(dummy_purchase_order_item_id=stock.dummy_purchase_order_item_id)
+                .select_related("project")
+                .order_by("-created_at")
+                .first()
+            )
+
+        if integration is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Complete DWG/BOM integration before issuing "
+                        "this material."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resolved_project = integration.project if integration else stock.project
+
+        # ---- Job-work-type-specific fields ----
+        job_work_unit = ""
+        vendor = ""
+        vendor_contact = ""
+        job_work_location = ""
+        expected_return_date = None
+
+        if job_work_type == "In-House":
+            job_work_unit = str(
+                request.data.get("jobWorkUnit", "")
+            ).strip()
+            if job_work_unit not in ("Unit 1", "Unit 2"):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Job work unit must be Unit 1 or Unit 2.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        else:
+            vendor = str(request.data.get("vendor", "")).strip()
+            vendor_contact = str(request.data.get("vendorContact", "")).strip()
+            job_work_location = str(request.data.get("jobWorkLocation", "")).strip()
+            erd_raw = request.data.get("expectedReturnDate")
+            if not vendor:
+                return Response(
+                    {"success": False, "message": "Vendor is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not job_work_location:
+                return Response(
+                    {"success": False, "message": "Job work location is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not erd_raw:
+                return Response(
+                    {"success": False, "message": "Expected return date is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                expected_return_date = date.fromisoformat(str(erd_raw))
+            except (TypeError, ValueError):
+                return Response(
+                    {"success": False, "message": "Invalid expected return date."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # ---- Create the issue ----
+        issue = JobWorkIssue.objects.create(
+            issue_number=generate_job_work_issue_number(),
+            stock=stock,
+            po_number=stock.po_number,
+            description=stock.description,
+            material=stock.material or "",
+            material_code=stock.material_code or "",
+            material_spec=stock.material_spec or "",
+            thickness=stock.thickness or "",
+            length=stock.length or "",
+            width=stock.width or "",
+            uom=stock.uom or "Nos",
+            project=resolved_project,
+            dwg_description=stock.dwg_description or "",
+            revision=stock.revision or "",
+            job_work_type=job_work_type,
+            process_name=process.name,
+            process_id=process.process_id,
+            job_work_unit=job_work_unit,
+            vendor=vendor,
+            vendor_contact=vendor_contact,
+            job_work_location=job_work_location,
+            expected_return_date=expected_return_date,
+            quantity_issued=quantity,
+            quantity_returned=Decimal("0"),
+            issued_by=issued_by,
+            remarks=remarks,
+            status=JobWorkIssue.Status.ISSUED,
+            created_by=request.user,
+        )
+
+        # ---- Stock OUT movement ----
+        MaterialStockMovement.objects.create(
+            stock=stock,
+            direction=MaterialStockMovement.Direction.OUT,
+            movement_type=MaterialStockMovement.MovementType.ISSUE_JOB_WORK,
+            quantity=quantity,
+            reference_type="JobWorkIssue",
+            reference_id=issue.id,
+            remarks=remarks,
+            created_by=request.user,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    f"{issue.issue_number} — "
+                    f"{quantity} {issue.uom} issued for {process.name}."
+                ),
+                "data": JobWorkIssueSerializer(issue).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ---------------------------------------------------------------------
+# RECEIVE FROM JOB WORK (RETURN + NEW LOT)
+# ---------------------------------------------------------------------
+class JobWorkReceiveAPIView(APIView):
+    """
+    POST /erp/material/job-work/receive/<issue_id>/
+
+    Body:
+        {
+          "returnedQty": 2,
+          "sourceType": "Job Remaining",  # optional, defaults to Job Remaining
+          "unit": "Unit 1",
+          "receivedBy": "Arun",
+          "remarks": ""
+        }
+
+    - Records returnedQty as an IN movement on the original lot.
+    - If sourceType != "" creates a NEW lot with the given sourceType
+      so the returned material is tracked separately.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request, issue_id):
+
+        try:
+            issue = (
+                JobWorkIssue.objects
+                .select_for_update()
+                .select_related("stock", "project")
+                .get(id=issue_id)
+            )
+        except JobWorkIssue.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Issue not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            returned_qty = Decimal(str(request.data.get("returnedQty", "0")))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {"success": False, "message": "Invalid quantity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if returned_qty <= 0:
+            return Response(
+                {"success": False, "message": "Return quantity must be > 0."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        balance = (issue.quantity_issued or 0) - (issue.quantity_returned or 0)
+
+        if returned_qty > balance:
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Only {balance} {issue.uom} balance to return.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Return to original lot (IN) ----
+        MaterialStockMovement.objects.create(
+            stock=issue.stock,
+            direction=MaterialStockMovement.Direction.IN,
+            movement_type=MaterialStockMovement.MovementType.RETURN_JOB_WORK,
+            quantity=returned_qty,
+            reference_type="JobWorkIssue",
+            reference_id=issue.id,
+            remarks=str(request.data.get("remarks", "")).strip(),
+            created_by=request.user,
+        )
+
+        # ---- Update issue status ----
+        issue.quantity_returned = (issue.quantity_returned or 0) + returned_qty
+
+        if issue.quantity_returned >= issue.quantity_issued:
+            issue.status = JobWorkIssue.Status.FULLY_RETURNED
+        else:
+            issue.status = JobWorkIssue.Status.PARTIALLY_RETURNED
+
+        issue.save(
+            update_fields=["quantity_returned", "status", "updated_at"]
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    f"{returned_qty} {issue.uom} returned to stock."
+                ),
+                "data": JobWorkIssueSerializer(issue).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# RECEIVE FROM JOB WORK
+# -----------------------------------------------------------------
+#   GET    /erp/material/job-work/receive/         → list open JI issues
+#   GET    /erp/material/job-work/receive/history/ → list received rows
+#   POST   /erp/material/job-work/receive/         → record a receipt
+# =====================================================================
+
+from .models import (
+    JobWorkReceive,
+    JobWorkReceivePiece,
+    JobWorkReceiveRemaining,
+    JobWorkReceiveNumberSettings,
+)
+
+
+def generate_job_work_receive_number():
+    settings_obj = (
+        JobWorkReceiveNumberSettings.objects
+        .select_for_update()
+        .filter(is_active=True)
+        .first()
+    )
+
+    if settings_obj is None:
+        try:
+            settings_obj = JobWorkReceiveNumberSettings.objects.create(
+                prefix="JWR",
+                next_number=1,
+                number_padding=4,
+                is_active=True,
+            )
+        except IntegrityError:
+            settings_obj = (
+                JobWorkReceiveNumberSettings.objects
+                .select_for_update()
+                .filter(is_active=True)
+                .first()
+            )
+
+    number = (
+        f"{settings_obj.prefix}"
+        f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
+    )
+
+    settings_obj.next_number += 1
+    settings_obj.save(
+        update_fields=["next_number", "updated_at"]
+    )
+
+    return number
+
+
+# ---------------------------------------------------------------------
+# LIST OPEN ISSUES FOR RECEIVING
+# ---------------------------------------------------------------------
+class JobWorkReceiveListAPIView(APIView):
+    """
+    GET /erp/material/job-work/receive/
+
+    Returns every JobWorkIssue with outstanding quantity
+    (quantity_issued − quantity_returned > 0).
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        issues = (
+            JobWorkIssue.objects
+            .select_related("stock", "project")
+            .exclude(status=JobWorkIssue.Status.FULLY_RETURNED)
+            .order_by("-created_at")
+        )
+
+        rows = []
+
+        for issue in issues:
+            received_so_far = issue.quantity_returned or Decimal("0")
+            issued = issue.quantity_issued or Decimal("0")
+            balance = issued - received_so_far
+
+            if balance <= 0:
+                continue
+
+            rows.append({
+                "id": issue.id,
+                "issueNumber": issue.issue_number,
+                "issueDate": issue.issue_date.isoformat(),
+                "stockId": issue.stock_id,
+                "stockCode": issue.stock.stock_id,
+                "poNumber": issue.po_number,
+                "poType": (
+                    "Dummy PO"
+                    if issue.stock.source_type == MaterialStock.SourceType.DUMMY_PO
+                    else "PO"
+                ),
+                "supplier": issue.vendor or "—",
+                "description": issue.description,
+                "project": issue.project.name if issue.project else "—",
+                "dwgDescription": issue.dwg_description or "—",
+                "revision": issue.revision or "—",
+                "material": issue.material or "—",
+                "materialCode": issue.material_code or "—",
+                "materialSpec": issue.material_spec or "—",
+                "thickness": issue.thickness or "—",
+                "length": issue.length or "—",
+                "width": issue.width or "—",
+                "size": (
+                    f"{issue.length} x {issue.width}"
+                    if issue.length and issue.width
+                    else "—"
+                ),
+                "requiredQty": float(issued),
+                "issuedQty": float(issued),
+                "previouslyReceived": float(received_so_far),
+                "outputQty": float(issue.quantity_returned or 0),  # informational
+                "unit": issue.job_work_unit or "—",
+                "jobWorkType": issue.job_work_type,
+                "jobWorkUnit": issue.job_work_unit or "—",
+                "process": issue.process_name or "—",
+                "processId": issue.process_id or "—",
+                "uom": issue.uom or "Nos",
+                "reworkPending": False,
+            })
+
+        return Response(
+            {"success": True, "data": rows},
+            status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------
+# LIST PAST RECEIVES
+# ---------------------------------------------------------------------
+class JobWorkReceiveHistoryAPIView(APIView):
+    """
+    GET /erp/material/job-work/receive/history/
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        qs = (
+            JobWorkReceive.objects
+            .select_related("issue", "project")
+            .prefetch_related("output_pieces", "remaining_pieces")
+            .order_by("-created_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": JobWorkReceiveSerializer(qs, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+class JobWorkReceiveCreateAPIView(APIView):
+    """
+    POST /erp/material/job-work/receive/<issue_id>/
+
+    Body:
+        {
+          "completedInputQty": 4,
+          "receivedBy": "Kumar",
+          "remarks": "",
+
+          "outputPieces": [
+            {
+              "pieceNo": "PL001",
+              "length": "1500",
+              "width": "3000",
+              "qty": 2,
+              "weight": 40,
+              "remarks": ""
+            }
+          ],
+
+          "remainingPieces": [
+            {
+              "plateNo": "PL001RT",
+              "length": "500",
+              "width": "300",
+              "weight": 15,
+              "reworkRequired": "No",
+              "remarks": ""
+            }
+          ]
+        }
+
+    Safety against double-click:
+      - select_for_update() locks the issue row
+      - Re-checks balance INSIDE the transaction after the lock
+      - Returns 400 if the previous click already consumed the balance
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request, issue_id):
+
+        # ============================================================
+        # 1. LOCK THE ISSUE ROW
+        # ------------------------------------------------------------
+        # If two requests arrive simultaneously, the second one blocks
+        # here until the first commits. Then it re-reads the freshly
+        # updated quantity_returned and sees the true balance.
+        # ============================================================
+        try:
+            issue = (
+                JobWorkIssue.objects
+                .select_for_update()
+                .select_related("stock", "project")
+                .get(id=issue_id)
+            )
+        except JobWorkIssue.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Issue not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ============================================================
+        # 2. PARSE BODY
+        # ============================================================
+        completed_input_qty = self._decimal(
+            request.data.get("completedInputQty")
+        )
+        received_by = str(request.data.get("receivedBy", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        output_pieces = request.data.get("outputPieces") or []
+        remaining_pieces = request.data.get("remainingPieces") or []
+
+        if completed_input_qty is None or completed_input_qty <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "message": "completedInputQty must be > 0.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not received_by:
+            return Response(
+                {"success": False, "message": "receivedBy is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ============================================================
+        # 3. BALANCE CHECK — under the lock
+        # ------------------------------------------------------------
+        # By the time we reach this line, we hold the row lock. If a
+        # previous click already committed, `quantity_returned` is
+        # up-to-date and balance reflects the new state.
+        # ============================================================
+        issued = issue.quantity_issued or Decimal("0")
+        already_returned = issue.quantity_returned or Decimal("0")
+        balance = issued - already_returned
+
+        if balance <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This issue has already been fully received."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if completed_input_qty > balance:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Completed input qty exceeds balance to receive "
+                        f"({balance})."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ============================================================
+        # 4. OUTPUT PIECES
+        # ------------------------------------------------------------
+        # Dict keys use MODEL field names (snake_case). bulk_create
+        # bypasses the serializer, so we translate here.
+        # ============================================================
+        cleaned_output = []
+        total_output_qty = Decimal("0")
+        total_output_weight = Decimal("0")
+
+        for idx, p in enumerate(output_pieces, start=1):
+
+            if not isinstance(p, dict):
+                continue
+
+            piece_no = str(p.get("pieceNo", "")).strip()
+            qty = self._decimal(p.get("qty"))
+
+            if not piece_no or qty is None or qty <= 0:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            f"Output piece #{idx}: pieceNo and qty (>0) "
+                            f"are required."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            weight = self._decimal(p.get("weight")) or Decimal("0")
+
+            cleaned_output.append({
+                "piece_no": piece_no,
+                "length": str(p.get("length", "")).strip(),
+                "width": str(p.get("width", "")).strip(),
+                "thickness": issue.thickness or "",
+                "qty": qty,
+                "weight": weight,
+                "remarks": str(p.get("remarks", "")).strip(),
+            })
+
+            total_output_qty += qty
+            total_output_weight += weight
+
+        if not cleaned_output:
+            return Response(
+                {
+                    "success": False,
+                    "message": "At least one output piece is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ============================================================
+        # 5. REMAINING PIECES
+        # ------------------------------------------------------------
+        # User-controlled count. Each row needs a plate_no. Rows that
+        # have rework_required == Yes will spawn a new MaterialStock
+        # lot flagged for rework.
+        # ============================================================
+        remaining_input_qty = balance - completed_input_qty
+        cleaned_remaining = []
+        total_remaining_weight = Decimal("0")
+
+        for idx, p in enumerate(remaining_pieces, start=1):
+
+            if not isinstance(p, dict):
+                continue
+
+            plate_no = str(p.get("plateNo", "")).strip()
+
+            if not plate_no:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            f"Remaining piece #{idx}: plateNo is "
+                            f"required."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            weight = self._decimal(p.get("weight")) or Decimal("0")
+
+            cleaned_remaining.append({
+                "plate_no": plate_no,
+                "length": str(p.get("length", "")).strip(),
+                "width": str(p.get("width", "")).strip(),
+                "thickness": issue.thickness or "",
+                "weight": weight,
+                "remarks": str(p.get("remarks", "")).strip(),
+                "rework_required": (
+                    "Yes"
+                    if str(
+                        p.get("reworkRequired", "No")
+                    ).strip() == "Yes"
+                    else "No"
+                ),
+            })
+
+            total_remaining_weight += weight
+
+        # ============================================================
+        # 6. CREATE THE RECEIVE
+        # ============================================================
+        receive = JobWorkReceive.objects.create(
+            receive_number=generate_job_work_receive_number(),
+            issue=issue,
+            job_work_id=issue.issue_number,
+            po_number=issue.po_number,
+            description=issue.description,
+            material=issue.material or "",
+            material_code=issue.material_code or "",
+            material_spec=issue.material_spec or "",
+            thickness=issue.thickness or "",
+            length=issue.length or "",
+            width=issue.width or "",
+            uom=issue.uom or "Nos",
+            project=issue.project,
+            dwg_description=issue.dwg_description or "",
+            revision=issue.revision or "",
+            process_name=issue.process_name or "",
+            process_id=issue.process_id or "",
+            completed_input_qty=completed_input_qty,
+            remaining_input_qty=remaining_input_qty,
+            total_output_qty=total_output_qty,
+            total_output_weight=total_output_weight,
+            total_remaining_weight=total_remaining_weight,
+            received_by=received_by,
+            remarks=remarks,
+            created_by=request.user,
+        )
+
+        # ============================================================
+        # 7. BULK INSERT — output pieces and remaining rows
+        # ============================================================
+        if cleaned_output:
+            JobWorkReceivePiece.objects.bulk_create([
+                JobWorkReceivePiece(receive=receive, **p)
+                for p in cleaned_output
+            ])
+
+        if cleaned_remaining:
+            JobWorkReceiveRemaining.objects.bulk_create([
+                JobWorkReceiveRemaining(receive=receive, **p)
+                for p in cleaned_remaining
+            ])
+
+        # ============================================================
+        # 8. STOCK IN — completed input returns to the original lot
+        # ============================================================
+        MaterialStockMovement.objects.create(
+            stock=issue.stock,
+            direction=MaterialStockMovement.Direction.IN,
+            movement_type=MaterialStockMovement.MovementType.RETURN_JOB_WORK,
+            quantity=completed_input_qty,
+            reference_type="JobWorkReceive",
+            reference_id=receive.id,
+            remarks=remarks,
+            created_by=request.user,
+        )
+
+        # ============================================================
+        # 9. REMAINING PIECES → NEW MaterialStock LOTS
+        # ------------------------------------------------------------
+        # Each remaining piece becomes its own stock lot. If
+        # rework_required == "Yes", the lot is flagged so it shows up
+        # on the Rework page.
+        # ============================================================
+        for p in cleaned_remaining:
+
+            lot = MaterialStock.objects.create(
+                stock_id=generate_stock_id(),
+                unit=(
+                    issue.job_work_unit
+                    if issue.job_work_unit
+                    and issue.job_work_unit != "—"
+                    else "Unit 1"
+                ),
+                source_type=MaterialStock.SourceType.JOB_REMAINING,
+                material_grn=None,
+                purchase_order_item=None,
+                dummy_purchase_order_item=None,
+                po_number=issue.po_number or "",
+                description=(
+                    f"{issue.description} — Remaining {p['plate_no']}"
+                ),
+                material=issue.material or "",
+                material_code=issue.material_code or "",
+                material_spec=issue.material_spec or "",
+                thickness=issue.thickness or "",
+                length=p.get("length", ""),
+                width=p.get("width", ""),
+                heat_number="",
+                plate_number=p["plate_no"],
+                original_qty=Decimal("0"),
+                uom=issue.uom or "Nos",
+                project=issue.project,
+                dwg_description=issue.dwg_description or "",
+                revision=issue.revision or "",
+                stock_status=MaterialStock.StockStatus.REMAINING,
+                rework_required=(p["rework_required"] == "Yes"),
+                remarks=(
+                    f"Received as remaining from {issue.issue_number} "
+                    f"({receive.receive_number})"
+                ),
+                created_by=request.user,
+            )
+
+            MaterialStockMovement.objects.create(
+                stock=lot,
+                direction=MaterialStockMovement.Direction.IN,
+                movement_type=(
+                    MaterialStockMovement.MovementType.RETURN_JOB_WORK
+                ),
+                quantity=p.get("weight") or Decimal("0"),
+                reference_type="JobWorkReceive",
+                reference_id=receive.id,
+                remarks=p.get("remarks", ""),
+                created_by=request.user,
+            )
+
+        # ============================================================
+        # 10. UPDATE THE ISSUE
+        # ============================================================
+        issue.quantity_returned = (
+            (issue.quantity_returned or Decimal("0")) + completed_input_qty
+        )
+
+        if issue.quantity_returned >= issue.quantity_issued:
+            issue.status = JobWorkIssue.Status.FULLY_RETURNED
+        else:
+            issue.status = JobWorkIssue.Status.PARTIALLY_RETURNED
+
+        issue.save(
+            update_fields=["quantity_returned", "status", "updated_at"]
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{receive.receive_number} recorded.",
+                "data": JobWorkReceiveSerializer(receive).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    # ============================================================
+    # HELPERS
+    # ============================================================
+    @staticmethod
+    def _decimal(value):
+        if value in (None, ""):
+            return None
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        
+
+# =====================================================================
+# ISSUE TO PRODUCTION
+# -----------------------------------------------------------------
+#   GET    /erp/material/production/available/      → list of pieces with qty > 0
+#   GET    /erp/material/production/history/        → list of past issues
+#   POST   /erp/material/production/issue/          → record one issue
+#   GET    /erp/material/production/filter-options/ → dropdown values
+# =====================================================================
+
+from .models import (
+    ProductionIssue,
+    ProductionIssueNumberSettings,
+    JobWorkReceive,
+    JobWorkReceivePiece,
+)
+
+
+def generate_production_issue_number():
+    settings_obj = (
+        ProductionIssueNumberSettings.objects
+        .select_for_update()
+        .filter(is_active=True)
+        .first()
+    )
+
+    if settings_obj is None:
+        try:
+            settings_obj = ProductionIssueNumberSettings.objects.create(
+                prefix="IP",
+                next_number=1,
+                number_padding=4,
+                is_active=True,
+            )
+        except IntegrityError:
+            settings_obj = (
+                ProductionIssueNumberSettings.objects
+                .select_for_update()
+                .filter(is_active=True)
+                .first()
+            )
+
+    number = (
+        f"{settings_obj.prefix}"
+        f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
+    )
+
+    settings_obj.next_number += 1
+    settings_obj.save(
+        update_fields=["next_number", "updated_at"]
+    )
+
+    return number
+
+
+# ---------------------------------------------------------------------
+# AVAILABLE MATERIAL (pieces received from job work with balance)
+# ---------------------------------------------------------------------
+class ProductionAvailableListAPIView(APIView):
+    """
+    GET /erp/material/production/available/
+
+    Returns one row per received job work piece that still has
+    available_qty > 0.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        # ---- Piece-level issued totals ----
+        issued_map = {
+            row["job_work_piece_id"]: row["total"]
+            for row in (
+                ProductionIssue.objects
+                .exclude(job_work_piece__isnull=True)
+                .values("job_work_piece_id")
+                .annotate(total=Sum("issued_qty"))
+            )
+        }
+
+        pieces = (
+            JobWorkReceivePiece.objects
+            .select_related(
+                "receive",
+                "receive__issue",
+                "receive__project",
+            )
+            .all()
+            .order_by("-receive__created_at", "id")
+        )
+
+        rows = []
+
+        for piece in pieces:
+            receive = piece.receive
+            issue = receive.issue
+
+            received = piece.qty or Decimal("0")
+            previously = issued_map.get(piece.id, Decimal("0"))
+            available = received - previously
+
+            if available <= 0:
+                continue
+
+            # ⚠️ Renamed from `status` to `row_status`
+            if previously <= 0:
+                row_status = "Available"
+            elif previously >= received:
+                row_status = "Fully Issued"
+            else:
+                row_status = "Partially Issued"
+
+            rows.append({
+                "id": piece.id,
+                "key": f"{receive.job_work_id}-{piece.piece_no}",
+                "jobWorkReceiveId": receive.id,
+                "jobWorkPieceId": piece.id,
+                "jobWorkId": receive.job_work_id or (
+                    issue.issue_number if issue else ""
+                ),
+                "poNumber": receive.po_number or "",
+                "poType": (
+                    "Dummy PO"
+                    if "DUMMY" in (receive.po_number or "").upper()
+                    else "PO"
+                ),
+                "supplier": (
+                    issue.vendor if issue and issue.vendor else "—"
+                ),
+                "description": receive.description or "",
+                "material": receive.material or "",
+                "materialCode": receive.material_code or "",
+                "materialSpec": receive.material_spec or "",
+                "thickness": piece.thickness or receive.thickness or "",
+                "length": piece.length or "",
+                "width": piece.width or "",
+                "size": (
+                    f"{piece.length} × {piece.width}"
+                    if piece.length and piece.width
+                    else ""
+                ),
+                "unit": (
+                    receive.issue.job_work_unit
+                    if receive.issue
+                    else ""
+                ),
+                "jobWorkType": (
+                    receive.issue.job_work_type
+                    if receive.issue
+                    else ""
+                ),
+                "jobWorkUnit": receive.uom or "Nos",
+                "process": receive.process_name or "",
+                "processId": receive.process_id or "",
+                "project": (
+                    receive.project.name if receive.project else "—"
+                ),
+                "projectId": receive.project_id,
+                "dwgDescription": receive.dwg_description or "",
+                "revision": receive.revision or "",
+                "pieceNo": piece.piece_no or "",
+                "receivedQty": float(received),
+                "previouslyIssuedQty": float(previously),
+                "availableQty": float(available),
+                "uom": receive.uom or "Nos",
+                "status": row_status,             
+            })
+
+        return Response(
+            {"success": True, "data": rows},
+            status=status.HTTP_200_OK,            
+        )
+
+# ---------------------------------------------------------------------
+# ISSUE HISTORY
+# ---------------------------------------------------------------------
+class ProductionIssueListAPIView(APIView):
+    """
+    GET /erp/material/production/history/
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        qs = (
+            ProductionIssue.objects
+            .select_related("project", "job_work_receive", "job_work_piece")
+            .all()
+            .order_by("-created_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": ProductionIssueSerializer(qs, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------
+# CREATE ISSUE
+# ---------------------------------------------------------------------
+class ProductionIssueCreateAPIView(APIView):
+    """
+    POST /erp/material/production/issue/
+
+    Body:
+        {
+          "jobWorkPieceId": 12,
+          "issuedQty": 4,
+          "issuedBy": "R. Kumar",
+          "remarks": ""
+        }
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request):
+
+        piece_id = request.data.get("jobWorkPieceId")
+        issued_by = str(request.data.get("issuedBy", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        if not piece_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "jobWorkPieceId is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Parse quantity ----
+        try:
+            issued_qty = Decimal(
+                str(request.data.get("issuedQty", "0"))
+            )
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {"success": False, "message": "Invalid quantity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if issued_qty <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Issued quantity must be > 0.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not issued_by:
+            return Response(
+                {"success": False, "message": "issuedBy is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Lock the piece ----
+        try:
+            piece = (
+                JobWorkReceivePiece.objects
+                .select_for_update()
+                .select_related(
+                    "receive",
+                    "receive__issue",
+                    "receive__project",
+                )
+                .get(id=piece_id)
+            )
+        except JobWorkReceivePiece.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Piece not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        receive = piece.receive
+        issue = receive.issue
+
+        # ---- Available check ----
+        previously_issued = (
+            ProductionIssue.objects
+            .filter(job_work_piece=piece)
+            .aggregate(total=Sum("issued_qty"))["total"]
+            or Decimal("0")
+        )
+
+        received = piece.qty or Decimal("0")
+        available = received - previously_issued
+
+        if available <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This piece has already been fully issued."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if issued_qty > available:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Issue quantity exceeds available quantity "
+                        f"({available})."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Find the stock lot for this piece, if any ----
+        stock_lot = (
+            MaterialStock.objects
+            .filter(plate_number=piece.piece_no)
+            .order_by("-created_at")
+            .first()
+        )
+
+        # ---- Create the issue ----
+        prod_issue = ProductionIssue.objects.create(
+            issue_number=generate_production_issue_number(),
+            job_work_receive=receive,
+            job_work_piece=piece,
+            material_stock=stock_lot,
+            job_work_id=receive.job_work_id,
+            po_number=receive.po_number,
+            po_type=(
+                "Dummy PO"
+                if "DUMMY" in (receive.po_number or "").upper()
+                else "PO"
+            ),
+            supplier=(issue.vendor if issue and issue.vendor else ""),
+            description=receive.description,
+            material=receive.material,
+            material_code=receive.material_code,
+            material_spec=receive.material_spec,
+            thickness=piece.thickness or receive.thickness,
+            length=piece.length or "",
+            width=piece.width or "",
+            unit=(
+                issue.job_work_unit if issue else ""
+            ),
+            job_work_type=(
+                issue.job_work_type if issue else ""
+            ),
+            job_work_unit=receive.uom or "Nos",
+            process_name=receive.process_name,
+            process_id=receive.process_id,
+            project=receive.project,
+            dwg_description=receive.dwg_description,
+            revision=receive.revision,
+            piece_no=piece.piece_no,
+            uom=receive.uom or "Nos",
+            original_received_qty=received,
+            previously_issued_qty=previously_issued,
+            issued_qty=issued_qty,
+            remaining_available_qty=available - issued_qty,
+            issued_by=issued_by,
+            remarks=remarks,
+            status=ProductionIssue.Status.ISSUED,
+            created_by=request.user,
+        )
+
+        # ---- OUT movement on the stock lot (if we found one) ----
+        if stock_lot is not None:
+            MaterialStockMovement.objects.create(
+                stock=stock_lot,
+                direction=MaterialStockMovement.Direction.OUT,
+                movement_type=(
+                    MaterialStockMovement.MovementType.ISSUE_PRODUCTION
+                ),
+                quantity=issued_qty,
+                reference_type="ProductionIssue",
+                reference_id=prod_issue.id,
+                remarks=remarks,
+                created_by=request.user,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    f"{prod_issue.issue_number} recorded."
+                ),
+                "data": ProductionIssueSerializer(prod_issue).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )

@@ -1,341 +1,70 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Search, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Search,
+  X,
+  RefreshCw,
+  Layers,
+  PackageCheck,
+  PackageX,
+  Hourglass,
+} from "lucide-react";
+
 import Header from "../../components/Header";
+import Loading from "../../components/loading";
+import Error from "../../components/error";
+
+import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
+import useFilterOptions from "../../hooks/useFilterOptions";
+
 import "./IssueToProduction.css";
 
-// =====================================================================
-// Mock reference data
-// Mirrors the records created by ReceiveFromJobWork.jsx — every job below
-// represents one DWG/BOM/PO requirement that has already been through
-// Job Work and come back with actual, physically received pieces.
-// Available Material rows are generated from these pieces further down.
-// =====================================================================
-const employees = [
-  "R. Kumar",
-  "S. Elango",
-  "Manoj Prabhu",
-  "Arun Kumar",
-  "Ravi Shankar",
-];
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
 
-const jobs = {
-  "JW-1001": {
-    jobWorkId: "JW-1001",
-    poType: "Job Work PO",
-    poNumber: "PO-001",
-    supplier: "Sri Balaji Fabricators",
-    poDescription: "Description-1",
-    project: "BHEL Project",
-    dwg: "DWG-001",
-    dwgDescription: "Base Plate Layout",
-    revision: "R2",
-    material: "Plate",
-    materialCode: "MAT-PL-001",
-    materialSpec: "IS2062 E250A",
-    thickness: "8 mm",
-    unit: "Unit 1",
-    jobWorkType: "In-House",
-    jobWorkUnit: "Nos",
-    process: "Cutting",
-    processId: "CUT01",
-    originalRequirement: {
-      project: "BHEL Project",
-      dwg: "DWG-001",
-      description: "Description-1",
-      material: "Plate",
-      materialCode: "MAT-PL-001",
-      materialSpec: "IS2062 E250A",
-      thickness: "8 mm",
-      requiredQty: "26 Nos",
-      originalSize: "2000 × 2000",
-      poNumber: "PO-001",
-      poDescription: "Description-1",
-    },
-    pieces: [
-      { pieceNo: "PL001", size: "250 × 250", thickness: "8 mm", qty: 10 },
-      { pieceNo: "PL002", size: "260 × 260", thickness: "8 mm", qty: 20 },
-      { pieceNo: "PL003", size: "300 × 400", thickness: "8 mm", qty: 15 },
-    ],
-  },
-  "JW-1002": {
-    jobWorkId: "JW-1002",
-    poType: "Outsourced PO",
-    poNumber: "PO-101",
-    supplier: "Chennai Piping Works",
-    poDescription: "Description-2",
-    project: "NTPC Structural Project",
-    dwg: "DWG-101",
-    dwgDescription: "Pipe Rack Layout",
-    revision: "R1",
-    material: "Pipe",
-    materialCode: "MAT-PP-100NB",
-    materialSpec: "IS1239 Medium",
-    thickness: "4 mm",
-    unit: "Unit 2",
-    jobWorkType: "Outsourcing",
-    jobWorkUnit: "Mtr",
-    process: "Welding",
-    processId: "WELD01",
-    originalRequirement: {
-      project: "NTPC Structural Project",
-      dwg: "DWG-101",
-      description: "Description-2",
-      material: "Pipe",
-      materialCode: "MAT-PP-100NB",
-      materialSpec: "IS1239 Medium",
-      thickness: "4 mm",
-      requiredQty: "20 Mtr",
-      originalSize: "100 NB",
-      poNumber: "PO-101",
-      poDescription: "Description-2",
-    },
-    pieces: [
-      { pieceNo: "PP101", size: "100 NB", thickness: "4 mm", qty: 12 },
-      { pieceNo: "PP102", size: "100 NB", thickness: "4 mm", qty: 8 },
-    ],
-  },
-  "JW-1003": {
-    jobWorkId: "JW-1003",
-    poType: "Direct PO",
-    poNumber: "PO-205",
-    supplier: "Apex Steel Traders",
-    poDescription: "Description-3",
-    project: "Vedanta Structural Project",
-    dwg: "DWG-205",
-    dwgDescription: "Channel Support Layout",
-    revision: "R3",
-    material: "Channel",
-    materialCode: "MAT-CH-150",
-    materialSpec: "IS808 ISMC150",
-    thickness: "6 mm",
-    unit: "Unit 1",
-    jobWorkType: "In-House",
-    jobWorkUnit: "Nos",
-    process: "Bending",
-    processId: "BEND01",
-    originalRequirement: {
-      project: "Vedanta Structural Project",
-      dwg: "DWG-205",
-      description: "Description-3",
-      material: "Channel",
-      materialCode: "MAT-CH-150",
-      materialSpec: "IS808 ISMC150",
-      thickness: "6 mm",
-      requiredQty: "28 Nos",
-      originalSize: "150 × 75",
-      poNumber: "PO-205",
-      poDescription: "Description-3",
-    },
-    pieces: [
-      { pieceNo: "CH201", size: "150 × 75", thickness: "6 mm", qty: 18 },
-      { pieceNo: "CH202", size: "150 × 75", thickness: "6 mm", qty: 10 },
-    ],
-  },
-};
+const API_BASE = "/erp/material";
 
-// Previously-issued quantity, per physical piece, before this session opens.
-// (Used only to seed the demo — real data would come from the Issue
-// History transactions below.)
-const initialIssuedMap = {
-  "JW-1001-PL001": 6,
-  "JW-1001-PL002": 0,
-  "JW-1001-PL003": 15,
-  "JW-1002-PP101": 0,
-  "JW-1002-PP102": 8,
-  "JW-1003-CH201": 5,
-  "JW-1003-CH202": 0,
-};
+const GENERIC_ERROR = "Something went wrong. Please try again.";
 
-const computeStatus = (received, issued) => {
-  if (issued <= 0) return "Available";
-  if (issued >= received) return "Fully Issued";
-  return "Partially Issued";
-};
+/* ============================================================
+   HELPERS
+   ============================================================ */
 
-// -----------------------------------------------------------------------
-// Available Material is built by flattening every actually-received piece
-// out of the jobs above. Each piece is tracked independently — issuing
-// against one piece never touches the available quantity of another.
-// -----------------------------------------------------------------------
-const buildInitialAvailableMaterial = () => {
-  const rows = [];
-  Object.values(jobs).forEach((job) => {
-    job.pieces.forEach((piece) => {
-      const key = `${job.jobWorkId}-${piece.pieceNo}`;
-      const previouslyIssuedQty = initialIssuedMap[key] || 0;
-      const availableQty = piece.qty - previouslyIssuedQty;
-      rows.push({
-        key,
-        jobWorkId: job.jobWorkId,
-        poType: job.poType,
-        poNumber: job.poNumber,
-        supplier: job.supplier,
-        poDescription: job.poDescription,
-        project: job.project,
-        dwg: job.dwg,
-        dwgDescription: job.dwgDescription,
-        revision: job.revision,
-        material: job.material,
-        materialCode: job.materialCode,
-        materialSpec: job.materialSpec,
-        thickness: piece.thickness,
-        size: piece.size,
-        unit: job.unit,
-        jobWorkType: job.jobWorkType,
-        jobWorkUnit: job.jobWorkUnit,
-        process: job.process,
-        processId: job.processId,
-        pieceNo: piece.pieceNo,
-        receivedQty: piece.qty,
-        previouslyIssuedQty,
-        availableQty,
-        status: computeStatus(piece.qty, previouslyIssuedQty),
-      });
-    });
-  });
-  return rows;
-};
+function getApiError(error, fallback = GENERIC_ERROR) {
+  const data = error?.response?.data;
+  if (typeof data?.detail === "string") return data.detail;
+  if (typeof data?.message === "string") return data.message;
+  if (data && typeof data === "object") {
+    const first = Object.values(data).flat().find(
+      (v) => typeof v === "string"
+    );
+    if (first) return first;
+  }
+  if (error?.message) return error.message;
+  return fallback;
+}
 
-// -----------------------------------------------------------------------
-// Seed Issue History — one record per past Issue to Production transaction.
-// These stay visible forever, even after the related piece hits 0 available.
-// -----------------------------------------------------------------------
-const initialIssueHistory = [
-  {
-    issueId: "IP-0001",
-    jobWorkId: "JW-1001",
-    poType: "Job Work PO",
-    poNumber: "PO-001",
-    supplier: "Sri Balaji Fabricators",
-    poDescription: "Description-1",
-    project: "BHEL Project",
-    dwg: "DWG-001",
-    dwgDescription: "Base Plate Layout",
-    revision: "R2",
-    material: "Plate",
-    materialCode: "MAT-PL-001",
-    materialSpec: "IS2062 E250A",
-    thickness: "8 mm",
-    size: "250 × 250",
-    unit: "Unit 1",
-    jobWorkType: "In-House",
-    jobWorkUnit: "Nos",
-    process: "Cutting",
-    processId: "CUT01",
-    originalReceivedQty: 10,
-    previouslyIssuedQty: 0,
-    issuedNow: 6,
-    remainingAvailableQty: 4,
-    issuedBy: "R. Kumar",
-    issueDate: "2026-09-02",
-    status: "In Production",
-  },
-  {
-    issueId: "IP-0002",
-    jobWorkId: "JW-1001",
-    poType: "Job Work PO",
-    poNumber: "PO-001",
-    supplier: "Sri Balaji Fabricators",
-    poDescription: "Description-1",
-    project: "BHEL Project",
-    dwg: "DWG-001",
-    dwgDescription: "Base Plate Layout",
-    revision: "R2",
-    material: "Plate",
-    materialCode: "MAT-PL-001",
-    materialSpec: "IS2062 E250A",
-    thickness: "8 mm",
-    size: "300 × 400",
-    unit: "Unit 1",
-    jobWorkType: "In-House",
-    jobWorkUnit: "Nos",
-    process: "Cutting",
-    processId: "CUT01",
-    originalReceivedQty: 15,
-    previouslyIssuedQty: 0,
-    issuedNow: 15,
-    remainingAvailableQty: 0,
-    issuedBy: "S. Elango",
-    issueDate: "2026-08-29",
-    status: "Completed",
-  },
-  {
-    issueId: "IP-0003",
-    jobWorkId: "JW-1002",
-    poType: "Outsourced PO",
-    poNumber: "PO-101",
-    supplier: "Chennai Piping Works",
-    poDescription: "Description-2",
-    project: "NTPC Structural Project",
-    dwg: "DWG-101",
-    dwgDescription: "Pipe Rack Layout",
-    revision: "R1",
-    material: "Pipe",
-    materialCode: "MAT-PP-100NB",
-    materialSpec: "IS1239 Medium",
-    thickness: "4 mm",
-    size: "100 NB",
-    unit: "Unit 2",
-    jobWorkType: "Outsourcing",
-    jobWorkUnit: "Mtr",
-    process: "Welding",
-    processId: "WELD01",
-    originalReceivedQty: 8,
-    previouslyIssuedQty: 0,
-    issuedNow: 8,
-    remainingAvailableQty: 0,
-    issuedBy: "R. Kumar",
-    issueDate: "2026-08-25",
-    status: "In Production",
-  },
-  {
-    issueId: "IP-0004",
-    jobWorkId: "JW-1003",
-    poType: "Direct PO",
-    poNumber: "PO-205",
-    supplier: "Apex Steel Traders",
-    poDescription: "Description-3",
-    project: "Vedanta Structural Project",
-    dwg: "DWG-205",
-    dwgDescription: "Channel Support Layout",
-    revision: "R3",
-    material: "Channel",
-    materialCode: "MAT-CH-150",
-    materialSpec: "IS808 ISMC150",
-    thickness: "6 mm",
-    size: "150 × 75",
-    unit: "Unit 1",
-    jobWorkType: "In-House",
-    jobWorkUnit: "Nos",
-    process: "Bending",
-    processId: "BEND01",
-    originalReceivedQty: 18,
-    previouslyIssuedQty: 0,
-    issuedNow: 5,
-    remainingAvailableQty: 13,
-    issuedBy: "Manoj Prabhu",
-    issueDate: "2026-09-01",
-    status: "Issued",
-  },
-];
+function fmt(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
 
-// -----------------------------------------------------------------------
-// Shared filter configuration — identical fields/behaviour on both tabs,
-// mirroring the Receive From Job Work search & filter convention.
-// -----------------------------------------------------------------------
+/* ============================================================
+   FILTER SCHEMA
+   ============================================================ */
+
 const FILTER_FIELDS = [
   { key: "thickness", label: "Thickness", type: "select" },
-  { key: "material", label: "Material", type: "select" },
   { key: "size", label: "Size", type: "select" },
   { key: "poNumber", label: "PO Number", type: "text" },
   { key: "poDescription", label: "PO Description / Item", type: "text" },
-  { key: "materialCode", label: "Material Code", type: "text" },
   { key: "materialSpec", label: "Material Specification", type: "text" },
   { key: "project", label: "Project", type: "select" },
-  { key: "dwg", label: "DWG", type: "select" },
-  { key: "dwgDescription", label: "DWG Description", type: "text" },
-  { key: "revision", label: "Revision", type: "select" },
   { key: "unit", label: "Unit", type: "select" },
   { key: "jobWorkType", label: "Job Work Type", type: "select" },
   { key: "jobWorkId", label: "Job Work ID", type: "text" },
@@ -343,18 +72,6 @@ const FILTER_FIELDS = [
   { key: "processId", label: "Process ID", type: "text" },
   { key: "status", label: "Status", type: "select" },
 ];
-
-const buildOptionsMap = (data) => {
-  const map = {};
-  FILTER_FIELDS.forEach((f) => {
-    if (f.type === "select") {
-      map[f.key] = [
-        ...new Set(data.map((r) => r[f.key]).filter(Boolean)),
-      ].sort();
-    }
-  });
-  return map;
-};
 
 const matchesFilters = (row, filters) =>
   FILTER_FIELDS.every((f) => {
@@ -373,35 +90,41 @@ const matchesSearch = (row, search, extraKeys = []) => {
     "jobWorkId",
     "poNumber",
     "poDescription",
+    "description",
     "project",
-    "dwg",
     "material",
     "materialCode",
     "dwgDescription",
     "materialSpec",
+    "pieceNo",
     ...extraKeys,
   ];
   return fields.some((k) =>
     String(row[k] ?? "")
       .toLowerCase()
-      .includes(term),
+      .includes(term)
   );
 };
-
-const generateIssueId = (count) => `IP-${String(count + 1).padStart(4, "0")}`;
 
 const emptyIssueForm = () => ({
   quantity: "",
   issuedBy: "",
 });
 
+/* ============================================================
+   MAIN COMPONENT
+   ============================================================ */
+
 export default function IssueToProduction() {
   const navigate = useNavigate();
+  const { accessToken } = useAuth();
 
-  const [availableMaterial, setAvailableMaterial] = useState(
-    buildInitialAvailableMaterial(),
-  );
-  const [issueHistory, setIssueHistory] = useState(initialIssueHistory);
+  const [availableMaterial, setAvailableMaterial] = useState([]);
+  const [issueHistory, setIssueHistory] = useState([]);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
 
   const [activeTab, setActiveTab] = useState("available");
 
@@ -411,27 +134,100 @@ export default function IssueToProduction() {
   const [historyFilters, setHistoryFilters] = useState({});
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const [viewData, setViewData] = useState(null); // { type: 'available' | 'history', row }
+  const [viewData, setViewData] = useState(null);
   const [issueRow, setIssueRow] = useState(null);
   const [issueForm, setIssueForm] = useState(emptyIssueForm());
   const [issueError, setIssueError] = useState("");
+  const [savingIssue, setSavingIssue] = useState(false);
 
-  // ---------------------------------------------------------------------
-  // Derived lists
-  // ---------------------------------------------------------------------
-  const visibleAvailable = useMemo(
-    () => availableMaterial.filter((r) => r.availableQty > 0),
-    [availableMaterial],
+  const { options: filterOptions, refresh: refreshFilterOptions } =
+    useFilterOptions("production-issue", { enabled: !!accessToken });
+
+  const authHeaders = useCallback(
+    () => ({ Authorization: `Bearer ${accessToken}` }),
+    [accessToken]
   );
+
+  /* ============================================================
+     FETCHERS
+     ============================================================ */
+
+  const fetchAvailable = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!accessToken) return;
+      try {
+        if (!silent) setIsLoading(true);
+        setError("");
+
+        const res = await api.get(`${API_BASE}/production/available/`, {
+          headers: authHeaders(),
+        });
+
+        const list = Array.isArray(res.data?.data)
+          ? res.data.data
+          : Array.isArray(res.data)
+            ? res.data
+            : [];
+
+        setAvailableMaterial(list);
+      } catch (err) {
+        console.error("Failed to load available material:", err);
+        setError(getApiError(err, "Failed to load available material."));
+        setAvailableMaterial([]);
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [accessToken, authHeaders]
+  );
+
+  const fetchHistory = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!accessToken) return;
+      try {
+        if (!silent) setIsLoading(true);
+
+        const res = await api.get(`${API_BASE}/production/history/`, {
+          headers: authHeaders(),
+        });
+
+        const list = Array.isArray(res.data?.data)
+          ? res.data.data
+          : Array.isArray(res.data)
+            ? res.data
+            : [];
+
+        setIssueHistory(list);
+      } catch (err) {
+        console.error("Failed to load issue history:", err);
+        setIssueHistory([]);
+      }
+    },
+    [accessToken, authHeaders]
+  );
+
+  useEffect(() => {
+    if (!accessToken) {
+      setError("Your session has expired. Please login again.");
+      setIsLoading(false);
+      return;
+    }
+    fetchAvailable();
+    fetchHistory();
+  }, [accessToken, fetchAvailable, fetchHistory]);
+
+  /* ============================================================
+     DERIVED LISTS
+     ============================================================ */
 
   const filteredAvailable = useMemo(
     () =>
-      visibleAvailable.filter(
+      availableMaterial.filter(
         (r) =>
           matchesFilters(r, availableFilters) &&
-          matchesSearch(r, availableSearch),
+          matchesSearch(r, availableSearch)
       ),
-    [visibleAvailable, availableFilters, availableSearch],
+    [availableMaterial, availableFilters, availableSearch]
   );
 
   const filteredHistory = useMemo(
@@ -439,23 +235,30 @@ export default function IssueToProduction() {
       issueHistory.filter(
         (r) =>
           matchesFilters(r, historyFilters) &&
-          matchesSearch(r, historySearch, ["issueId"]),
+          matchesSearch(r, historySearch, ["issueId"])
       ),
-    [issueHistory, historyFilters, historySearch],
+    [issueHistory, historyFilters, historySearch]
   );
 
-  const availableOptions = useMemo(
-    () => buildOptionsMap(availableMaterial),
-    [availableMaterial],
-  );
-  const historyOptions = useMemo(
-    () => buildOptionsMap(issueHistory),
-    [issueHistory],
-  );
+  const summary = useMemo(() => {
+    const total = availableMaterial.length;
+    const available = availableMaterial.filter(
+      (r) => r.status === "Available"
+    ).length;
+    const partial = availableMaterial.filter(
+      (r) => r.status === "Partially Issued"
+    ).length;
+    const fully = availableMaterial.filter(
+      (r) => r.status === "Fully Issued"
+    ).length;
 
-  // ---------------------------------------------------------------------
-  // Tab / filter handlers
-  // ---------------------------------------------------------------------
+    return { total, available, partial, fully };
+  }, [availableMaterial]);
+
+  /* ============================================================
+     TAB / FILTER HANDLERS
+     ============================================================ */
+
   const switchTab = (tab) => {
     setActiveTab(tab);
     setFiltersOpen(false);
@@ -463,6 +266,7 @@ export default function IssueToProduction() {
 
   const handleAvailableFilterChange = (key, value) =>
     setAvailableFilters((f) => ({ ...f, [key]: value }));
+
   const handleHistoryFilterChange = (key, value) =>
     setHistoryFilters((f) => ({ ...f, [key]: value }));
 
@@ -475,21 +279,25 @@ export default function IssueToProduction() {
     setHistorySearch("");
   };
 
-  // ---------------------------------------------------------------------
-  // Eye view
-  // ---------------------------------------------------------------------
+  /* ============================================================
+     EYE VIEW
+     ============================================================ */
+
   const openView = (type, row) => setViewData({ type, row });
   const closeView = () => setViewData(null);
 
-  // ---------------------------------------------------------------------
-  // Issue to Production modal
-  // ---------------------------------------------------------------------
+  /* ============================================================
+     ISSUE MODAL
+     ============================================================ */
+
   const openIssue = (row) => {
     setIssueRow(row);
     setIssueForm(emptyIssueForm());
     setIssueError("");
   };
+
   const closeIssue = () => {
+    if (savingIssue) return;
     setIssueRow(null);
     setIssueForm(emptyIssueForm());
     setIssueError("");
@@ -498,88 +306,87 @@ export default function IssueToProduction() {
   const validateIssue = () => {
     if (!issueRow) return "No material selected.";
     const qty = Number(issueForm.quantity);
+
     if (!issueForm.quantity || !(qty > 0)) {
       return "Enter an Issue Quantity greater than 0.";
     }
     if (qty > issueRow.availableQty) {
-      return `Issue Quantity (${qty}) can't exceed the Available Quantity (${issueRow.availableQty} ${issueRow.jobWorkUnit}).`;
+      return `Issue Quantity (${qty}) can't exceed the Available Quantity (${fmt(issueRow.availableQty)} ${issueRow.jobWorkUnit}).`;
     }
     if (!issueForm.issuedBy.trim()) {
-      return "Please select Issued By.";
+      return "Enter who is issuing this material.";
     }
     return "";
   };
 
-  const handleConfirmIssue = () => {
+  const handleConfirmIssue = async () => {
+    if (!issueRow) return;
+    if (savingIssue) return;
+
     const validationError = validateIssue();
     if (validationError) {
       setIssueError(validationError);
       return;
     }
 
-    const qty = Number(issueForm.quantity);
-    const newPreviouslyIssued = issueRow.previouslyIssuedQty + qty;
-    const newAvailable = issueRow.availableQty - qty;
+    try {
+      setSavingIssue(true);
 
-    setAvailableMaterial((prev) =>
-      prev.map((r) =>
-        r.key === issueRow.key
-          ? {
-              ...r,
-              previouslyIssuedQty: newPreviouslyIssued,
-              availableQty: newAvailable,
-              status: computeStatus(r.receivedQty, newPreviouslyIssued),
-            }
-          : r,
-      ),
-    );
+      await api.post(
+        `${API_BASE}/production/issue/`,
+        {
+          jobWorkPieceId: issueRow.jobWorkPieceId,
+          issuedQty: Number(issueForm.quantity),
+          issuedBy: issueForm.issuedBy.trim(),
+          remarks: "",
+        },
+        { headers: authHeaders() }
+      );
 
-    const newRecord = {
-      issueId: generateIssueId(issueHistory.length),
-      jobWorkId: issueRow.jobWorkId,
-      poType: issueRow.poType,
-      poNumber: issueRow.poNumber,
-      supplier: issueRow.supplier,
-      poDescription: issueRow.poDescription,
-      project: issueRow.project,
-      dwg: issueRow.dwg,
-      dwgDescription: issueRow.dwgDescription,
-      revision: issueRow.revision,
-      material: issueRow.material,
-      materialCode: issueRow.materialCode,
-      materialSpec: issueRow.materialSpec,
-      thickness: issueRow.thickness,
-      size: issueRow.size,
-      unit: issueRow.unit,
-      jobWorkType: issueRow.jobWorkType,
-      jobWorkUnit: issueRow.jobWorkUnit,
-      process: issueRow.process,
-      processId: issueRow.processId,
-      originalReceivedQty: issueRow.receivedQty,
-      previouslyIssuedQty: issueRow.previouslyIssuedQty,
-      issuedNow: qty,
-      remainingAvailableQty: newAvailable,
-      issuedBy: issueForm.issuedBy,
-      issueDate: new Date().toISOString().slice(0, 10),
-      status: "Issued",
-    };
-
-    setIssueHistory((prev) => [newRecord, ...prev]);
-    closeIssue();
+      closeIssue();
+      await Promise.all([
+        fetchAvailable({ silent: true }),
+        fetchHistory({ silent: true }),
+        refreshFilterOptions(),
+      ]);
+    } catch (err) {
+      console.error("Issue failed:", err);
+      setIssueError(
+        getApiError(err, "Failed to issue to production.")
+      );
+    } finally {
+      setSavingIssue(false);
+    }
   };
 
-  // ---------------- Back Handler ----------------
-  function handleBack() {
-    navigate("/inventory/material");
-  }
+  /* ============================================================
+     REFRESH / BACK
+     ============================================================ */
 
-  // ---------------- Render ----------------
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchAvailable({ silent: true }),
+      fetchHistory({ silent: true }),
+      refreshFilterOptions(),
+    ]);
+    setRefreshing(false);
+  };
+
+  const handleBack = () => navigate("/inventory/material");
+
+  /* ============================================================
+     RENDER
+     ============================================================ */
+
   return (
     <>
       <Header />
+
       <div className="material-page">
         <div className="material-content">
-          {/* Page Header with Back Button */}
+
+          {/* HEADER */}
           <div className="page-header-wrap">
             <div className="page-header-left">
               <button className="back-button" onClick={handleBack}>
@@ -587,310 +394,408 @@ export default function IssueToProduction() {
                 Back
               </button>
               <div className="page-header-title-group">
-                <h1 className="page-header-title">Issue to Production</h1>
+                <h1 className="page-header-title">
+                  Issue to Production
+                </h1>
                 <p className="page-header-subtitle">
-                  Issue actually received Job Work material to Production and
-                  track every issue transaction in history.
+                  Issue actually received Job Work material to Production
+                  and track every issue transaction in history.
                 </p>
               </div>
             </div>
+
+            <div className="page-header-actions">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleRefresh}
+                disabled={refreshing || isLoading}
+              >
+                <RefreshCw
+                  size={14}
+                  className={refreshing ? "spin" : ""}
+                />
+                {refreshing ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
           </div>
 
-          {/* ===================== TABS ===================== */}
-          <div className="tabs">
-            <button
-              type="button"
-              className={`tab ${activeTab === "available" ? "tab-active" : ""}`}
-              onClick={() => switchTab("available")}
-            >
-              Available Material
-              <span className="tab-count">{visibleAvailable.length}</span>
-            </button>
-            <button
-              type="button"
-              className={`tab ${activeTab === "history" ? "tab-active" : ""}`}
-              onClick={() => switchTab("history")}
-            >
-              Issue History
-              <span className="tab-count">{issueHistory.length}</span>
-            </button>
-          </div>
+          {/* SUMMARY CARDS */}
+          {!isLoading && !error && (
+            <div className="summary-cards">
+              <div className="summary-card">
+                <div className="summary-card-icon summary-card-icon-neutral">
+                  <Layers size={18} strokeWidth={1.8} />
+                </div>
+                <div>
+                  <span className="summary-card-value">
+                    {summary.total}
+                  </span>
+                  <span className="summary-card-label">
+                    Total Pieces
+                  </span>
+                </div>
+              </div>
 
-          {/* ===================== AVAILABLE MATERIAL TAB ===================== */}
-          {activeTab === "available" && (
-            <div className="panel">
-              <FilterPanel
-                search={availableSearch}
-                onSearchChange={setAvailableSearch}
-                filters={availableFilters}
-                onFilterChange={handleAvailableFilterChange}
-                options={availableOptions}
-                onClear={clearAvailableFilters}
-                open={filtersOpen}
-                onToggleOpen={() => setFiltersOpen((o) => !o)}
-                resultCount={filteredAvailable.length}
-                searchPlaceholder="Search material, PO number, description, project, DWG, Job Work ID, material code..."
-              />
+              <div className="summary-card">
+                <div className="summary-card-icon summary-card-icon-success">
+                  <PackageCheck size={18} strokeWidth={1.8} />
+                </div>
+                <div>
+                  <span className="summary-card-value">
+                    {summary.available}
+                  </span>
+                  <span className="summary-card-label">
+                    Available
+                  </span>
+                </div>
+              </div>
 
-              <div className="table-scroll-wrapper">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Job Work ID</th>
-                      <th>PO Type</th>
-                      <th>PO Number</th>
-                      <th>Supplier</th>
-                      <th>PO Description</th>
-                      <th>Project</th>
-                      <th>DWG</th>
-                      <th>DWG Description</th>
-                      <th>Revision</th>
-                      <th>Material</th>
-                      <th>Material Code</th>
-                      <th>Specification</th>
-                      <th>Thickness</th>
-                      <th>Size</th>
-                      <th>Unit</th>
-                      <th>Job Work Type</th>
-                      <th>Job Work Unit</th>
-                      <th>Process</th>
-                      <th>Process ID</th>
-                      <th>Received Qty</th>
-                      <th>Previously Issued</th>
-                      <th>Available Qty</th>
-                      <th>Status</th>
-                      <th className="cell-action">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredAvailable.length === 0 && (
-                      <tr>
-                        <td colSpan={24}>
-                          <div className="empty-state">
-                            <div className="empty-state-icon">📦</div>
-                            <p className="empty-state-title">
-                              No Available Material
-                            </p>
-                            <p className="empty-state-desc">
-                              No received material matches the current search /
-                              filters.
-                            </p>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
+              <div className="summary-card">
+                <div className="summary-card-icon summary-card-icon-warning">
+                  <Hourglass size={18} strokeWidth={1.8} />
+                </div>
+                <div>
+                  <span className="summary-card-value">
+                    {summary.partial}
+                  </span>
+                  <span className="summary-card-label">
+                    Partially Issued
+                  </span>
+                </div>
+              </div>
 
-                    {filteredAvailable.map((row) => (
-                      <tr key={row.key}>
-                        <td className="cell-mono">{row.jobWorkId}</td>
-                        <td>{row.poType}</td>
-                        <td>{row.poNumber}</td>
-                        <td>{row.supplier}</td>
-                        <td>{row.poDescription}</td>
-                        <td>{row.project}</td>
-                        <td>{row.dwg}</td>
-                        <td>{row.dwgDescription}</td>
-                        <td>{row.revision}</td>
-                        <td>
-                          <span className="material-chip">{row.material}</span>
-                        </td>
-                        <td className="cell-mono">{row.materialCode}</td>
-                        <td>{row.materialSpec}</td>
-                        <td>{row.thickness}</td>
-                        <td>{row.size}</td>
-                        <td>{row.unit}</td>
-                        <td>
-                          <span
-                            className={`type-badge ${
-                              row.jobWorkType === "Outsourcing"
-                                ? "type-badge-outsourcing"
-                                : "type-badge-inhouse"
-                            }`}
-                          >
-                            {row.jobWorkType}
-                          </span>
-                        </td>
-                        <td>{row.jobWorkUnit}</td>
-                        <td>{row.process}</td>
-                        <td className="cell-mono">{row.processId}</td>
-                        <td className="cell-num">
-                          {row.receivedQty} {row.jobWorkUnit}
-                        </td>
-                        <td className="cell-num">
-                          {row.previouslyIssuedQty} {row.jobWorkUnit}
-                        </td>
-                        <td className="cell-num cell-available">
-                          {row.availableQty} {row.jobWorkUnit}
-                        </td>
-                        <td>
-                          <StatusBadge status={row.status} />
-                        </td>
-                        <td>
-                          <div className="table-row-actions">
-                            <button
-                              type="button"
-                              onClick={() => openView("available", row)}
-                              title="View Details"
-                              aria-label="View Details"
-                            >
-                              <EyeIcon />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openIssue(row)}
-                              className="btn btn-primary btn-sm"
-                            >
-                              Issue
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="summary-card">
+                <div className="summary-card-icon summary-card-icon-neutral">
+                  <PackageX size={18} strokeWidth={1.8} />
+                </div>
+                <div>
+                  <span className="summary-card-value">
+                    {summary.fully}
+                  </span>
+                  <span className="summary-card-label">
+                    Fully Issued
+                  </span>
+                </div>
               </div>
             </div>
           )}
 
-          {/* ===================== ISSUE HISTORY TAB ===================== */}
-          {activeTab === "history" && (
-            <div className="panel">
-              <FilterPanel
-                search={historySearch}
-                onSearchChange={setHistorySearch}
-                filters={historyFilters}
-                onFilterChange={handleHistoryFilterChange}
-                options={historyOptions}
-                onClear={clearHistoryFilters}
-                open={filtersOpen}
-                onToggleOpen={() => setFiltersOpen((o) => !o)}
-                resultCount={filteredHistory.length}
-                searchPlaceholder="Search Issue ID, material, PO number, description, project, DWG, Job Work ID..."
-              />
-
-              <div className="table-scroll-wrapper">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Issue ID</th>
-                      <th>Job Work ID</th>
-                      <th>PO Type</th>
-                      <th>PO Number</th>
-                      <th>Supplier</th>
-                      <th>PO Description</th>
-                      <th>Project</th>
-                      <th>DWG</th>
-                      <th>DWG Description</th>
-                      <th>Revision</th>
-                      <th>Material</th>
-                      <th>Material Code</th>
-                      <th>Specification</th>
-                      <th>Thickness</th>
-                      <th>Size</th>
-                      <th>Unit</th>
-                      <th>Job Work Type</th>
-                      <th>Job Work Unit</th>
-                      <th>Original Received</th>
-                      <th>Previously Issued</th>
-                      <th>Issued Now</th>
-                      <th>Remaining Available</th>
-                      <th>Issued By</th>
-                      <th>Issue Date</th>
-                      <th>Status</th>
-                      <th className="cell-action">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredHistory.length === 0 && (
-                      <tr>
-                        <td colSpan={26}>
-                          <div className="empty-state">
-                            <div className="empty-state-icon">🗂️</div>
-                            <p className="empty-state-title">
-                              No Issue History
-                            </p>
-                            <p className="empty-state-desc">
-                              No issue transactions match the current search /
-                              filters.
-                            </p>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-
-                    {filteredHistory.map((row) => (
-                      <tr key={row.issueId}>
-                        <td className="cell-mono">{row.issueId}</td>
-                        <td>{row.jobWorkId}</td>
-                        <td>{row.poType}</td>
-                        <td>{row.poNumber}</td>
-                        <td>{row.supplier}</td>
-                        <td>{row.poDescription}</td>
-                        <td>{row.project}</td>
-                        <td>{row.dwg}</td>
-                        <td>{row.dwgDescription}</td>
-                        <td>{row.revision}</td>
-                        <td>
-                          <span className="material-chip">{row.material}</span>
-                        </td>
-                        <td className="cell-mono">{row.materialCode}</td>
-                        <td>{row.materialSpec}</td>
-                        <td>{row.thickness}</td>
-                        <td>{row.size}</td>
-                        <td>{row.unit}</td>
-                        <td>
-                          <span
-                            className={`type-badge ${
-                              row.jobWorkType === "Outsourcing"
-                                ? "type-badge-outsourcing"
-                                : "type-badge-inhouse"
-                            }`}
-                          >
-                            {row.jobWorkType}
-                          </span>
-                        </td>
-                        <td>{row.jobWorkUnit}</td>
-                        <td className="cell-num">
-                          {row.originalReceivedQty} {row.jobWorkUnit}
-                        </td>
-                        <td className="cell-num">
-                          {row.previouslyIssuedQty} {row.jobWorkUnit}
-                        </td>
-                        <td className="cell-num cell-available">
-                          {row.issuedNow} {row.jobWorkUnit}
-                        </td>
-                        <td className="cell-num">
-                          {row.remainingAvailableQty} {row.jobWorkUnit}
-                        </td>
-                        <td>{row.issuedBy}</td>
-                        <td>{row.issueDate}</td>
-                        <td>
-                          <StatusBadge status={row.status} />
-                        </td>
-                        <td>
-                          <div className="table-row-actions">
-                            <button
-                              type="button"
-                              onClick={() => openView("history", row)}
-                              title="View Details"
-                              aria-label="View Details"
-                            >
-                              <EyeIcon />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          {isLoading && (
+            <div className="grn-state-block">
+              <Loading />
             </div>
           )}
 
-          {/* ===================== EYE VIEW MODAL ===================== */}
+          {!isLoading && error && (
+            <div className="grn-state-block">
+              <Error onRetry={() => fetchAvailable()} />
+            </div>
+          )}
+
+          {!isLoading && !error && (
+            <>
+              {/* TABS */}
+              <div className="tabs">
+                <button
+                  type="button"
+                  className={`tab ${
+                    activeTab === "available" ? "tab-active" : ""
+                  }`}
+                  onClick={() => switchTab("available")}
+                >
+                  Available Material
+                  <span className="tab-count">
+                    {availableMaterial.length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`tab ${
+                    activeTab === "history" ? "tab-active" : ""
+                  }`}
+                  onClick={() => switchTab("history")}
+                >
+                  Issue History
+                  <span className="tab-count">
+                    {issueHistory.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* AVAILABLE MATERIAL TAB */}
+              {activeTab === "available" && (
+                <div className="panel">
+                  <FilterPanel
+                    search={availableSearch}
+                    onSearchChange={setAvailableSearch}
+                    filters={availableFilters}
+                    onFilterChange={handleAvailableFilterChange}
+                    options={filterOptions}
+                    onClear={clearAvailableFilters}
+                    open={filtersOpen}
+                    onToggleOpen={() => setFiltersOpen((o) => !o)}
+                    resultCount={filteredAvailable.length}
+                    searchPlaceholder="Search material, PO number, description, project, Job Work ID..."
+                  />
+
+                  <div className="table-scroll-wrapper">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Job Work ID</th>
+                          <th>PO Type</th>
+                          <th>PO Number</th>
+                          <th>Supplier</th>
+                          <th>PO Description</th>
+                          <th>Project</th>
+                          <th>Piece No</th>
+                          <th>Specification</th>
+                          <th>Thickness</th>
+                          <th>Size</th>
+                          <th>Unit</th>
+                          <th>Job Work Type</th>
+                          <th>Job Work Unit</th>
+                          <th>Process</th>
+                          <th>Process ID</th>
+                          <th>Received Qty</th>
+                          <th>Previously Issued</th>
+                          <th>Available Qty</th>
+                          <th>Status</th>
+                          <th className="cell-action">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAvailable.length === 0 && (
+                          <tr>
+                            <td colSpan={20}>
+                              <div className="empty-state">
+                                <div className="empty-state-icon">📦</div>
+                                <p className="empty-state-title">
+                                  No Available Material
+                                </p>
+                                <p className="empty-state-desc">
+                                  No received material matches the
+                                  current search / filters.
+                                </p>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+
+                        {filteredAvailable.map((row) => (
+                          <tr key={row.key}>
+                            <td className="cell-mono">
+                              {row.jobWorkId}
+                            </td>
+                            <td>{row.poType}</td>
+                            <td>{row.poNumber}</td>
+                            <td>{row.supplier}</td>
+                            <td>{row.description}</td>
+                            <td>{row.project}</td>
+                            <td className="cell-mono">
+                              {row.pieceNo}
+                            </td>
+                            <td>{row.materialSpec}</td>
+                            <td>{row.thickness}</td>
+                            <td>{row.size}</td>
+                            <td>{row.unit}</td>
+                            <td>
+                              <span
+                                className={`type-badge ${
+                                  row.jobWorkType === "Outsourcing"
+                                    ? "type-badge-outsourcing"
+                                    : "type-badge-inhouse"
+                                }`}
+                              >
+                                {row.jobWorkType}
+                              </span>
+                            </td>
+                            <td>{row.jobWorkUnit}</td>
+                            <td>{row.process}</td>
+                            <td className="cell-mono">
+                              {row.processId}
+                            </td>
+                            <td className="cell-num">
+                              {fmt(row.receivedQty)} {row.jobWorkUnit}
+                            </td>
+                            <td className="cell-num">
+                              {fmt(row.previouslyIssuedQty)}{" "}
+                              {row.jobWorkUnit}
+                            </td>
+                            <td className="cell-num cell-available">
+                              {fmt(row.availableQty)} {row.jobWorkUnit}
+                            </td>
+                            <td>
+                              <StatusBadge status={row.status} />
+                            </td>
+                            <td>
+                              <div className="table-row-actions">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openView("available", row)
+                                  }
+                                  title="View Details"
+                                  aria-label="View Details"
+                                >
+                                  <EyeIcon />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openIssue(row)}
+                                  className="btn btn-primary btn-sm"
+                                >
+                                  Issue
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ISSUE HISTORY TAB */}
+              {activeTab === "history" && (
+                <div className="panel">
+                  <FilterPanel
+                    search={historySearch}
+                    onSearchChange={setHistorySearch}
+                    filters={historyFilters}
+                    onFilterChange={handleHistoryFilterChange}
+                    options={filterOptions}
+                    onClear={clearHistoryFilters}
+                    open={filtersOpen}
+                    onToggleOpen={() => setFiltersOpen((o) => !o)}
+                    resultCount={filteredHistory.length}
+                    searchPlaceholder="Search Issue ID, material, PO number, description, project, Job Work ID..."
+                  />
+
+                  <div className="table-scroll-wrapper">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Issue ID</th>
+                          <th>Job Work ID</th>
+                          <th>PO Type</th>
+                          <th>PO Number</th>
+                          <th>Supplier</th>
+                          <th>PO Description</th>
+                          <th>Project</th>
+                          <th>Piece No</th>
+                          <th>Specification</th>
+                          <th>Thickness</th>
+                          <th>Size</th>
+                          <th>Unit</th>
+                          <th>Job Work Type</th>
+                          <th>Job Work Unit</th>
+                          <th>Original Received</th>
+                          <th>Previously Issued</th>
+                          <th>Issued Now</th>
+                          <th>Remaining Available</th>
+                          <th>Issued By</th>
+                          <th>Issue Date</th>
+                          <th>Status</th>
+                          <th className="cell-action">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredHistory.length === 0 && (
+                          <tr>
+                            <td colSpan={22}>
+                              <div className="empty-state">
+                                <div className="empty-state-icon">🗂️</div>
+                                <p className="empty-state-title">
+                                  No Issue History
+                                </p>
+                                <p className="empty-state-desc">
+                                  No issue transactions match the
+                                  current search / filters.
+                                </p>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+
+                        {filteredHistory.map((row) => (
+                          <tr key={row.issueId}>
+                            <td className="cell-mono">{row.issueId}</td>
+                            <td>{row.jobWorkId}</td>
+                            <td>{row.poType}</td>
+                            <td>{row.poNumber}</td>
+                            <td>{row.supplier}</td>
+                            <td>{row.description}</td>
+                            <td>{row.project}</td>
+                            <td className="cell-mono">{row.pieceNo}</td>
+                            <td>{row.materialSpec}</td>
+                            <td>{row.thickness}</td>
+                            <td>{row.size}</td>
+                            <td>{row.unit}</td>
+                            <td>
+                              <span
+                                className={`type-badge ${
+                                  row.jobWorkType === "Outsourcing"
+                                    ? "type-badge-outsourcing"
+                                    : "type-badge-inhouse"
+                                }`}
+                              >
+                                {row.jobWorkType}
+                              </span>
+                            </td>
+                            <td>{row.jobWorkUnit}</td>
+                            <td className="cell-num">
+                              {fmt(row.originalReceivedQty)}{" "}
+                              {row.jobWorkUnit}
+                            </td>
+                            <td className="cell-num">
+                              {fmt(row.previouslyIssuedQty)}{" "}
+                              {row.jobWorkUnit}
+                            </td>
+                            <td className="cell-num cell-available">
+                              {fmt(row.issuedNow)} {row.jobWorkUnit}
+                            </td>
+                            <td className="cell-num">
+                              {fmt(row.remainingAvailableQty)}{" "}
+                              {row.jobWorkUnit}
+                            </td>
+                            <td>{row.issuedBy}</td>
+                            <td>{row.issueDate}</td>
+                            <td>
+                              <StatusBadge status={row.status} />
+                            </td>
+                            <td>
+                              <div className="table-row-actions">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openView("history", row)
+                                  }
+                                  title="View Details"
+                                  aria-label="View Details"
+                                >
+                                  <EyeIcon />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* EYE VIEW MODAL */}
           {viewData && (
             <div className="modal-overlay" onClick={closeView}>
-              <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="modal-box"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <div className="modal-head">
                   <div>
                     <h2 className="modal-title">
@@ -901,12 +806,15 @@ export default function IssueToProduction() {
                     <p className="modal-subtitle">
                       {viewData.type === "available" ? (
                         <>
-                          Job Work ID : <strong>{viewData.row.jobWorkId}</strong>
-                          · Piece <strong>{viewData.row.pieceNo}</strong>
+                          Job Work ID :{" "}
+                          <strong>{viewData.row.jobWorkId}</strong>
+                          {" · "}Piece{" "}
+                          <strong>{viewData.row.pieceNo}</strong>
                         </>
                       ) : (
                         <>
-                          Issue ID : <strong>{viewData.row.issueId}</strong>
+                          Issue ID :{" "}
+                          <strong>{viewData.row.issueId}</strong>
                         </>
                       )}
                     </p>
@@ -942,15 +850,18 @@ export default function IssueToProduction() {
             </div>
           )}
 
-          {/* ===================== ISSUE TO PRODUCTION MODAL ===================== */}
+          {/* ISSUE TO PRODUCTION MODAL */}
           {issueRow && (
             <div className="modal-overlay">
               <div className="modal-box">
                 <div className="modal-head">
                   <div>
-                    <h2 className="modal-title">Issue to Production</h2>
+                    <h2 className="modal-title">
+                      Issue to Production
+                    </h2>
                     <p className="modal-subtitle">
-                      Job Work ID : <strong>{issueRow.jobWorkId}</strong> · Piece{" "}
+                      Job Work ID :{" "}
+                      <strong>{issueRow.jobWorkId}</strong> · Piece{" "}
                       <strong>{issueRow.pieceNo}</strong>
                     </p>
                   </div>
@@ -959,46 +870,63 @@ export default function IssueToProduction() {
                     onClick={closeIssue}
                     className="modal-close-btn"
                     aria-label="Close"
+                    disabled={savingIssue}
                   >
                     <X size={18} />
                   </button>
                 </div>
 
                 <div className="modal-body">
-                  {/* ---------- Material Details (read only) ---------- */}
+                  {/* Material Details */}
                   <div className="modal-card">
-                    <h3 className="modal-card-title">Material Details</h3>
+                    <h3 className="modal-card-title">
+                      Material Details
+                    </h3>
                     <div className="readonly-grid">
                       <ReadonlyField
                         label="Job Work ID"
                         value={issueRow.jobWorkId}
                       />
-                      <ReadonlyField label="PO Type" value={issueRow.poType} />
-                      <ReadonlyField label="PO Number" value={issueRow.poNumber} />
-                      <ReadonlyField label="Supplier" value={issueRow.supplier} />
+                      <ReadonlyField
+                        label="PO Type"
+                        value={issueRow.poType}
+                      />
+                      <ReadonlyField
+                        label="PO Number"
+                        value={issueRow.poNumber}
+                      />
+                      <ReadonlyField
+                        label="Supplier"
+                        value={issueRow.supplier}
+                      />
                       <ReadonlyField
                         label="PO Description"
-                        value={issueRow.poDescription}
+                        value={issueRow.description}
                       />
-                      <ReadonlyField label="Project" value={issueRow.project} />
-                      <ReadonlyField label="DWG" value={issueRow.dwg} />
                       <ReadonlyField
-                        label="DWG Description"
-                        value={issueRow.dwgDescription}
+                        label="Project"
+                        value={issueRow.project}
                       />
-                      <ReadonlyField label="Revision" value={issueRow.revision} />
-                      <ReadonlyField label="Material" value={issueRow.material} />
                       <ReadonlyField
-                        label="Material Code"
-                        value={issueRow.materialCode}
+                        label="Piece No"
+                        value={issueRow.pieceNo}
                       />
                       <ReadonlyField
                         label="Specification"
                         value={issueRow.materialSpec}
                       />
-                      <ReadonlyField label="Thickness" value={issueRow.thickness} />
-                      <ReadonlyField label="Size" value={issueRow.size} />
-                      <ReadonlyField label="Unit" value={issueRow.unit} />
+                      <ReadonlyField
+                        label="Thickness"
+                        value={issueRow.thickness}
+                      />
+                      <ReadonlyField
+                        label="Size"
+                        value={issueRow.size}
+                      />
+                      <ReadonlyField
+                        label="Unit"
+                        value={issueRow.unit}
+                      />
                       <ReadonlyField
                         label="Job Work Type"
                         value={issueRow.jobWorkType}
@@ -1013,26 +941,35 @@ export default function IssueToProduction() {
                       />
                       <ReadonlyField
                         label="Received Quantity"
-                        value={`${issueRow.receivedQty} ${issueRow.jobWorkUnit}`}
+                        value={`${fmt(issueRow.receivedQty)} ${
+                          issueRow.jobWorkUnit
+                        }`}
                       />
                       <ReadonlyField
                         label="Previously Issued"
-                        value={`${issueRow.previouslyIssuedQty} ${issueRow.jobWorkUnit}`}
+                        value={`${fmt(
+                          issueRow.previouslyIssuedQty
+                        )} ${issueRow.jobWorkUnit}`}
                       />
                       <ReadonlyField
                         label="Available Quantity"
-                        value={`${issueRow.availableQty} ${issueRow.jobWorkUnit}`}
+                        value={`${fmt(issueRow.availableQty)} ${
+                          issueRow.jobWorkUnit
+                        }`}
                         emphasize
                       />
                     </div>
                   </div>
 
-                  {/* ---------- Issue Quantity ---------- */}
+                  {/* Issue Quantity */}
                   <div className="modal-card">
-                    <h3 className="modal-card-title">Issue Quantity</h3>
+                    <h3 className="modal-card-title">
+                      Issue Quantity
+                    </h3>
                     <div className="form-field qty-field">
                       <label htmlFor="issue-qty">
-                        Issue Quantity (max {issueRow.availableQty}{" "}
+                        Issue Quantity (max{" "}
+                        {fmt(issueRow.availableQty)}{" "}
                         {issueRow.jobWorkUnit})
                       </label>
                       <input
@@ -1044,30 +981,37 @@ export default function IssueToProduction() {
                         placeholder="0"
                         value={issueForm.quantity}
                         onChange={(e) =>
-                          setIssueForm((f) => ({ ...f, quantity: e.target.value }))
+                          setIssueForm((f) => ({
+                            ...f,
+                            quantity: e.target.value,
+                          }))
                         }
+                        disabled={savingIssue}
                       />
                     </div>
                   </div>
 
-                  {/* ---------- Issued By ---------- */}
+                  {/* Issued By */}
                   <div className="form-field">
                     <label htmlFor="issued-by">Issued By</label>
-                    <select
+                    <input
                       id="issued-by"
+                      type="text"
+                      placeholder="Enter name"
                       value={issueForm.issuedBy}
                       onChange={(e) =>
-                        setIssueForm((f) => ({ ...f, issuedBy: e.target.value }))
+                        setIssueForm((f) => ({
+                          ...f,
+                          issuedBy: e.target.value,
+                        }))
                       }
-                    >
-                      <option value="">Select employee</option>
-                      {employees.map((emp) => (
-                        <option key={emp}>{emp}</option>
-                      ))}
-                    </select>
+                      disabled={savingIssue}
+                    />
                   </div>
 
-                  {issueError && <div className="error-box">{issueError}</div>}
+                  {issueError && (
+                    <div className="error-box">{issueError}</div>
+                  )}
                 </div>
 
                 <div className="modal-actions">
@@ -1075,6 +1019,7 @@ export default function IssueToProduction() {
                     type="button"
                     onClick={closeIssue}
                     className="btn btn-secondary"
+                    disabled={savingIssue}
                   >
                     Cancel
                   </button>
@@ -1082,8 +1027,11 @@ export default function IssueToProduction() {
                     type="button"
                     onClick={handleConfirmIssue}
                     className="btn btn-primary"
+                    disabled={savingIssue}
                   >
-                    Issue to Production
+                    {savingIssue
+                      ? "Issuing..."
+                      : "Issue to Production"}
                   </button>
                 </div>
               </div>
@@ -1095,9 +1043,9 @@ export default function IssueToProduction() {
   );
 }
 
-// =========================================================================
-// Filter Panel — shared between Available Material and Issue History
-// =========================================================================
+/* =========================================================================
+   Filter Panel
+   ========================================================================= */
 function FilterPanel({
   search,
   onSearchChange,
@@ -1126,7 +1074,9 @@ function FilterPanel({
       <button
         type="button"
         onClick={onToggleOpen}
-        className={`btn btn-secondary btn-sm ${open ? "btn-outline-active" : ""}`}
+        className={`btn btn-secondary btn-sm ${
+          open ? "btn-outline-active" : ""
+        }`}
       >
         <FilterIcon />
         Filters
@@ -1146,7 +1096,9 @@ function FilterPanel({
               {f.type === "select" ? (
                 <select
                   value={filters[f.key] || ""}
-                  onChange={(e) => onFilterChange(f.key, e.target.value)}
+                  onChange={(e) =>
+                    onFilterChange(f.key, e.target.value)
+                  }
                 >
                   <option value="">All</option>
                   {(options[f.key] || []).map((opt) => (
@@ -1160,7 +1112,9 @@ function FilterPanel({
                   type="text"
                   value={filters[f.key] || ""}
                   placeholder={`Filter by ${f.label}`}
-                  onChange={(e) => onFilterChange(f.key, e.target.value)}
+                  onChange={(e) =>
+                    onFilterChange(f.key, e.target.value)
+                  }
                 />
               )}
             </div>
@@ -1175,141 +1129,86 @@ function FilterPanel({
   );
 }
 
-// =========================================================================
-// Eye view bodies
-// =========================================================================
+/* =========================================================================
+   Eye views
+   ========================================================================= */
 function AvailableEyeView({ row }) {
-  const job = jobs[row.jobWorkId];
-  const req = job.originalRequirement;
-
   return (
     <>
       <div className="modal-card">
-        <h3 className="modal-card-title">Original Integrated Requirement</h3>
+        <h3 className="modal-card-title">
+          Original Integrated Requirement
+        </h3>
         <p className="modal-card-subtitle">
           Read only — from DWG / BOM / PO integration.
         </p>
         <div className="readonly-grid">
-          <ReadonlyField label="Project" value={req.project} />
-          <ReadonlyField label="DWG" value={req.dwg} />
-          <ReadonlyField label="Description" value={req.description} />
-          <ReadonlyField label="Material" value={req.material} />
-          <ReadonlyField label="Material Code" value={req.materialCode} />
+          <ReadonlyField label="Project" value={row.project} />
+          <ReadonlyField
+            label="Description"
+            value={row.description}
+          />
           <ReadonlyField
             label="Specification"
-            value={req.materialSpec}
+            value={row.materialSpec}
           />
-          <ReadonlyField label="Thickness" value={req.thickness} />
-          <ReadonlyField label="Required Quantity" value={req.requiredQty} />
-          <ReadonlyField label="Original Size" value={req.originalSize} />
-          <ReadonlyField label="PO Number" value={req.poNumber} />
-          <ReadonlyField label="PO Description" value={req.poDescription} />
+          <ReadonlyField label="Thickness" value={row.thickness} />
+          <ReadonlyField label="Size" value={row.size} />
+          <ReadonlyField label="Piece No" value={row.pieceNo} />
+          <ReadonlyField label="PO Number" value={row.poNumber} />
+          <ReadonlyField
+            label="PO Description"
+            value={row.description}
+          />
         </div>
       </div>
 
       <div className="modal-card">
-        <h3 className="modal-card-title">Actual Received From Job Work</h3>
-        <p className="modal-card-subtitle">
-          Job Work ID : <strong>{job.jobWorkId}</strong> · Process :{" "}
-          <strong>
-            {job.process} - {job.processId}
-          </strong>
-        </p>
-
-        <div className="pieces-table-wrap">
-          <table className="pieces-table">
-            <thead>
-              <tr>
-                <th>Piece No</th>
-                <th>Size</th>
-                <th>Thickness</th>
-                <th>Received Qty</th>
-              </tr>
-            </thead>
-            <tbody>
-              {job.pieces.map((p) => (
-                <tr
-                  key={p.pieceNo}
-                  className={
-                    p.pieceNo === row.pieceNo ? "piece-highlight" : ""
-                  }
-                >
-                  <td>
-                    {p.pieceNo}
-                    {p.pieceNo === row.pieceNo && (
-                      <span className="selected-tag">Selected</span>
-                    )}
-                  </td>
-                  <td>{p.size}</td>
-                  <td>{p.thickness}</td>
-                  <td>
-                    {p.qty} {job.jobWorkUnit}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <h3 className="modal-card-title">
+          Issued Quantity Summary
+        </h3>
+        <div className="readonly-grid">
+          <ReadonlyField
+            label="Received Quantity"
+            value={`${fmt(row.receivedQty)} ${row.jobWorkUnit}`}
+          />
+          <ReadonlyField
+            label="Previously Issued"
+            value={`${fmt(row.previouslyIssuedQty)} ${
+              row.jobWorkUnit
+            }`}
+          />
+          <ReadonlyField
+            label="Available Quantity"
+            value={`${fmt(row.availableQty)} ${row.jobWorkUnit}`}
+            emphasize
+          />
         </div>
-        <p className="modal-card-footnote">
-          Compare the original requirement above with what Job Work actually
-          returned — received output is tracked independently of the original
-          DWG/BOM quantity.
-        </p>
       </div>
     </>
   );
 }
 
 function HistoryEyeView({ row }) {
-  const job = jobs[row.jobWorkId];
-  const req = job.originalRequirement;
-
   return (
     <>
       <div className="modal-card">
-        <h3 className="modal-card-title">Original Integrated Requirement</h3>
+        <h3 className="modal-card-title">
+          Original Integrated Requirement
+        </h3>
         <div className="readonly-grid">
-          <ReadonlyField label="Project" value={req.project} />
-          <ReadonlyField label="DWG" value={req.dwg} />
-          <ReadonlyField label="Description" value={req.description} />
-          <ReadonlyField label="Material" value={req.material} />
-          <ReadonlyField label="Thickness" value={req.thickness} />
-          <ReadonlyField label="Required Quantity" value={req.requiredQty} />
-          <ReadonlyField label="Original Size" value={req.originalSize} />
-        </div>
-      </div>
-
-      <div className="modal-card">
-        <h3 className="modal-card-title">Actual Job Work Receipt</h3>
-        <p className="modal-card-subtitle">
-          Job Work ID : <strong>{job.jobWorkId}</strong> · Process :{" "}
-          <strong>
-            {job.process} - {job.processId}
-          </strong>
-        </p>
-        <div className="pieces-table-wrap">
-          <table className="pieces-table">
-            <thead>
-              <tr>
-                <th>Piece No</th>
-                <th>Size</th>
-                <th>Thickness</th>
-                <th>Received Qty</th>
-              </tr>
-            </thead>
-            <tbody>
-              {job.pieces.map((p) => (
-                <tr key={p.pieceNo}>
-                  <td>{p.pieceNo}</td>
-                  <td>{p.size}</td>
-                  <td>{p.thickness}</td>
-                  <td>
-                    {p.qty} {job.jobWorkUnit}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ReadonlyField label="Project" value={row.project} />
+          <ReadonlyField
+            label="Description"
+            value={row.description}
+          />
+          <ReadonlyField
+            label="Specification"
+            value={row.materialSpec}
+          />
+          <ReadonlyField label="Thickness" value={row.thickness} />
+          <ReadonlyField label="Size" value={row.size} />
+          <ReadonlyField label="Piece No" value={row.pieceNo} />
         </div>
       </div>
 
@@ -1319,20 +1218,26 @@ function HistoryEyeView({ row }) {
           <ReadonlyField label="Issue ID" value={row.issueId} />
           <ReadonlyField
             label="Original Received"
-            value={`${row.originalReceivedQty} ${row.jobWorkUnit}`}
+            value={`${fmt(row.originalReceivedQty)} ${
+              row.jobWorkUnit
+            }`}
           />
           <ReadonlyField
             label="Previously Issued"
-            value={`${row.previouslyIssuedQty} ${row.jobWorkUnit}`}
+            value={`${fmt(row.previouslyIssuedQty)} ${
+              row.jobWorkUnit
+            }`}
           />
           <ReadonlyField
             label="Issued Quantity"
-            value={`${row.issuedNow} ${row.jobWorkUnit}`}
+            value={`${fmt(row.issuedNow)} ${row.jobWorkUnit}`}
             emphasize
           />
           <ReadonlyField
             label="Remaining Available"
-            value={`${row.remainingAvailableQty} ${row.jobWorkUnit}`}
+            value={`${fmt(row.remainingAvailableQty)} ${
+              row.jobWorkUnit
+            }`}
           />
           <ReadonlyField label="Issued By" value={row.issuedBy} />
           <ReadonlyField label="Issue Date" value={row.issueDate} />
@@ -1343,15 +1248,17 @@ function HistoryEyeView({ row }) {
   );
 }
 
-// =========================================================================
-// Small shared bits
-// =========================================================================
+/* =========================================================================
+   Small shared bits
+   ========================================================================= */
 function ReadonlyField({ label, value, emphasize }) {
   return (
     <div className="readonly-field">
       <label className="readonly-label">{label}</label>
       <div
-        className={`readonly-value ${emphasize ? "readonly-value-emphasis" : ""}`}
+        className={`readonly-value ${
+          emphasize ? "readonly-value-emphasis" : ""
+        }`}
       >
         {value}
       </div>
@@ -1368,7 +1275,11 @@ function StatusBadge({ status }) {
     "In Production": "status-badge-warning",
     Completed: "status-badge-success",
   };
-  return <span className={`status-badge ${map[status] || ""}`}>{status}</span>;
+  return (
+    <span className={`status-badge ${map[status] || ""}`}>
+      {status}
+    </span>
+  );
 }
 
 function FilterIcon() {

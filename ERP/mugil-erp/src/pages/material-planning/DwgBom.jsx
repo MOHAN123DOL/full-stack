@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -11,284 +11,188 @@ import {
   FileStack,
   ListChecks,
   FileText,
-  Ruler,
-  ClipboardList,
-  Layers,
   AlertTriangle,
   X,
-  Bell,
-  ChevronDown,
   ArrowLeft,
+  RefreshCw,
 } from "lucide-react";
 import "./DwgBom.css";
+import Header from "../../components/Header";
+import Loading from "../../components/loading";
+import Error from "../../components/error";
+import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
 
-// ---------- Data ----------
-const projects = [
-  {
-    id: "prj-1",
-    name: "BHEL Boiler Fabrication",
-    code: "BHEL-2026-001",
-    description: "Steel fabrication project for BHEL",
-    status: "Active",
-    startDate: "2026-01-15",
-    endDate: "2026-06-30",
-  },
-  {
-    id: "prj-2",
-    name: "NTPC Structural Project",
-    code: "NTPC-2026-014",
-    description: "Structural steel package for NTPC plant expansion",
-    status: "Active",
-    startDate: "2026-02-01",
-    endDate: "2026-08-15",
-  },
-  {
-    id: "prj-3",
-    name: "L&T Pressure Vessel Project",
-    code: "LNT-2025-087",
-    description: "Pressure vessel fabrication for L&T",
-    status: "On Hold",
-    startDate: "2025-11-01",
-    endDate: "2026-04-30",
-  },
-];
+// ---------------------------------------------------------------------
+// API BASE
+// ---------------------------------------------------------------------
+const API_BASE = "/erp/material";
 
-const drawings = [
-  {
-    id: "dwg-1",
-    projectId: "prj-1",
-    dwgNumber: "DWG-001",
-    name: "Boiler Support Assembly",
-    revision: "REV-01",
-    date: "2026-08-20",
-    file: "DWG-001.pdf",
-    remarks: "Approved for fabrication",
-  },
-  {
-    id: "dwg-2",
-    projectId: "prj-1",
-    dwgNumber: "DWG-002",
-    name: "Boiler Drum Bracket",
-    revision: "REV-00",
-    date: "2026-08-22",
-    file: "DWG-002.pdf",
-    remarks: "Pending client approval",
-  },
-  {
-    id: "dwg-3",
-    projectId: "prj-1",
-    dwgNumber: "DWG-003",
-    name: "Access Platform Structure",
-    revision: "REV-02",
-    date: "2026-08-25",
-    file: "DWG-003.pdf",
-    remarks: "",
-  },
-  {
-    id: "dwg-4",
-    projectId: "prj-1",
-    dwgNumber: "DWG-004",
-    name: "Ducting Support Frame",
-    revision: "REV-01",
-    date: "2026-08-27",
-    file: "DWG-004.pdf",
-    remarks: "",
-  },
-  {
-    id: "dwg-5",
-    projectId: "prj-2",
-    dwgNumber: "DWG-101",
-    name: "Main Column Assembly",
-    revision: "REV-01",
-    date: "2026-07-11",
-    file: "DWG-101.pdf",
-    remarks: "",
-  },
-];
+// Max options rendered inside the project dropdown at once
+const PROJECT_OPTIONS_LIMIT = 50;
 
-const bomItems = [
-  {
-    id: "bom-1",
-    drawingId: "dwg-1",
-    variantNumber: "01",
-    itemNumber: "01",
-    description: "PL.6x530x530",
-    std: "-",
-    drawingNumber: "4-48-205-42417",
-    itemNo: "01",
-    varNo: "-",
-    materialCode: "15110292000",
-    materialSpecn: "IS2062 E250A",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 3.86,
-    quantity: 5,
-  },
-  {
-    id: "bom-2",
-    drawingId: "dwg-1",
-    variantNumber: "02",
-    itemNumber: "02",
-    description: "PL.5x120x90",
-    std: "-",
-    drawingNumber: "-",
-    itemNo: "02",
-    varNo: "-",
-    materialCode: "15011029000",
-    materialSpecn: "IS2062 E250A",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 0.26,
-    quantity: 6,
-  },
-  {
-    id: "bom-3",
-    drawingId: "dwg-1",
-    variantNumber: "03",
-    itemNumber: "03",
-    description: "ISA 65x65x6;346",
-    std: "-",
-    drawingNumber: "-",
-    itemNo: "03",
-    varNo: "-",
-    materialCode: "15013159000",
-    materialSpecn: "IS2062 E250A",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 2,
-    quantity: 2,
-  },
-  {
-    id: "bom-4",
-    drawingId: "dwg-1",
-    variantNumber: "04",
-    itemNumber: "04",
-    description: "ISMC 150;1500",
-    std: "-",
-    drawingNumber: "-",
-    itemNo: "04",
-    varNo: "-",
-    materialCode: "15010350000",
-    materialSpecn: "IS2062 E250A",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 8,
-    quantity: 2,
-  },
-  {
-    id: "bom-5",
-    drawingId: "dwg-1",
-    variantNumber: "05",
-    itemNumber: "05",
-    description: "ISMC 150;5110",
-    std: "-",
-    drawingNumber: "-",
-    itemNo: "05",
-    varNo: "-",
-    materialCode: "15010350000",
-    materialSpecn: "IS2062 E250A",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 85.8,
-    quantity: 4,
-  },
-  {
-    id: "bom-6",
-    drawingId: "dwg-1",
-    variantNumber: "06",
-    itemNumber: "06",
-    description: "CHANNEL 100x50x5",
-    std: "-",
-    drawingNumber: "-",
-    itemNo: "06",
-    varNo: "-",
-    materialCode: "15010135000",
-    materialSpecn: "IS2062 E250A",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 18.5,
-    quantity: 6,
-  },
-  {
-    id: "bom-7",
-    drawingId: "dwg-1",
-    variantNumber: "07",
-    itemNumber: "07",
-    description: "PIPE NB80 SCH40",
-    std: "IS1161",
-    drawingNumber: "-",
-    itemNo: "07",
-    varNo: "-",
-    materialCode: "15038626610",
-    materialSpecn: "IS1161 YST240",
-    acp: "-",
-    di: "-",
-    unit: "Mtr",
-    unitWeight: 9.7,
-    quantity: 12,
-  },
-  {
-    id: "bom-8",
-    drawingId: "dwg-1",
-    variantNumber: "08",
-    itemNumber: "08",
-    description: "PL.8x600x1200",
-    std: "-",
-    drawingNumber: "-",
-    itemNo: "08",
-    varNo: "-",
-    materialCode: "15011029000",
-    materialSpecn: "IS2062 E250A",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 45.2,
-    quantity: 3,
-  },
-  {
-    id: "bom-9",
-    drawingId: "dwg-2",
-    variantNumber: "01",
-    itemNumber: "01",
-    description: "PL.10x400x400",
-    std: "-",
-    drawingNumber: "4-48-206-11029",
-    itemNo: "01",
-    varNo: "-",
-    materialCode: "15110300000",
-    materialSpecn: "IS2062 E250BR",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 12.56,
-    quantity: 4,
-  },
-  {
-    id: "bom-10",
-    drawingId: "dwg-3",
-    variantNumber: "01",
-    itemNumber: "01",
-    description: "ISMB 200;3000",
-    std: "-",
-    drawingNumber: "-",
-    itemNo: "01",
-    varNo: "-",
-    materialCode: "15010420000",
-    materialSpecn: "IS2062 E250A",
-    acp: "-",
-    di: "-",
-    unit: "Nos",
-    unitWeight: 74.4,
-    quantity: 6,
-  },
-];
+// ---------------------------------------------------------------------
+// ERROR HELPER
+// ---------------------------------------------------------------------
+function getApiError(error, fallback = "Something went wrong. Please try again.") {
+  const data = error?.response?.data;
+  if (typeof data?.detail === "string") return data.detail;
+  if (typeof data?.message === "string") return data.message;
+  if (data && typeof data === "object") {
+    const firstFieldError = Object.values(data)
+      .flat()
+      .find((value) => typeof value === "string");
+    if (firstFieldError) return firstFieldError;
+  }
+  if (error?.message) return error.message;
+  return fallback;
+}
 
+// ---------------------------------------------------------------------
+// UNWRAP HELPERS
+// ---------------------------------------------------------------------
+function unwrapList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  if (payload && Array.isArray(payload.results)) return payload.results;
+  return [];
+}
+
+function unwrapObject(payload) {
+  if (!payload) return null;
+  if (
+    payload.data &&
+    typeof payload.data === "object" &&
+    !Array.isArray(payload.data)
+  ) {
+    return payload.data;
+  }
+  return payload;
+}
+
+// ---------------------------------------------------------------------
+// SAFE STRING
+// ---------------------------------------------------------------------
+function toDisplayString(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (typeof value === "object") {
+    const candidate =
+      value.name || value.label || value.title || value.code || value.description;
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+    const parts = Object.values(value)
+      .filter((v) => typeof v === "string" && v.trim())
+      .slice(0, 2);
+    return parts.join(" — ") || "—";
+  }
+  return String(value);
+}
+
+// ---------------------------------------------------------------------
+// DESCRIPTION HELPERS
+// Description is a JSON object on the backend:
+//   { materialType, thickness, length, width, grade, remarks }
+// ---------------------------------------------------------------------
+const EMPTY_DESCRIPTION = {
+  materialType: "",
+  thickness: "",
+  length: "",
+  width: "",
+  grade: "",
+  remarks: "",
+};
+
+function normalizeDescriptionFromApi(raw) {
+  if (raw == null) return { ...EMPTY_DESCRIPTION };
+
+  // Legacy plain string
+  if (typeof raw === "string") {
+    return { ...EMPTY_DESCRIPTION, remarks: raw };
+  }
+
+  if (typeof raw !== "object") return { ...EMPTY_DESCRIPTION };
+
+  return {
+    materialType: raw.materialType ?? raw.material_type ?? "",
+    thickness:
+      raw.thickness != null && raw.thickness !== "" ? String(raw.thickness) : "",
+    length:
+      raw.length != null && raw.length !== "" ? String(raw.length) : "",
+    width:
+      raw.width != null && raw.width !== "" ? String(raw.width) : "",
+    grade: raw.grade ?? "",
+    remarks: raw.remarks ?? "",
+  };
+}
+
+function buildDescriptionPayload(desc) {
+  const d = desc || {};
+  const out = {};
+
+  if (d.materialType?.trim()) out.materialType = d.materialType.trim();
+  if (d.thickness !== "" && d.thickness != null) out.thickness = Number(d.thickness) || 0;
+  if (d.length !== "" && d.length != null) out.length = Number(d.length) || 0;
+  if (d.width !== "" && d.width != null) out.width = Number(d.width) || 0;
+  if (d.grade?.trim()) out.grade = d.grade.trim();
+  if (d.remarks?.trim()) out.remarks = d.remarks.trim();
+
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// MAPPERS
+// ---------------------------------------------------------------------
+function mapProjectFromApi(p) {
+  return {
+    id: p.id,
+    name: p.name,
+    code: p.code,
+    description: p.description || "",
+    status: p.status,
+    startDate: p.startDate || "",
+    endDate: p.endDate || "",
+  };
+}
+
+function mapDrawingFromApi(d) {
+  return {
+    id: d.id,
+    projectId: d.projectId,
+    dwgNumber: d.dwgNumber,
+    name: d.name,
+    revision: d.revision,
+    date: d.date || "",
+    file: d.file || "",
+    remarks: d.remarks || "",
+  };
+}
+
+function mapBomFromApi(b) {
+  return {
+    id: b.id,
+    drawingId: b.drawingId,
+    variantNumber: b.variantNumber || "",
+    itemNumber: b.itemNumber || "",
+    description: normalizeDescriptionFromApi(b.description),
+    std: b.std || "-",
+    drawingNumber: b.drawingNumber || "-",
+    itemNo: b.itemNo || "",
+    varNo: b.varNo || "-",
+    materialCode: b.materialCode,
+    materialSpecn: b.materialSpecn || "",
+    acp: b.acp || "-",
+    di: b.di || "-",
+    unit: b.unit || "Nos",
+    unitWeight: Number(b.unitWeight) || 0,
+    quantity: Number(b.quantity) || 0,
+  };
+}
+
+// ---------------------------------------------------------------------
+// COLUMNS
+// ---------------------------------------------------------------------
 const bomColumns = [
   { key: "variantNumber", label: "Variant Number" },
   { key: "itemNumber", label: "Item Number" },
@@ -306,25 +210,54 @@ const bomColumns = [
   { key: "quantity", label: "Quantity" },
 ];
 
-// ---------- Components ----------
+// ---------------------------------------------------------------------
+// EMPTY FORMS
+// ---------------------------------------------------------------------
+const emptyProjectForm = {
+  name: "",
+  code: "",
+  description: "",
+  status: "Active",
+  startDate: "",
+  endDate: "",
+};
+const emptyDrawingForm = {
+  dwgNumber: "",
+  name: "",
+  revision: "",
+  date: "",
+  file: "",
+  remarks: "",
+};
+const emptyBomForm = {
+  variantNumber: "",
+  itemNumber: "",
+  description: { ...EMPTY_DESCRIPTION },
+  std: "",
+  drawingNumber: "",
+  itemNo: "",
+  varNo: "",
+  materialCode: "",
+  materialSpecn: "",
+  acp: "",
+  di: "",
+  unit: "Nos",
+  unitWeight: "",
+  quantity: "",
+};
+
+// ---------------------------------------------------------------------
+// SMALL UI COMPONENTS
+// ---------------------------------------------------------------------
 function StatusBadge({ status, tone }) {
   const STATUS_STYLES = {
     Active: "success",
     "On Hold": "neutral",
-    "Not Integrated": "neutral",
-    "Not Allocated": "neutral",
-    "Partially Allocated": "warning",
-    "Fully Allocated": "success",
-    "Integration Pending": "info",
-    Integrated: "success",
-    "Dummy PO": "amber-outline",
-    "Coming Soon": "neutral",
+    Completed: "success",
   };
   const resolvedTone = tone || STATUS_STYLES[status] || "neutral";
   return (
-    <span className={`status-badge status-badge-${resolvedTone}`}>
-      {status}
-    </span>
+    <span className={`status-badge status-badge-${resolvedTone}`}>{status}</span>
   );
 }
 
@@ -341,11 +274,7 @@ function Modal({ open, title, subtitle, onClose, children, wide = false }) {
             <h3 className="modal-title">{title}</h3>
             {subtitle && <p className="modal-subtitle">{subtitle}</p>}
           </div>
-          <button
-            className="modal-close-btn"
-            onClick={onClose}
-            aria-label="Close"
-          >
+          <button className="modal-close-btn" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </div>
@@ -390,110 +319,69 @@ function ConfirmDialog({
   );
 }
 
-// ---------- Header Component ----------
-function AppHeader({ pageName, onBack }) {
-  const navigate = useNavigate();
-  const [profileOpen, setProfileOpen] = useState(false);
+// ---------------------------------------------------------------------
+// DESCRIPTION CELL — renders the structured JSON in the table
+// ---------------------------------------------------------------------
+function DescriptionCell({ description }) {
+  const d = description || {};
+  const mt = d.materialType?.trim();
+  const t = d.thickness;
+  const l = d.length;
+  const w = d.width;
+  const grade = d.grade?.trim();
+  const remarks = d.remarks?.trim();
+
+  const dims = [t, l, w].filter((v) => v !== "" && v != null && v !== undefined);
+
+  if (!mt && dims.length === 0 && !grade && !remarks) {
+    return <span className="cell-muted">—</span>;
+  }
 
   return (
-    <header className="app-header">
-      <div className="app-header-left">
-        <div className="app-header-brand">
-          <div className="app-header-brand-icon">
-            <Layers size={18} strokeWidth={1.8} />
-          </div>
-          <div>
-            <span className="app-header-brand-label">Material Mgmt</span>
-            <span className="app-header-brand-title">ERP</span>
-          </div>
-        </div>
-      </div>
-      <div className="app-header-right">
-        <div className="app-header-profile-wrap">
-          <button
-            className="app-header-profile"
-            onClick={() => setProfileOpen((v) => !v)}
-          >
-            <span className="app-header-avatar">RK</span>
-            <span className="app-header-profile-name">R. Kumar</span>
-            <ChevronDown size={14} />
-          </button>
-          {profileOpen && (
-            <div className="app-header-profile-menu">
-              <span className="app-header-profile-role">
-                Stores &amp; Purchase
-              </span>
-              <button type="button">Profile settings</button>
-              <button type="button">Sign out</button>
-            </div>
-          )}
-        </div>
-        <button className="app-header-icon-btn" aria-label="Notifications">
-          <Bell size={17} strokeWidth={1.8} />
-        </button>
-      </div>
-    </header>
+    <span>
+      {mt && <strong>{mt} </strong>}
+      {dims.length > 0 && <span>{dims.join(" × ")}</span>}
+      {grade && <span className="cell-muted"> · {grade}</span>}
+      {remarks && <span className="cell-muted"> · {remarks}</span>}
+    </span>
   );
 }
 
-// ---------- Page Shell ----------
-function PageShell({ pageName, children }) {
-  const navigate = useNavigate();
-
+function PageShell({ children }) {
   return (
-    <div className="page-shell">
-      <AppHeader pageName={pageName} />
-      <div className="page-shell-main">
-        <div className="page-shell-content">{children}</div>
+    <>
+      <Header />
+      <div className="page-shell">
+        <div className="page-shell-main">
+          <div className="page-shell-content">{children}</div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
-// ---------- Main Component ----------
-const emptyProjectForm = {
-  name: "",
-  code: "",
-  description: "",
-  status: "Active",
-  startDate: "",
-  endDate: "",
-};
-const emptyDrawingForm = {
-  dwgNumber: "",
-  name: "",
-  revision: "",
-  date: "",
-  file: "",
-  remarks: "",
-};
-const emptyBomForm = {
-  variantNumber: "",
-  itemNumber: "",
-  description: "",
-  std: "",
-  drawingNumber: "",
-  itemNo: "",
-  varNo: "",
-  materialCode: "",
-  materialSpecn: "",
-  acp: "",
-  di: "",
-  unit: "Nos",
-  unitWeight: "",
-  quantity: "",
-};
-
+// =====================================================================
+// MAIN COMPONENT
+// =====================================================================
 export default function DwgBom() {
   const navigate = useNavigate();
+  const { accessToken } = useAuth();
 
-  const [projectsList, setProjectsList] = useState(projects);
-  const [drawingsList, setDrawingsList] = useState(drawings);
-  const [bomList, setBomList] = useState(bomItems);
+  // ---------------- DATA ----------------
+  const [projectsList, setProjectsList] = useState([]);
+  const [drawingsList, setDrawingsList] = useState([]);
+  const [bomList, setBomList] = useState([]);
 
-  const [selectedProjectId, setSelectedProjectId] = useState(projects[0].id);
-  const [selectedDrawingId, setSelectedDrawingId] = useState(drawings[0].id);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [selectedDrawingId, setSelectedDrawingId] = useState(null);
+  const [projectSearch, setProjectSearch] = useState("");
 
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // ---------------- MODALS ----------------
   const [showAddProject, setShowAddProject] = useState(false);
   const [projectForm, setProjectForm] = useState(emptyProjectForm);
   const [projectErrors, setProjectErrors] = useState({});
@@ -514,31 +402,230 @@ export default function DwgBom() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [toast, setToast] = useState("");
 
-  const selectedProject = projectsList.find((p) => p.id === selectedProjectId);
-  const projectDrawings = drawingsList.filter(
-    (d) => d.projectId === selectedProjectId,
+  // ---------------- AUTH ----------------
+  const authHeaders = useCallback(
+    () => ({ Authorization: `Bearer ${accessToken}` }),
+    [accessToken],
   );
-  const selectedDrawing = drawingsList.find((d) => d.id === selectedDrawingId);
-  const drawingBom = bomList.filter((b) => b.drawingId === selectedDrawingId);
 
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2600);
+  }
+
+  // ===============================================================
+  // FETCHERS
+  // ===============================================================
+  const fetchProjects = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!accessToken) return;
+      try {
+        if (!silent) setIsLoading(true);
+        setError("");
+        const res = await api.get(`${API_BASE}/projects/`, {
+          headers: authHeaders(),
+        });
+
+        const rawList = unwrapList(res.data);
+        const mapped = rawList.map(mapProjectFromApi);
+        setProjectsList(mapped);
+
+        if (mapped.length > 0) {
+          setSelectedProjectId((prev) =>
+            prev != null && mapped.some((p) => Number(p.id) === Number(prev))
+              ? Number(prev)
+              : Number(mapped[0].id),
+          );
+        } else {
+          setSelectedProjectId(null);
+          setSelectedDrawingId(null);
+        }
+      } catch (err) {
+        console.error("Failed to load projects:", err);
+        setError(getApiError(err, "Failed to load projects."));
+        setProjectsList([]);
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [accessToken, authHeaders],
+  );
+
+  const fetchDrawings = useCallback(
+    async (projectId, { silent = false } = {}) => {
+      if (!accessToken || projectId == null) {
+        setDrawingsList([]);
+        setSelectedDrawingId(null);
+        return;
+      }
+      try {
+        if (!silent) setIsLoading(true);
+        setError("");
+        const res = await api.get(`${API_BASE}/drawings/`, {
+          headers: authHeaders(),
+          params: { projectId },
+        });
+
+        const rawList = unwrapList(res.data);
+        const mapped = rawList.map(mapDrawingFromApi);
+        setDrawingsList(mapped);
+
+        setSelectedDrawingId((prev) =>
+          prev != null && mapped.some((d) => Number(d.id) === Number(prev))
+            ? Number(prev)
+            : mapped[0]?.id != null
+              ? Number(mapped[0].id)
+              : null,
+        );
+      } catch (err) {
+        console.error("Failed to load drawings:", err);
+        setError(getApiError(err, "Failed to load drawings."));
+        setDrawingsList([]);
+        setSelectedDrawingId(null);
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [accessToken, authHeaders],
+  );
+
+  const fetchBom = useCallback(
+    async (drawingId, { silent = false } = {}) => {
+      if (!accessToken || drawingId == null) {
+        setBomList([]);
+        return;
+      }
+      try {
+        if (!silent) setIsLoading(true);
+        setError("");
+        const res = await api.get(`${API_BASE}/bom-items/`, {
+          headers: authHeaders(),
+          params: { drawingId },
+        });
+
+        const rawList = unwrapList(res.data);
+        setBomList(rawList.map(mapBomFromApi));
+      } catch (err) {
+        console.error("Failed to load BOM:", err);
+        setError(getApiError(err, "Failed to load BOM items."));
+        setBomList([]);
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [accessToken, authHeaders],
+  );
+
+  // ===============================================================
+  // EFFECTS
+  // ===============================================================
+  useEffect(() => {
+    if (!accessToken) {
+      setError("Your session has expired. Please login again.");
+      setIsLoading(false);
+      return;
+    }
+    fetchProjects();
+  }, [accessToken, fetchProjects]);
+
+  useEffect(() => {
+    if (selectedProjectId != null) fetchDrawings(selectedProjectId);
+  }, [selectedProjectId, fetchDrawings]);
+
+  useEffect(() => {
+    if (selectedDrawingId != null) fetchBom(selectedDrawingId);
+    else setBomList([]);
+  }, [selectedDrawingId, fetchBom]);
+
+  // ===============================================================
+  // DERIVED
+  // ===============================================================
+  const selectedProject = projectsList.find(
+    (p) => String(p.id) === String(selectedProjectId),
+  );
+  const projectDrawings = drawingsList;
+  const selectedDrawing = drawingsList.find(
+    (d) => String(d.id) === String(selectedDrawingId),
+  );
+  const drawingBom = bomList;
+
+  // Filtered project dropdown options
+  const filteredProjectOptions = useMemo(() => {
+    const term = projectSearch.trim().toLowerCase();
+
+    let matches = projectsList;
+    if (term) {
+      matches = projectsList.filter((p) => {
+        const haystack = [p.name, p.code, p.description]
+          .map(toDisplayString)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(term);
+      });
+    }
+
+    const selected = projectsList.find(
+      (p) => String(p.id) === String(selectedProjectId),
+    );
+
+    let options = matches;
+    if (
+      selected &&
+      !options.some((p) => String(p.id) === String(selected.id))
+    ) {
+      options = [selected, ...options];
+    }
+
+    if (options.length > PROJECT_OPTIONS_LIMIT) {
+      options = options.slice(0, PROJECT_OPTIONS_LIMIT);
+    }
+
+    return options;
+  }, [projectsList, projectSearch, selectedProjectId]);
+
+  const projectMatchCount = useMemo(() => {
+    const term = projectSearch.trim().toLowerCase();
+    if (!term) return projectsList.length;
+    return projectsList.filter((p) => {
+      const haystack = [p.name, p.code, p.description]
+        .map(toDisplayString)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(term);
+    }).length;
+  }, [projectsList, projectSearch]);
+
+  // BOM filter options
   const unitOptions = useMemo(
-    () => [...new Set(drawingBom.map((b) => b.unit))],
+    () => [...new Set(drawingBom.map((b) => b.unit))].filter(Boolean),
     [drawingBom],
   );
   const materialCodeOptions = useMemo(
-    () => [...new Set(drawingBom.map((b) => b.materialCode))],
+    () => [...new Set(drawingBom.map((b) => b.materialCode))].filter(Boolean),
     [drawingBom],
   );
   const materialSpecOptions = useMemo(
-    () => [...new Set(drawingBom.map((b) => b.materialSpecn))],
+    () => [...new Set(drawingBom.map((b) => b.materialSpecn))].filter(Boolean),
     [drawingBom],
   );
 
   const filteredBom = drawingBom.filter((item) => {
     const q = bomSearch.trim().toLowerCase();
+    const d = item.description || {};
+    const descText = [
+      d.materialType,
+      d.thickness,
+      d.length,
+      d.width,
+      d.grade,
+      d.remarks,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
     const matchesSearch =
       !q ||
-      [item.description, item.materialCode, item.materialSpecn, item.itemNumber]
+      [descText, item.materialCode, item.materialSpecn, item.itemNumber]
         .join(" ")
         .toLowerCase()
         .includes(q);
@@ -550,15 +637,25 @@ export default function DwgBom() {
     return matchesSearch && matchesCode && matchesSpec && matchesUnit;
   });
 
-  function showToast(msg) {
-    setToast(msg);
-    setTimeout(() => setToast(""), 2600);
+  // ===============================================================
+  // REFRESH
+  // ===============================================================
+  async function handleRefresh() {
+    setRefreshing(true);
+    await fetchProjects({ silent: true });
+    if (selectedProjectId != null)
+      await fetchDrawings(selectedProjectId, { silent: true });
+    if (selectedDrawingId != null)
+      await fetchBom(selectedDrawingId, { silent: true });
+    setRefreshing(false);
+    showToast("Refreshed");
   }
 
+  // ===============================================================
+  // PROJECT ACTIONS
+  // ===============================================================
   function selectProject(id) {
-    setSelectedProjectId(id);
-    const firstDwg = drawingsList.find((d) => d.projectId === id);
-    setSelectedDrawingId(firstDwg ? firstDwg.id : null);
+    setSelectedProjectId(id === "" ? null : Number(id));
   }
 
   function validateProject() {
@@ -580,18 +677,46 @@ export default function DwgBom() {
     return Object.keys(errs).length === 0;
   }
 
-  function handleAddProject() {
-    if (!validateProject()) return;
-    const id = `prj-${Date.now()}`;
-    const newProject = { id, ...projectForm };
-    setProjectsList((prev) => [...prev, newProject]);
-    setSelectedProjectId(id);
-    setSelectedDrawingId(null);
-    setShowAddProject(false);
-    setProjectForm(emptyProjectForm);
-    showToast(`Project "${newProject.name}" created`);
+  async function handleAddProject() {
+    if (!validateProject() || saving) return;
+    setSaving(true);
+    try {
+      const res = await api.post(
+        `${API_BASE}/projects/`,
+        {
+          name: projectForm.name.trim(),
+          code: projectForm.code.trim(),
+          description: projectForm.description || "",
+          status: projectForm.status,
+          startDate: projectForm.startDate || null,
+          endDate: projectForm.endDate || null,
+        },
+        { headers: authHeaders() },
+      );
+
+      const rawProject = unwrapObject(res.data);
+      const newProject = mapProjectFromApi(rawProject);
+
+      setProjectsList((prev) => [newProject, ...prev]);
+      setSelectedProjectId(Number(newProject.id));
+      setProjectSearch("");
+      setShowAddProject(false);
+      setProjectForm(emptyProjectForm);
+      setProjectErrors({});
+      showToast(`Project "${newProject.name}" created`);
+    } catch (err) {
+      console.error("Create project failed:", err);
+      setProjectErrors({
+        submit: getApiError(err, "Failed to create project."),
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
+  // ===============================================================
+  // DRAWING ACTIONS
+  // ===============================================================
   function validateDrawing() {
     const errs = {};
     if (!drawingForm.dwgNumber.trim())
@@ -603,20 +728,52 @@ export default function DwgBom() {
     return Object.keys(errs).length === 0;
   }
 
-  function handleAddDrawing() {
-    if (!validateDrawing()) return;
-    const id = `dwg-${Date.now()}`;
-    const newDrawing = { id, projectId: selectedProjectId, ...drawingForm };
-    setDrawingsList((prev) => [...prev, newDrawing]);
-    setSelectedDrawingId(id);
-    setShowAddDrawing(false);
-    setDrawingForm(emptyDrawingForm);
-    showToast(`Drawing "${newDrawing.dwgNumber}" added`);
+  async function handleAddDrawing() {
+    if (!validateDrawing() || saving || selectedProjectId == null) return;
+    setSaving(true);
+    try {
+      const res = await api.post(
+        `${API_BASE}/drawings/`,
+        {
+          projectId: selectedProjectId,
+          dwgNumber: drawingForm.dwgNumber.trim(),
+          name: drawingForm.name.trim(),
+          revision: drawingForm.revision.trim(),
+          date: drawingForm.date || null,
+          file: drawingForm.file || "",
+          remarks: drawingForm.remarks || "",
+        },
+        { headers: authHeaders() },
+      );
+
+      const rawDrawing = unwrapObject(res.data);
+      const newDrawing = mapDrawingFromApi(rawDrawing);
+
+      setDrawingsList((prev) => [newDrawing, ...prev]);
+      setSelectedDrawingId(Number(newDrawing.id));
+      setShowAddDrawing(false);
+      setDrawingForm(emptyDrawingForm);
+      setDrawingErrors({});
+      showToast(`Drawing "${newDrawing.dwgNumber}" added`);
+    } catch (err) {
+      console.error("Create drawing failed:", err);
+      setDrawingErrors({
+        submit: getApiError(err, "Failed to create drawing."),
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
+  // ===============================================================
+  // BOM ACTIONS
+  // ===============================================================
   function openAddBom() {
     setEditingBomId(null);
-    setBomForm(emptyBomForm);
+    setBomForm({
+      ...emptyBomForm,
+      description: { ...EMPTY_DESCRIPTION },
+    });
     setBomErrors({});
     setBomModalOpen(true);
   }
@@ -625,6 +782,7 @@ export default function DwgBom() {
     setEditingBomId(item.id);
     setBomForm({
       ...item,
+      description: normalizeDescriptionFromApi(item.description),
       unitWeight: String(item.unitWeight),
       quantity: String(item.quantity),
     });
@@ -634,54 +792,161 @@ export default function DwgBom() {
 
   function validateBom() {
     const errs = {};
-    if (!bomForm.description.trim())
-      errs.description = "Description is required";
+    const d = bomForm.description || {};
+
+    const hasAnyDesc =
+      d.materialType?.trim() ||
+      (d.thickness !== "" && d.thickness != null) ||
+      (d.length !== "" && d.length != null) ||
+      (d.width !== "" && d.width != null) ||
+      d.grade?.trim() ||
+      d.remarks?.trim();
+
+    if (!hasAnyDesc)
+      errs.description =
+        "Enter at least one field: material type, thickness, length, width, grade, or remarks.";
+
     if (!bomForm.materialCode.trim())
       errs.materialCode = "Material Code is required";
     if (!bomForm.unit.trim()) errs.unit = "Unit is required";
+
     const qty = Number(bomForm.quantity);
     if (!bomForm.quantity || qty <= 0)
       errs.quantity = "Quantity must be greater than 0";
+
     setBomErrors(errs);
     return Object.keys(errs).length === 0;
   }
 
-  function handleSaveBomItem() {
-    if (!validateBom()) return;
+  // Update a single description sub-field
+  function setBomDescriptionField(field, value) {
+    setBomForm((prev) => ({
+      ...prev,
+      description: { ...prev.description, [field]: value },
+    }));
+  }
+
+  async function handleSaveBomItem() {
+    if (!validateBom() || saving || selectedDrawingId == null) return;
+    setSaving(true);
+
     const payload = {
-      ...bomForm,
+      drawingId: selectedDrawingId,
+      variantNumber: bomForm.variantNumber || "",
+      itemNumber: bomForm.itemNumber || "",
+      description: buildDescriptionPayload(bomForm.description),
+      std: bomForm.std || "-",
+      drawingNumber: bomForm.drawingNumber || "-",
+      itemNo: bomForm.itemNo || "",
+      varNo: bomForm.varNo || "-",
+      materialCode: bomForm.materialCode.trim(),
+      materialSpecn: bomForm.materialSpecn || "",
+      acp: bomForm.acp || "-",
+      di: bomForm.di || "-",
+      unit: bomForm.unit,
       unitWeight: Number(bomForm.unitWeight) || 0,
       quantity: Number(bomForm.quantity),
     };
-    if (editingBomId) {
-      setBomList((prev) =>
-        prev.map((b) => (b.id === editingBomId ? { ...b, ...payload } : b)),
-      );
-      showToast("BOM item updated");
-    } else {
-      const id = `bom-${Date.now()}`;
-      setBomList((prev) => [
-        ...prev,
-        { id, drawingId: selectedDrawingId, ...payload },
-      ]);
-      showToast("BOM item added");
+
+    try {
+      if (editingBomId) {
+        const res = await api.patch(
+          `${API_BASE}/bom-items/${editingBomId}/`,
+          payload,
+          { headers: authHeaders() },
+        );
+        const rawItem = unwrapObject(res.data);
+        const updated = mapBomFromApi(rawItem);
+        setBomList((prev) =>
+          prev.map((b) => (b.id === editingBomId ? updated : b)),
+        );
+        showToast("BOM item updated");
+      } else {
+        const res = await api.post(`${API_BASE}/bom-items/`, payload, {
+          headers: authHeaders(),
+        });
+        const rawItem = unwrapObject(res.data);
+        const created = mapBomFromApi(rawItem);
+        setBomList((prev) => [...prev, created]);
+        showToast("BOM item added");
+      }
+      setBomModalOpen(false);
+    } catch (err) {
+      console.error("Save BOM failed:", err);
+      setBomErrors({ submit: getApiError(err, "Failed to save BOM item.") });
+    } finally {
+      setSaving(false);
     }
-    setBomModalOpen(false);
   }
 
-  function handleDeleteBom() {
-    setBomList((prev) => prev.filter((b) => b.id !== deleteTarget.id));
-    showToast("BOM item deleted");
-    setDeleteTarget(null);
+  async function handleDeleteBom() {
+    if (!deleteTarget || saving) return;
+    setSaving(true);
+    try {
+      await api.delete(`${API_BASE}/bom-items/${deleteTarget.id}/`, {
+        headers: authHeaders(),
+      });
+      setBomList((prev) => prev.filter((b) => b.id !== deleteTarget.id));
+      showToast("BOM item deleted");
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error("Delete BOM failed:", err);
+      showToast(getApiError(err, "Failed to delete BOM item."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveAllBom() {
+    if (selectedDrawingId == null || saving) return;
+    setSaving(true);
+    try {
+      const items = bomList
+        .filter((b) => String(b.drawingId) === String(selectedDrawingId))
+        .map((b) => ({
+          id: b.id,
+          variantNumber: b.variantNumber,
+          itemNumber: b.itemNumber,
+          description: buildDescriptionPayload(b.description),
+          std: b.std,
+          drawingNumber: b.drawingNumber,
+          itemNo: b.itemNo,
+          varNo: b.varNo,
+          materialCode: b.materialCode,
+          materialSpecn: b.materialSpecn,
+          acp: b.acp,
+          di: b.di,
+          unit: b.unit,
+          unitWeight: b.unitWeight,
+          quantity: b.quantity,
+        }));
+
+      const res = await api.post(
+        `${API_BASE}/bom/batch-save/`,
+        { drawingId: selectedDrawingId, items },
+        { headers: authHeaders() },
+      );
+
+      showToast(res.data?.message || "BOM saved");
+      await fetchBom(selectedDrawingId, { silent: true });
+    } catch (err) {
+      console.error("Batch save failed:", err);
+      showToast(getApiError(err, "Failed to save BOM."));
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleBack() {
     navigate("/inventory/material");
   }
 
+  // ===============================================================
+  // RENDER
+  // ===============================================================
   return (
-    <PageShell pageName="DWG & BOM">
-      {/* Page Header with Back Button */}
+    <PageShell>
+      {/* Page Header */}
       <div className="page-header-wrap">
         <div className="page-header-left">
           <button className="back-button" onClick={handleBack}>
@@ -695,288 +960,402 @@ export default function DwgBom() {
             </p>
           </div>
         </div>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={handleRefresh}
+          disabled={refreshing || isLoading}
+        >
+          <RefreshCw size={14} className={refreshing ? "spin" : ""} />
+          {refreshing ? "Refreshing..." : "Refresh"}
+        </button>
       </div>
 
       {toast && <div className="toast">{toast}</div>}
 
-      {/* Project Panel */}
-      <section className="panel">
-        <div className="panel-head">
-          <div className="panel-head-title">
-            <FolderKanban size={16} strokeWidth={1.8} /> Project
-          </div>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => setShowAddProject(true)}
-          >
-            <Plus size={14} /> Add Project
-          </button>
+      {error && !isLoading && (
+        <div style={{ marginBottom: 16 }}>
+          <Error onRetry={() => fetchProjects()} />
         </div>
-        <div className="panel-body">
-          <div className="dwgbom-select-project">
-            <label>Select Existing Project</label>
-            <select
-              value={selectedProjectId || ""}
-              onChange={(e) => selectProject(e.target.value)}
-            >
-              {projectsList.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.code})
-                </option>
-              ))}
-            </select>
-          </div>
-          {selectedProject && (
-            <div className="dwgbom-project-summary">
-              <div>
-                <span className="dwgbom-project-name">
-                  {selectedProject.name}
-                </span>{" "}
-                <span className="dwgbom-project-code mono">
-                  {selectedProject.code}
-                </span>
+      )}
+
+      {!error && (
+        <>
+          {/* ============ Project Panel ============ */}
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-head-title">
+                <FolderKanban size={16} strokeWidth={1.8} /> Project
               </div>
-              <p className="dwgbom-project-desc">
-                {selectedProject.description}
-              </p>
-              {(selectedProject.startDate || selectedProject.endDate) && (
-                <div className="dwgbom-project-dates">
-                  <span>
-                    <span className="dwgbom-project-dates-label">
-                      Project Start Date:
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setShowAddProject(true)}
+                disabled={isLoading}
+              >
+                <Plus size={14} /> Add Project
+              </button>
+            </div>
+            <div className="panel-body">
+              {/* Filter */}
+              <div className="dwgbom-select-project">
+                <label>
+                  Search Project
+                  {projectSearch.trim() && (
+                    <span className="dwgbom-match-count">
+                      {" "}
+                      — {projectMatchCount} match
+                      {projectMatchCount === 1 ? "" : "es"}
+                      {projectMatchCount > PROJECT_OPTIONS_LIMIT &&
+                        ` (showing first ${PROJECT_OPTIONS_LIMIT})`}
+                    </span>
+                  )}
+                </label>
+                <div className="dwgbom-project-search">
+                  <Search size={15} />
+                  <input
+                    type="text"
+                    placeholder="Filter by project name, code, or description..."
+                    value={projectSearch}
+                    onChange={(e) => setProjectSearch(e.target.value)}
+                    disabled={isLoading || projectsList.length === 0}
+                  />
+                  {projectSearch && (
+                    <button
+                      type="button"
+                      className="dwgbom-project-search-clear"
+                      onClick={() => setProjectSearch("")}
+                      aria-label="Clear search"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Select */}
+              <div className="dwgbom-select-project">
+                <label>Select Existing Project</label>
+                <select
+                  value={
+                    selectedProjectId != null ? String(selectedProjectId) : ""
+                  }
+                  onChange={(e) => selectProject(e.target.value)}
+                  disabled={isLoading || filteredProjectOptions.length === 0}
+                >
+                  {filteredProjectOptions.length === 0 && (
+                    <option value="">
+                      {projectsList.length === 0
+                        ? "No projects available"
+                        : "No projects match your search"}
+                    </option>
+                  )}
+                  {filteredProjectOptions.map((p) => (
+                    <option key={p.id} value={String(p.id)}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedProject && (
+                <div className="dwgbom-project-summary">
+                  <div>
+                    <span className="dwgbom-project-name">
+                      {toDisplayString(selectedProject.name)}
                     </span>{" "}
-                    {selectedProject.startDate || "—"}
-                  </span>
-                  <span>
-                    <span className="dwgbom-project-dates-label">
-                      Expected Project End Date:
-                    </span>{" "}
-                    {selectedProject.endDate || "—"}
-                  </span>
+                    <span className="dwgbom-project-code mono">
+                      {toDisplayString(selectedProject.code)}
+                    </span>
+                  </div>
+                  <p className="dwgbom-project-desc">
+                    {toDisplayString(selectedProject.description) || "—"}
+                  </p>
+                  {(selectedProject.startDate || selectedProject.endDate) && (
+                    <div className="dwgbom-project-dates">
+                      <span>
+                        <span className="dwgbom-project-dates-label">
+                          Project Start Date:
+                        </span>{" "}
+                        {selectedProject.startDate || "—"}
+                      </span>
+                      <span>
+                        <span className="dwgbom-project-dates-label">
+                          Expected Project End Date:
+                        </span>{" "}
+                        {selectedProject.endDate || "—"}
+                      </span>
+                    </div>
+                  )}
+                  <StatusBadge status={selectedProject.status} />
                 </div>
               )}
-              <StatusBadge status={selectedProject.status} />
             </div>
-          )}
-        </div>
-      </section>
+          </section>
 
-      {/* Drawing Panel */}
-      {selectedProject && (
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <div className="panel-head-title">
-                <FileStack size={16} strokeWidth={1.8} /> Drawings
-              </div>
-              <p className="panel-head-subtitle">{selectedProject.name}</p>
-            </div>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => setShowAddDrawing(true)}
-            >
-              <Plus size={14} /> Add DWG
-            </button>
-          </div>
-          <div className="panel-body">
-            {projectDrawings.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  <FileText size={20} strokeWidth={1.7} />
+          {/* ============ Drawing Panel ============ */}
+          {selectedProject && (
+            <section className="panel">
+              <div className="panel-head">
+                <div>
+                  <div className="panel-head-title">
+                    <FileStack size={16} strokeWidth={1.8} /> Drawings
+                  </div>
+                  <p className="panel-head-subtitle">
+                    {toDisplayString(selectedProject.name)}
+                  </p>
                 </div>
-                <p className="empty-state-title">No drawings yet</p>
-                <p className="empty-state-desc">
-                  Add the first drawing for {selectedProject.name} to begin
-                  building its BOM.
-                </p>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setShowAddDrawing(true)}
+                  disabled={isLoading}
+                >
+                  <Plus size={14} /> Add DWG
+                </button>
               </div>
-            ) : (
-              <div className="dwgbom-drawing-grid">
-                {projectDrawings.map((d) => (
-                  <button
-                    key={d.id}
-                    className={`dwgbom-drawing-card ${
-                      d.id === selectedDrawingId
-                        ? "dwgbom-drawing-card-active"
-                        : ""
-                    }`}
-                    onClick={() => setSelectedDrawingId(d.id)}
-                  >
-                    <span className="dwgbom-drawing-number mono">
-                      {d.dwgNumber}
-                    </span>
-                    <span className="dwgbom-drawing-name">{d.name}</span>
-                    <span className="dwgbom-drawing-meta">
-                      {d.revision} · {d.date}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* BOM Panel */}
-      {selectedDrawing && (
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <div className="panel-head-title">
-                <ListChecks size={16} strokeWidth={1.8} /> BOM Materials
-              </div>
-              <p className="panel-head-subtitle">
-                {selectedProject.name} &nbsp;·&nbsp; {selectedDrawing.dwgNumber}{" "}
-                — {selectedDrawing.name}
-              </p>
-            </div>
-          </div>
-          <div className="panel-toolbar">
-            <div className="panel-toolbar-search">
-              <Search size={14} />
-              <input
-                placeholder="Search BOM (description, material code, item)..."
-                value={bomSearch}
-                onChange={(e) => setBomSearch(e.target.value)}
-              />
-            </div>
-            <select
-              className="panel-toolbar-filter"
-              value={materialCodeFilter}
-              onChange={(e) => setMaterialCodeFilter(e.target.value)}
-            >
-              <option value="">All Material Codes</option>
-              {materialCodeOptions.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <select
-              className="panel-toolbar-filter"
-              value={materialSpecFilter}
-              onChange={(e) => setMaterialSpecFilter(e.target.value)}
-            >
-              <option value="">All Material Specns</option>
-              {materialSpecOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <select
-              className="panel-toolbar-filter"
-              value={unitFilter}
-              onChange={(e) => setUnitFilter(e.target.value)}
-            >
-              <option value="">All Units</option>
-              {unitOptions.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-            <span className="panel-toolbar-spacer" />
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() =>
-                showToast(
-                  "Import BOM — connect a Django endpoint to enable this",
-                )
-              }
-            >
-              <FileUp size={14} /> Import BOM
-            </button>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => showToast("BOM saved (mock — no backend yet)")}
-            >
-              <Save size={14} /> Save BOM
-            </button>
-            <button className="btn btn-primary btn-sm" onClick={openAddBom}>
-              <Plus size={14} /> Add Material
-            </button>
-          </div>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  {bomColumns.map((col) => (
-                    <th key={col.key}>{col.label}</th>
-                  ))}
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredBom.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.variantNumber}</td>
-                    <td>{item.itemNumber}</td>
-                    <td>{item.description}</td>
-                    <td className="cell-muted">{item.std}</td>
-                    <td className="cell-mono cell-muted">
-                      {item.drawingNumber}
-                    </td>
-                    <td>{item.itemNo}</td>
-                    <td className="cell-muted">{item.varNo}</td>
-                    <td className="cell-mono">{item.materialCode}</td>
-                    <td>{item.materialSpecn}</td>
-                    <td className="cell-muted">{item.acp}</td>
-                    <td className="cell-muted">{item.di}</td>
-                    <td>{item.unit}</td>
-                    <td className="cell-muted">{item.unitWeight}</td>
-                    <td>
-                      <strong>{item.quantity}</strong>
-                    </td>
-                    <td>
-                      <div className="table-row-actions">
-                        <button
-                          onClick={() => openEditBom(item)}
-                          aria-label="Edit"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          className="danger"
-                          onClick={() => setDeleteTarget(item)}
-                          aria-label="Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {filteredBom.length === 0 && (
-                  <tr>
-                    <td colSpan={bomColumns.length + 1}>
-                      <div className="empty-state">
-                        <p className="empty-state-title">
-                          No BOM items match your filters
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
+              <div className="panel-body">
+                {isLoading && projectDrawings.length === 0 ? (
+                  <Loading />
+                ) : projectDrawings.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-state-icon">
+                      <FileText size={20} strokeWidth={1.7} />
+                    </div>
+                    <p className="empty-state-title">No drawings yet</p>
+                    <p className="empty-state-desc">
+                      Add the first drawing for{" "}
+                      {toDisplayString(selectedProject.name)} to begin building
+                      its BOM.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="dwgbom-drawing-grid">
+                    {projectDrawings.map((d) => (
+                      <button
+                        key={d.id}
+                        className={`dwgbom-drawing-card ${
+                          String(d.id) === String(selectedDrawingId)
+                            ? "dwgbom-drawing-card-active"
+                            : ""
+                        }`}
+                        onClick={() => setSelectedDrawingId(Number(d.id))}
+                      >
+                        <span className="dwgbom-drawing-number mono">
+                          {toDisplayString(d.dwgNumber)}
+                        </span>
+                        <span className="dwgbom-drawing-name">
+                          {toDisplayString(d.name)}
+                        </span>
+                        <span className="dwgbom-drawing-meta">
+                          {toDisplayString(d.revision)} · {d.date || "—"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </tbody>
-            </table>
-          </div>
-          <div className="dwgbom-bom-note">
-            <strong>Quantity</strong> is the controlling value for material
-            availability. <strong>Unit Weight</strong> is informational only and
-            is never used to calculate stock or PO consumption.
-          </div>
-        </section>
+              </div>
+            </section>
+          )}
+
+          {/* ============ BOM Panel ============ */}
+          {selectedDrawing && (
+            <section className="panel">
+              <div className="panel-head">
+                <div>
+                  <div className="panel-head-title">
+                    <ListChecks size={16} strokeWidth={1.8} /> BOM Materials
+                  </div>
+                  <p className="panel-head-subtitle">
+                    {toDisplayString(selectedProject?.name)} &nbsp;·&nbsp;{" "}
+                    {toDisplayString(selectedDrawing.dwgNumber)} —{" "}
+                    {toDisplayString(selectedDrawing.name)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="panel-toolbar">
+                <div className="panel-toolbar-search">
+                  <Search size={14} />
+                  <input
+                    placeholder="Search BOM (description, material code, item)..."
+                    value={bomSearch}
+                    onChange={(e) => setBomSearch(e.target.value)}
+                  />
+                </div>
+                <select
+                  className="panel-toolbar-filter"
+                  value={materialCodeFilter}
+                  onChange={(e) => setMaterialCodeFilter(e.target.value)}
+                >
+                  <option value="">All Material Codes</option>
+                  {materialCodeOptions.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="panel-toolbar-filter"
+                  value={materialSpecFilter}
+                  onChange={(e) => setMaterialSpecFilter(e.target.value)}
+                >
+                  <option value="">All Material Specns</option>
+                  {materialSpecOptions.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="panel-toolbar-filter"
+                  value={unitFilter}
+                  onChange={(e) => setUnitFilter(e.target.value)}
+                >
+                  <option value="">All Units</option>
+                  {unitOptions.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+                <span className="panel-toolbar-spacer" />
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() =>
+                    showToast(
+                      "Import BOM — connect a Django endpoint to enable this",
+                    )
+                  }
+                  disabled={saving}
+                >
+                  <FileUp size={14} /> Import BOM
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleSaveAllBom}
+                  disabled={saving || bomList.length === 0}
+                >
+                  <Save size={14} /> {saving ? "Saving..." : "Save BOM"}
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={openAddBom}
+                  disabled={saving}
+                >
+                  <Plus size={14} /> Add Material
+                </button>
+              </div>
+
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      {bomColumns.map((col) => (
+                        <th key={col.key}>{col.label}</th>
+                      ))}
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {isLoading && filteredBom.length === 0 && (
+                      <tr>
+                        <td colSpan={bomColumns.length + 1}>
+                          <Loading />
+                        </td>
+                      </tr>
+                    )}
+
+                    {!isLoading &&
+                      filteredBom.map((item) => (
+                        <tr key={item.id}>
+                          <td>{toDisplayString(item.variantNumber)}</td>
+                          <td>{toDisplayString(item.itemNumber)}</td>
+                          <td>
+                            <DescriptionCell description={item.description} />
+                          </td>
+                          <td className="cell-muted">
+                            {toDisplayString(item.std)}
+                          </td>
+                          <td className="cell-mono cell-muted">
+                            {toDisplayString(item.drawingNumber)}
+                          </td>
+                          <td>{toDisplayString(item.itemNo)}</td>
+                          <td className="cell-muted">
+                            {toDisplayString(item.varNo)}
+                          </td>
+                          <td className="cell-mono">
+                            {toDisplayString(item.materialCode)}
+                          </td>
+                          <td>{toDisplayString(item.materialSpecn)}</td>
+                          <td className="cell-muted">
+                            {toDisplayString(item.acp)}
+                          </td>
+                          <td className="cell-muted">
+                            {toDisplayString(item.di)}
+                          </td>
+                          <td>{toDisplayString(item.unit)}</td>
+                          <td className="cell-muted">{item.unitWeight}</td>
+                          <td>
+                            <strong>{item.quantity}</strong>
+                          </td>
+                          <td>
+                            <div className="table-row-actions">
+                              <button
+                                onClick={() => openEditBom(item)}
+                                aria-label="Edit"
+                                disabled={saving}
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                className="danger"
+                                onClick={() => setDeleteTarget(item)}
+                                aria-label="Delete"
+                                disabled={saving}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+
+                    {!isLoading && filteredBom.length === 0 && (
+                      <tr>
+                        <td colSpan={bomColumns.length + 1}>
+                          <div className="empty-state">
+                            <p className="empty-state-title">
+                              No BOM items match your filters
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="dwgbom-bom-note">
+                <strong>Quantity</strong> is the controlling value for material
+                availability. <strong>Unit Weight</strong> is informational only
+                and is never used to calculate stock or PO consumption.
+              </div>
+            </section>
+          )}
+        </>
       )}
 
-      {/* Modals */}
+      {/* ============= Add Project Modal ============= */}
       <Modal
         open={showAddProject}
         title="Add Project"
         subtitle="Create a new project to attach drawings and BOM to."
-        onClose={() => setShowAddProject(false)}
+        onClose={() => !saving && setShowAddProject(false)}
       >
         <div className="form-section">
+          {projectErrors.submit && (
+            <div className="form-error-text" style={{ marginBottom: 12 }}>
+              {projectErrors.submit}
+            </div>
+          )}
           <div className="form-grid">
             <div
               className={`form-field ${
@@ -992,6 +1371,7 @@ export default function DwgBom() {
                   setProjectForm({ ...projectForm, name: e.target.value })
                 }
                 placeholder="e.g. BHEL Boiler Fabrication"
+                disabled={saving}
               />
               {projectErrors.name && (
                 <span className="form-error-text">{projectErrors.name}</span>
@@ -1011,6 +1391,7 @@ export default function DwgBom() {
                   setProjectForm({ ...projectForm, code: e.target.value })
                 }
                 placeholder="e.g. BHEL-2026-001"
+                disabled={saving}
               />
               {projectErrors.code && (
                 <span className="form-error-text">{projectErrors.code}</span>
@@ -1027,6 +1408,7 @@ export default function DwgBom() {
                     description: e.target.value,
                   })
                 }
+                disabled={saving}
               />
             </div>
             <div
@@ -1041,11 +1423,9 @@ export default function DwgBom() {
                 type="date"
                 value={projectForm.startDate}
                 onChange={(e) =>
-                  setProjectForm({
-                    ...projectForm,
-                    startDate: e.target.value,
-                  })
+                  setProjectForm({ ...projectForm, startDate: e.target.value })
                 }
+                disabled={saving}
               />
               {projectErrors.startDate && (
                 <span className="form-error-text">
@@ -1069,6 +1449,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setProjectForm({ ...projectForm, endDate: e.target.value })
                 }
+                disabled={saving}
               />
               {projectErrors.endDate && (
                 <span className="form-error-text">{projectErrors.endDate}</span>
@@ -1085,6 +1466,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setProjectForm({ ...projectForm, status: e.target.value })
                 }
+                disabled={saving}
               >
                 <option>Active</option>
                 <option>On Hold</option>
@@ -1097,22 +1479,33 @@ export default function DwgBom() {
           <button
             className="btn btn-secondary"
             onClick={() => setShowAddProject(false)}
+            disabled={saving}
           >
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={handleAddProject}>
-            Add Project
+          <button
+            className="btn btn-primary"
+            onClick={handleAddProject}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Add Project"}
           </button>
         </div>
       </Modal>
 
+      {/* ============= Add Drawing Modal ============= */}
       <Modal
         open={showAddDrawing}
         title="Add Drawing"
         subtitle={selectedProject ? `For ${selectedProject.name}` : ""}
-        onClose={() => setShowAddDrawing(false)}
+        onClose={() => !saving && setShowAddDrawing(false)}
       >
         <div className="form-section">
+          {drawingErrors.submit && (
+            <div className="form-error-text" style={{ marginBottom: 12 }}>
+              {drawingErrors.submit}
+            </div>
+          )}
           <div className="form-grid">
             <div
               className={`form-field ${
@@ -1128,6 +1521,7 @@ export default function DwgBom() {
                   setDrawingForm({ ...drawingForm, dwgNumber: e.target.value })
                 }
                 placeholder="e.g. DWG-005"
+                disabled={saving}
               />
               {drawingErrors.dwgNumber && (
                 <span className="form-error-text">
@@ -1148,6 +1542,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setDrawingForm({ ...drawingForm, name: e.target.value })
                 }
+                disabled={saving}
               />
               {drawingErrors.name && (
                 <span className="form-error-text">{drawingErrors.name}</span>
@@ -1167,6 +1562,7 @@ export default function DwgBom() {
                   setDrawingForm({ ...drawingForm, revision: e.target.value })
                 }
                 placeholder="e.g. REV-01"
+                disabled={saving}
               />
               {drawingErrors.revision && (
                 <span className="form-error-text">
@@ -1188,6 +1584,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setDrawingForm({ ...drawingForm, date: e.target.value })
                 }
+                disabled={saving}
               />
               {drawingErrors.date && (
                 <span className="form-error-text">{drawingErrors.date}</span>
@@ -1201,6 +1598,7 @@ export default function DwgBom() {
                   setDrawingForm({ ...drawingForm, file: e.target.value })
                 }
                 placeholder="DWG-005.pdf"
+                disabled={saving}
               />
             </div>
             <div className="form-field form-field-full">
@@ -1211,6 +1609,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setDrawingForm({ ...drawingForm, remarks: e.target.value })
                 }
+                disabled={saving}
               />
             </div>
           </div>
@@ -1219,23 +1618,35 @@ export default function DwgBom() {
           <button
             className="btn btn-secondary"
             onClick={() => setShowAddDrawing(false)}
+            disabled={saving}
           >
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={handleAddDrawing}>
-            Add DWG
+          <button
+            className="btn btn-primary"
+            onClick={handleAddDrawing}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Add DWG"}
           </button>
         </div>
       </Modal>
 
+      {/* ============= BOM Modal — Separate Description Fields ============= */}
       <Modal
         open={bomModalOpen}
         title={editingBomId ? "Edit BOM Material" : "Add BOM Material"}
         subtitle={selectedDrawing ? selectedDrawing.dwgNumber : ""}
-        onClose={() => setBomModalOpen(false)}
+        onClose={() => !saving && setBomModalOpen(false)}
         wide={true}
       >
         <div className="form-section">
+          {bomErrors.submit && (
+            <div className="form-error-text" style={{ marginBottom: 12 }}>
+              {bomErrors.submit}
+            </div>
+          )}
+
           <div className="form-grid">
             <div className="form-field">
               <label>Variant Number</label>
@@ -1244,6 +1655,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, variantNumber: e.target.value })
                 }
+                disabled={saving}
               />
             </div>
             <div className="form-field">
@@ -1253,8 +1665,11 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, itemNumber: e.target.value })
                 }
+                disabled={saving}
               />
             </div>
+
+            {/* ---------- DESCRIPTION BLOCK ---------- */}
             <div
               className={`form-field form-field-full ${
                 bomErrors.description ? "form-field-error" : ""
@@ -1263,17 +1678,95 @@ export default function DwgBom() {
               <label>
                 Description<span className="required-mark">*</span>
               </label>
-              <input
-                value={bomForm.description}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, description: e.target.value })
-                }
-                placeholder="e.g. PL.6x530x530"
-              />
+
+              <div className="form-grid form-grid-inner">
+                <div className="form-field">
+                  <label className="form-sublabel">Material Type</label>
+                  <input
+                    value={bomForm.description.materialType}
+                    onChange={(e) =>
+                      setBomDescriptionField("materialType", e.target.value)
+                    }
+                    placeholder="Plate / Pipe / Channel"
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className="form-field">
+                  <label className="form-sublabel">Thickness</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={bomForm.description.thickness}
+                    onChange={(e) =>
+                      setBomDescriptionField("thickness", e.target.value)
+                    }
+                    placeholder="e.g. 6"
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className="form-field">
+                  <label className="form-sublabel">Length</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={bomForm.description.length}
+                    onChange={(e) =>
+                      setBomDescriptionField("length", e.target.value)
+                    }
+                    placeholder="e.g. 530"
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className="form-field">
+                  <label className="form-sublabel">Width</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={bomForm.description.width}
+                    onChange={(e) =>
+                      setBomDescriptionField("width", e.target.value)
+                    }
+                    placeholder="e.g. 530"
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className="form-field">
+                  <label className="form-sublabel">Grade</label>
+                  <input
+                    value={bomForm.description.grade}
+                    onChange={(e) =>
+                      setBomDescriptionField("grade", e.target.value)
+                    }
+                    placeholder="IS2062 E250A"
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className="form-field form-field-full">
+                  <label className="form-sublabel">Remarks</label>
+                  <input
+                    value={bomForm.description.remarks}
+                    onChange={(e) =>
+                      setBomDescriptionField("remarks", e.target.value)
+                    }
+                    placeholder="Optional free text"
+                    disabled={saving}
+                  />
+                </div>
+              </div>
+
               {bomErrors.description && (
-                <span className="form-error-text">{bomErrors.description}</span>
+                <span className="form-error-text">
+                  {bomErrors.description}
+                </span>
               )}
             </div>
+            {/* ---------- /DESCRIPTION BLOCK ---------- */}
+
             <div className="form-field">
               <label>STD</label>
               <input
@@ -1281,6 +1774,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, std: e.target.value })
                 }
+                disabled={saving}
               />
             </div>
             <div className="form-field">
@@ -1290,6 +1784,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, drawingNumber: e.target.value })
                 }
+                disabled={saving}
               />
             </div>
             <div className="form-field">
@@ -1299,6 +1794,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, itemNo: e.target.value })
                 }
+                disabled={saving}
               />
             </div>
             <div className="form-field">
@@ -1308,6 +1804,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, varNo: e.target.value })
                 }
+                disabled={saving}
               />
             </div>
             <div
@@ -1323,6 +1820,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, materialCode: e.target.value })
                 }
+                disabled={saving}
               />
               {bomErrors.materialCode && (
                 <span className="form-error-text">
@@ -1338,6 +1836,7 @@ export default function DwgBom() {
                   setBomForm({ ...bomForm, materialSpecn: e.target.value })
                 }
                 placeholder="IS2062 E250A"
+                disabled={saving}
               />
             </div>
             <div className="form-field">
@@ -1347,6 +1846,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, acp: e.target.value })
                 }
+                disabled={saving}
               />
             </div>
             <div className="form-field">
@@ -1354,6 +1854,7 @@ export default function DwgBom() {
               <input
                 value={bomForm.di}
                 onChange={(e) => setBomForm({ ...bomForm, di: e.target.value })}
+                disabled={saving}
               />
             </div>
             <div
@@ -1369,6 +1870,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, unit: e.target.value })
                 }
+                disabled={saving}
               >
                 <option>Nos</option>
                 <option>Mtr</option>
@@ -1385,6 +1887,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, unitWeight: e.target.value })
                 }
+                disabled={saving}
               />
               <span className="form-hint">
                 Informational only — not the controlling quantity.
@@ -1404,6 +1907,7 @@ export default function DwgBom() {
                 onChange={(e) =>
                   setBomForm({ ...bomForm, quantity: e.target.value })
                 }
+                disabled={saving}
               />
               {bomErrors.quantity && (
                 <span className="form-error-text">{bomErrors.quantity}</span>
@@ -1415,11 +1919,20 @@ export default function DwgBom() {
           <button
             className="btn btn-secondary"
             onClick={() => setBomModalOpen(false)}
+            disabled={saving}
           >
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={handleSaveBomItem}>
-            {editingBomId ? "Save Changes" : "Add Material"}
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveBomItem}
+            disabled={saving}
+          >
+            {saving
+              ? "Saving..."
+              : editingBomId
+                ? "Save Changes"
+                : "Add Material"}
           </button>
         </div>
       </Modal>
@@ -1429,10 +1942,10 @@ export default function DwgBom() {
         title="Delete BOM item?"
         message={
           deleteTarget
-            ? `"${deleteTarget.description}" will be removed from this drawing's BOM.`
+            ? `This BOM item will be removed from the drawing.`
             : ""
         }
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => !saving && setDeleteTarget(null)}
         onConfirm={handleDeleteBom}
       />
     </PageShell>

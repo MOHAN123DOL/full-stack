@@ -1,8 +1,8 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, JournalAPIView, JournalDetailAPIView, 
-                    LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialMenuAPIView, MyAttendanceAPIView,
-                      NextPurchaseOrderNumberAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, PurchaseOrderConfirmAPIView,
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, 
+                    LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
+                      NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
                           QuotationNextNumberAPIView, RefreshTokenAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
                           UserProfileListCreateAPIView, AttendanceEmployeeView,
@@ -10,7 +10,12 @@ from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsRepo
     WageConfigViewSet,
     ConsumableStockAPIView,
     ConsumableIssueStockAPIView,
-    ConsumableIssueCreateAPIView
+    ConsumableIssueCreateAPIView,
+    JobWorkStockListAPIView,
+    JobWorkProcessListCreateAPIView,
+    JobWorkIssueListAPIView,
+    JobWorkIssueCreateAPIView,
+    
     )
 
 
@@ -343,7 +348,7 @@ urlpatterns = [
       # inventory
 
        path("inventory/",InventoryAPIView.as_view(),name="inventory",),  
-       path("inventory/material/menu/",MaterialMenuAPIView.as_view(),name="material-menu",),
+       
        path(
         "consumable/",
         ConsumableDashboardView.as_view(),
@@ -395,6 +400,185 @@ path(
     ConsumableMovementDetailAPIView.as_view(),
     name="consumable-movement-detail",
 ),
+# material
+path("inventory/material/menu/",MaterialMenuAPIView.as_view(),name="material-menu",),
+
+
+
+path("material/projects/", ProjectListCreateAPIView.as_view(), name="material-projects-list-create"),
+    path("material/projects/<int:pk>/", ProjectDetailAPIView.as_view(), name="material-project-detail"),
+
+    # Drawings
+    path("material/drawings/", DrawingListCreateAPIView.as_view(), name="material-drawings-list-create"),
+    path("material/drawings/<int:pk>/", DrawingDetailAPIView.as_view(), name="material-drawing-detail"),
+
+    # BOM Materials
+    path("material/bom-items/", BOMItemListCreateAPIView.as_view(), name="material-bom-items-list-create"),
+    path("material/bom-items/<int:pk>/", BOMItemDetailAPIView.as_view(), name="material-bom-item-detail"),
+    path("material/bom/batch-save/", BOMBatchSaveAPIView.as_view(), name="material-bom-batch-save"),
+
+
+
+     # ============================================================
+    # MATERIAL PLANNING — BOM ↔ PO INTEGRATION
+    # ============================================================
+       # ============================================================
+    # MATERIAL PLANNING — PO INTEGRATION
+    # ============================================================
+    path(
+        "material/dummy-purchase-orders/",
+        DummyPurchaseOrderCreateAPIView.as_view(),
+        name="material-dummy-purchase-order-create",
+    ),
+    # New — list PO items + history for a project
+    path(
+        "material/project-po-items/",
+        ProjectPOItemListAPIView.as_view(),
+        name="material-project-po-items",
+    ),
+    # New — create integrations tied to a project (no BOM required)
+    path(
+        "material/project-po-integration/create/",
+        ProjectIntegrationCreateAPIView.as_view(),
+        name="material-project-po-integration-create",
+    ),
+   
+    path(
+        "material/project-integration/",
+        ProjectIntegrationListAPIView.as_view(),
+        name="material-project-integration-list",
+    ),
+    path(
+        "material/project-integration/save/",
+        ProjectIntegrationSaveAPIView.as_view(),
+        name="material-project-integration-save",
+    ),
+
+
+
+
+    # ============================================================
+    # MATERIAL GRN — RECEIVE
+    # ============================================================
+    path(
+        "material/receive/list/",
+        MaterialReceiveListAPIView.as_view(),
+        name="material-receive-list",
+    ),
+    path(
+        "material/receive/",
+        MaterialGRNCreateAPIView.as_view(),
+        name="material-receive-create",
+    ),
+    path(
+        "material/receive/history/",
+        MaterialGRNDetailAPIView.as_view(),
+        name="material-receive-history",
+    ),
+    path(
+        "material/receive/history/<int:pk>/",
+        MaterialGRNDetailAPIView.as_view(),
+        name="material-receive-history-detail",
+    ),
+
+
+    path(
+    "filter-options/",
+    FilterOptionsAPIView.as_view(),
+    name="filter-options",
+),
+
+
+path(
+    "material/stock/",
+    MaterialStockListAPIView.as_view(),
+    name="material-stock-list",
+),
+path(
+    "material/stock/<int:pk>/",
+    MaterialStockDetailAPIView.as_view(),
+    name="material-stock-detail",
+),
+path(
+    "material/stock/<int:pk>/movements/",
+    MaterialStockMovementListAPIView.as_view(),
+    name="material-stock-movements",
+),
+path(
+    "material/stock/from-grn/",
+    MaterialStockFromGRNAPIView.as_view(),
+    name="material-stock-from-grn",
+),
+# ============================================================
+# ISSUE TO JOB WORK
+# ============================================================
+path(
+    "material/job-work/stock/",
+    JobWorkStockListAPIView.as_view(),
+    name="material-job-work-stock",
+),
+path(
+    "material/job-work/processes/",
+    JobWorkProcessListCreateAPIView.as_view(),
+    name="material-job-work-processes",
+),
+path(
+    "material/job-work/issues/",
+    JobWorkIssueListAPIView.as_view(),
+    name="material-job-work-issues",
+),
+path(
+    "material/job-work/issue/",
+    JobWorkIssueCreateAPIView.as_view(),
+    name="material-job-work-issue-create",
+),
+
+
+
+# ============================================================
+# RECEIVE FROM JOB WORK
+# ============================================================
+path(
+    "material/job-work/receive/",
+    JobWorkReceiveListAPIView.as_view(),
+    name="material-job-work-receive-list",
+),
+path(
+    "material/job-work/receive/history/",
+    JobWorkReceiveHistoryAPIView.as_view(),
+    name="material-job-work-receive-history",
+),
+path(
+    "material/job-work/receive/<int:issue_id>/",
+    JobWorkReceiveCreateAPIView.as_view(),
+    name="material-job-work-receive-create",
+),
+
+
+
+# ============================================================
+# ISSUE TO PRODUCTION
+# ============================================================
+path(
+    "material/production/available/",
+    ProductionAvailableListAPIView.as_view(),
+    name="material-production-available",
+),
+path(
+    "material/production/history/",
+    ProductionIssueListAPIView.as_view(),
+    name="material-production-history",
+),
+path(
+    "material/production/issue/",
+    ProductionIssueCreateAPIView.as_view(),
+    name="material-production-issue",
+),
+
+
+
+
+
 
    
 

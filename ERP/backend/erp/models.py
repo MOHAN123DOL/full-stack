@@ -80,6 +80,10 @@ from django.db import models
 from django.conf import settings
 from django.db import models, transaction
 
+import json
+
+
+
 
 class PurchaseOrder(models.Model):
 
@@ -343,6 +347,13 @@ class PurchaseOrder(models.Model):
                 if not isinstance(item, dict):
                     continue
 
+                # Helper to safely pull and normalise dimension values
+                def _dim(key):
+                    val = item.get(key)
+                    if val is None:
+                        return ""
+                    return str(val).strip()
+
                 PurchaseOrderItem.objects.update_or_create(
                     purchase_order=self,
                     item_code=f"DESC-{index:03d}",
@@ -368,10 +379,94 @@ class PurchaseOrder(models.Model):
                             or item.get("uom")
                             or ""
                         ),
+
+                        # === NEW: dimensions from JSON ===
+                        "length":    _dim("length"),
+                        "width":     _dim("width"),
+                        "thickness": _dim("thickness"),
                     },
                 )
 
 
+
+class DummyPurchaseOrder(models.Model):
+    """
+    Internal dummy PO used by Material Planning to integrate
+    against a project when no real PO exists.
+
+    Completely separate from PurchaseOrder so nothing leaks into
+    accounts, GRN, reports, or Consumable flows.
+    """
+
+    po_number = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+    )
+
+    # Owner — who created it. Handy for filtering by user.
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dummy_purchase_orders",
+    )
+
+    remarks = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.po_number
+
+
+class DummyPurchaseOrderItem(models.Model):
+    """
+    One line of a Dummy Purchase Order. Stores everything the
+    modal sends — nothing gets dropped.
+    """
+
+    dummy_po = models.ForeignKey(
+        DummyPurchaseOrder,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+
+    item_code = models.CharField(max_length=100, blank=True, default="")
+
+    description = models.CharField(max_length=500, blank=True, default="")
+
+    material = models.CharField(max_length=150, blank=True, default="")
+
+    length = models.CharField(max_length=50, blank=True, default="")
+
+    width = models.CharField(max_length=50, blank=True, default="")
+
+    thickness = models.CharField(max_length=50, blank=True, default="")
+
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    unit = models.CharField(max_length=50, blank=True, default="")
+
+    remarks = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.dummy_po.po_number} - {self.description}"
 class PurchaseOrderNumberSettings(models.Model):
     prefix = models.CharField(
         max_length=20,
@@ -2392,11 +2487,12 @@ class PurchaseOrderItem(models.Model):
         on_delete=models.CASCADE,
         related_name="po_items",
     )
+
     po_number = models.CharField(
         max_length=100,
         db_index=True,
         null=True,
-    blank=True,
+        blank=True,
     )
 
     item_code = models.CharField(
@@ -2420,17 +2516,33 @@ class PurchaseOrderItem(models.Model):
         default="",
     )
 
-    created_at = models.DateTimeField(
-        auto_now_add=True,
+    # =========================
+    # NEW DIMENSION FIELDS
+    # =========================
+
+    length = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
     )
 
-    updated_at = models.DateTimeField(
-        auto_now=True,
+    width = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
     )
+
+    thickness = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["id"]
-
         constraints = [
             models.UniqueConstraint(
                 fields=["purchase_order", "item_code"],
@@ -2662,4 +2774,1641 @@ class ConsumableReturn(models.Model):
             f"{self.return_number} — "
             f"{self.consumable_name} — "
             f"{self.quantity_returned}"
+        )
+
+
+
+#for material drwbom
+from decimal import Decimal
+from django.db import models
+from django.core.validators import MinValueValidator
+from django.conf import settings
+
+
+class Project(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "Active", "Active"
+        ON_HOLD = "On Hold", "On Hold"
+        COMPLETED = "Completed", "Completed"
+
+    name = models.CharField(max_length=255)
+    code = models.CharField(max_length=100, unique=True, db_index=True)
+    description = models.TextField(blank=True, default="")
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="projects",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
+class Drawing(models.Model):
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="drawings",
+    )
+    dwg_number = models.CharField(max_length=100, db_index=True)
+    name = models.CharField(max_length=255)
+    revision = models.CharField(max_length=50, default="REV-00")
+    date = models.DateField(null=True, blank=True)
+    file = models.CharField(max_length=255, blank=True, default="")
+    remarks = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "dwg_number", "revision"],
+                name="unique_project_drawing_revision",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.dwg_number} - {self.name} ({self.revision})"
+class BOMItem(models.Model):
+    drawing = models.ForeignKey(
+        Drawing,
+        on_delete=models.CASCADE,
+        related_name="bom_items",
+    )
+    variant_number = models.CharField(max_length=50, blank=True, default="")
+    item_number = models.CharField(max_length=50, blank=True, default="")
+    description = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Structured description e.g. "
+            '{"material_type": "Plate", "thickness": 6, "length": 530, "width": 530}'
+        ),
+    )
+    std = models.CharField(max_length=100, blank=True, default="-")
+    drawing_number = models.CharField(max_length=100, blank=True, default="-")
+    item_no = models.CharField(max_length=50, blank=True, default="")
+    var_no = models.CharField(max_length=50, blank=True, default="-")
+    material_code = models.CharField(max_length=100, db_index=True)
+    material_specn = models.CharField(max_length=200, blank=True, default="")
+    acp = models.CharField(max_length=50, blank=True, default="-")
+    di = models.CharField(max_length=50, blank=True, default="-")
+    unit = models.CharField(max_length=30, default="Nos")
+    unit_weight = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=Decimal("0.000"),
+        validators=[MinValueValidator(Decimal("0.000"))],
+        help_text="Informational only. Not used for stock consumption.",
+    )
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=Decimal("1.000"),
+        validators=[MinValueValidator(Decimal("0.001"))],
+        help_text="Controlling quantity for material requirements.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        d = self.description or {}
+        mt = d.get("material_type") or d.get("materialType") or ""
+        t, l, w = d.get("thickness"), d.get("length"), d.get("width")
+        dims = "x".join(str(v) for v in (t, l, w) if v not in (None, ""))
+        label = " ".join(p for p in [mt, dims] if p) or "BOM Item"
+        return f"{label} ({self.quantity} {self.unit})"
+
+
+class BOMPOIntegration(models.Model):
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="po_integrations",
+        null=True,
+        blank=True,
+    )
+
+    bom_item = models.ForeignKey(
+        BOMItem,
+        on_delete=models.PROTECT,
+        related_name="po_integrations",
+        null=True,
+        blank=True,
+    )
+
+    # Real PO line — nullable now
+    purchase_order_item = models.ForeignKey(
+        PurchaseOrderItem,
+        on_delete=models.PROTECT,
+        related_name="bom_integrations",
+        null=True,
+        blank=True,
+    )
+
+    # Dummy PO line — nullable
+    dummy_purchase_order_item = models.ForeignKey(
+        DummyPurchaseOrderItem,
+        on_delete=models.PROTECT,
+        related_name="integrations",
+        null=True,
+        blank=True,
+    )
+
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal("0.001"))],
+    )
+
+    is_dummy = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # Exactly one of the two item FKs must be set
+            models.CheckConstraint(
+                check=(
+                    models.Q(purchase_order_item__isnull=False,
+                             dummy_purchase_order_item__isnull=True)
+                    | models.Q(purchase_order_item__isnull=True,
+                               dummy_purchase_order_item__isnull=False)
+                ),
+                name="bompo_exactly_one_item",
+            ),
+        ]
+
+    def __str__(self):
+        item = self.purchase_order_item or self.dummy_purchase_order_item
+        if not item:
+            return f"integration #{self.pk}"
+        return f"{item} - {self.quantity}"
+
+
+#FOR MATERIAL GRN
+
+
+class MaterialGRN(models.Model):
+    """
+    One GRN event for a PO item (real or dummy).
+
+    - No project FK, no DWG/BOM FK, no inspection fields.
+    - Snapshot fields (po_number, description, material) so the
+      history row reads correctly even if the PO item is edited.
+    - Received quantity is the only "receipt" number stored.
+      Balance is never stored — it is always computed as
+      (PurchaseOrderItem.quantity - SUM(MaterialGRN.received_qty)).
+    """
+
+    grn_number = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+    )
+
+    grn_date = models.DateField(
+        auto_now_add=True,
+    )
+
+    # ---- Real PO line (nullable) ----
+    purchase_order_item = models.ForeignKey(
+        PurchaseOrderItem,
+        on_delete=models.PROTECT,
+        related_name="material_grns",
+        null=True,
+        blank=True,
+    )
+
+    # ---- Dummy PO line (nullable) ----
+    dummy_purchase_order_item = models.ForeignKey(
+        DummyPurchaseOrderItem,
+        on_delete=models.PROTECT,
+        related_name="material_grns",
+        null=True,
+        blank=True,
+    )
+
+    # ---- Snapshot fields ----
+    po_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+
+    description = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+    )
+
+    material = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    # ---- Receipt payload ----
+    receiving_unit = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    received_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    received_by = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ---- Audit ----
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="material_grns_created",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["purchase_order_item"]),
+            models.Index(fields=["dummy_purchase_order_item"]),
+            models.Index(fields=["grn_number"]),
+            models.Index(fields=["po_number"]),
+        ]
+        constraints = [
+            # Exactly one of the two item FKs must be set
+            models.CheckConstraint(
+                check=(
+                    models.Q(
+                        purchase_order_item__isnull=False,
+                        dummy_purchase_order_item__isnull=True,
+                    )
+                    | models.Q(
+                        purchase_order_item__isnull=True,
+                        dummy_purchase_order_item__isnull=False,
+                    )
+                ),
+                name="materialgrn_exactly_one_item",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.grn_number} · {self.po_number} · {self.description}"
+#FOR MATERIAL GRN NUMBER SETTINGS
+
+class MaterialGRNNumberSettings(models.Model):
+    """
+    Matches the pattern of every other *NumberSettings model
+    in this codebase (PO, QTN, DC, TI, PI, Employee).
+
+    Guarantees concurrency-safe GRN numbering: the row is locked
+    with select_for_update() during generation.
+    """
+
+    prefix = models.CharField(
+        max_length=20,
+        default="GRN",
+    )
+
+    next_number = models.PositiveIntegerField(
+        default=1,
+    )
+
+    number_padding = models.PositiveIntegerField(
+        default=4,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return (
+            f"{self.prefix}"
+            f"{self.next_number:0{self.number_padding}d}"
+        )
+
+
+# =====================================================================
+# MATERIAL STOCK
+# -----------------------------------------------------------------
+# One MaterialStock row per physical lot sitting in the yard.
+#
+# Available quantity is NEVER stored — it is always computed as:
+#
+#     original_qty
+#       + SUM(movements where direction = IN)
+#       - SUM(movements where direction = OUT)
+#
+# Every flow (GRN, issue, job return, cutting, rework)
+# writes a MaterialStockMovement row.
+# =====================================================================
+
+from django.db.models import Sum 
+class MaterialStock(models.Model):
+
+    class SourceType(models.TextChoices):
+        PO = "PO", "PO"
+        DUMMY_PO = "Dummy PO", "Dummy PO"
+        JOB_REMAINING = "Job Remaining", "Job Remaining"
+        CUTTING_REMAINING = "Cutting Remaining", "Cutting Remaining"
+        REWORK = "Rework", "Rework"
+        OTHER = "Other", "Other"
+
+    class StockStatus(models.TextChoices):
+        AVAILABLE = "Available", "Available"
+        PARTIALLY_USED = "Partially Used", "Partially Used"
+        REMAINING = "Remaining", "Remaining"
+        CUTTING_REMAINING = "Cutting Remaining", "Cutting Remaining"
+
+    class Warehouse(models.TextChoices):
+        UNIT_1 = "Unit 1", "Unit 1"
+        UNIT_2 = "Unit 2", "Unit 2"
+
+    # ---- Identity ----
+    stock_id = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+    )
+
+    unit = models.CharField(
+        max_length=50,
+        choices=Warehouse.choices,
+        default=Warehouse.UNIT_1,
+    )
+
+    source_type = models.CharField(
+        max_length=30,
+        choices=SourceType.choices,
+        default=SourceType.PO,
+    )
+
+    # ---- Link back to where this lot came from ----
+    material_grn = models.ForeignKey(
+        "MaterialGRN",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="stock_lots",
+    )
+
+    purchase_order_item = models.ForeignKey(
+        "PurchaseOrderItem",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="stock_lots",
+    )
+
+    dummy_purchase_order_item = models.ForeignKey(
+        "DummyPurchaseOrderItem",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="stock_lots",
+    )
+
+    # ---- Snapshot fields ----
+    po_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+
+    description = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+    )
+
+    material = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    material_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    material_spec = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+    )
+
+    # ---- Dimensions ----
+    thickness = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    length = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    width = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ---- Traceability ----
+    heat_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    plate_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    # ---- Quantity ----
+    original_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    uom = models.CharField(
+        max_length=20,
+        blank=True,
+        default="Nos",
+    )
+
+    # ---- Project / drawing context ----
+    project = models.ForeignKey(
+        "Project",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="stock_lots",
+    )
+
+    dwg_description = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    revision = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ---- Status / lifecycle ----
+    stock_status = models.CharField(
+        max_length=30,
+        choices=StockStatus.choices,
+        default=StockStatus.AVAILABLE,
+    )
+
+    rework_required = models.BooleanField(
+        default=False,
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ---- Audit ----
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="material_stock_created",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["stock_id"]),
+            models.Index(fields=["unit"]),
+            models.Index(fields=["source_type"]),
+            models.Index(fields=["po_number"]),
+            models.Index(fields=["stock_status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.stock_id} · {self.po_number} · {self.description}"
+
+    # -------------------------------------------------------------
+    # COMPUTED AVAILABLE QUANTITY
+    # -------------------------------------------------------------
+    @property
+    def available_qty(self):
+        agg = self.movements.aggregate(
+            total_in=Sum(
+                "quantity",
+                filter=models.Q(direction=MaterialStockMovement.Direction.IN),
+            ),
+            total_out=Sum(
+                "quantity",
+                filter=models.Q(direction=MaterialStockMovement.Direction.OUT),
+            ),
+        )
+        total_in = agg["total_in"] or Decimal("0")
+        total_out = agg["total_out"] or Decimal("0")
+        return self.original_qty + total_in - total_out
+
+
+class MaterialStockMovement(models.Model):
+    """
+    Every change to a MaterialStock lot.
+
+    IN  → returned from job work, cutting balance, rework return
+    OUT → issued to job work, issued to production, scrapped
+    """
+
+    class Direction(models.TextChoices):
+        IN = "IN", "In"
+        OUT = "OUT", "Out"
+
+    class MovementType(models.TextChoices):
+        GRN = "GRN", "Goods Receipt"
+        ISSUE_JOB_WORK = "Issue Job Work", "Issue to Job Work"
+        RETURN_JOB_WORK = "Return Job Work", "Return from Job Work"
+        ISSUE_PRODUCTION = "Issue Production", "Issue to Production"
+        CUTTING = "Cutting", "Cutting"
+        REWORK = "Rework", "Rework"
+        SCRAP = "Scrap", "Scrap"
+        ADJUSTMENT = "Adjustment", "Manual Adjustment"
+
+    stock = models.ForeignKey(
+        MaterialStock,
+        on_delete=models.CASCADE,
+        related_name="movements",
+    )
+
+    direction = models.CharField(
+        max_length=5,
+        choices=Direction.choices,
+    )
+
+    movement_type = models.CharField(
+        max_length=30,
+        choices=MovementType.choices,
+    )
+
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    # Optional link to the downstream record (issue, return, etc.)
+    reference_type = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    reference_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="material_stock_movements",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["stock"]),
+            models.Index(fields=["direction"]),
+            models.Index(fields=["movement_type"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.stock.stock_id} · "
+            f"{self.direction} · "
+            f"{self.quantity}"
+        )
+
+
+
+
+# =====================================================================
+# ISSUE TO JOB WORK
+# -----------------------------------------------------------------
+# One row per issue event. The stock side is recorded as an OUT
+# MaterialStockMovement on the source lot — this model is the audit
+# record of the issue itself.
+# =====================================================================
+
+class JobWorkIssue(models.Model):
+
+    class JobWorkType(models.TextChoices):
+        IN_HOUSE = "In-House", "In-House"
+        OUTSOURCING = "Outsourcing", "Outsourcing"
+
+    class Status(models.TextChoices):
+        ISSUED = "Issued", "Issued"
+        PARTIALLY_RETURNED = "Partially Returned", "Partially Returned"
+        FULLY_RETURNED = "Fully Returned", "Fully Returned"
+        CANCELLED = "Cancelled", "Cancelled"
+
+    # ---- Identity ----
+    issue_number = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+    )
+
+    issue_date = models.DateField(
+        auto_now_add=True,
+    )
+
+    # ---- Link back to the stock lot ----
+    stock = models.ForeignKey(
+        MaterialStock,
+        on_delete=models.PROTECT,
+        related_name="job_work_issues",
+    )
+
+    # ---- Snapshot fields (survive stock edits) ----
+    po_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+
+    description = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+    )
+
+    material = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    material_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    material_spec = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+    )
+
+    thickness = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    length = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    width = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    uom = models.CharField(
+        max_length=20,
+        blank=True,
+        default="Nos",
+    )
+
+    # ---- Project context ----
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="job_work_issues",
+    )
+
+    dwg_description = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    revision = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ---- Job work details ----
+    job_work_type = models.CharField(
+        max_length=20,
+        choices=JobWorkType.choices,
+        default=JobWorkType.IN_HOUSE,
+    )
+
+    process_name = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    process_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # In-House
+    job_work_unit = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # Outsourcing
+    vendor = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    vendor_contact = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    job_work_location = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    expected_return_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    # ---- Quantities ----
+    quantity_issued = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    quantity_returned = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    # ---- People ----
+    issued_by = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ---- Status ----
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.ISSUED,
+    )
+
+    # ---- Audit ----
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="job_work_issues_created",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["issue_number"]),
+            models.Index(fields=["stock"]),
+            models.Index(fields=["po_number"]),
+            models.Index(fields=["job_work_type"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.issue_number} · {self.po_number} · {self.quantity_issued}"
+
+
+class JobWorkProcess(models.Model):
+    """
+    Master list of process names used on the Issue to Job Work page.
+    Users can add new ones from the modal.
+    """
+
+    name = models.CharField(
+        max_length=150,
+    )
+
+    process_id = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.process_id})"
+
+
+class JobWorkIssueNumberSettings(models.Model):
+    """
+    Concurrency-safe issuer counter — matches the pattern used
+    everywhere else in this codebase.
+    """
+
+    prefix = models.CharField(
+        max_length=20,
+        default="ISS",
+    )
+
+    next_number = models.PositiveIntegerField(
+        default=1,
+    )
+
+    number_padding = models.PositiveIntegerField(
+        default=3,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return (
+            f"{self.prefix}"
+            f"{self.next_number:0{self.number_padding}d}"
+        )
+
+
+# =====================================================================
+# RECEIVE FROM JOB WORK
+# -----------------------------------------------------------------
+# One row per receive event against a JobWorkIssue. Tracks:
+#   - how much of the original input material came back completed
+#   - what pieces were actually produced (per-piece detail)
+#   - what remained unprocessed + whether it needs rework
+#
+# The physical stock side is written as MaterialStockMovement rows:
+#   - IN  movement  on the parent lot for returned input
+#   - IN  movement  on the parent lot for returned input material
+#   - new lots created for pieces (source_type = JOB_REMAINING) when needed
+# =====================================================================
+
+
+class JobWorkReceive(models.Model):
+    """
+    One receipt against a JobWorkIssue.
+    Multiple receipts are allowed — each is a partial return.
+    """
+
+    # ---- Identity ----
+    receive_number = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+    )
+
+    receive_date = models.DateField(
+        auto_now_add=True,
+    )
+
+    # ---- Link to the issue ----
+    issue = models.ForeignKey(
+        JobWorkIssue,
+        on_delete=models.PROTECT,
+        related_name="receives",
+    )
+
+    # ---- Snapshot fields ----
+    job_work_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+
+    po_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    description = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+    )
+
+    material = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    material_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    material_spec = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+    )
+
+    thickness = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    length = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    width = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    uom = models.CharField(
+        max_length=20,
+        blank=True,
+        default="Nos",
+    )
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="job_work_receives",
+    )
+
+    dwg_description = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    revision = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    process_name = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    process_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ---- Quantities ----
+    completed_input_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    remaining_input_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    total_output_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    total_output_weight = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    total_remaining_weight = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    # ---- People / notes ----
+    received_by = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ---- Audit ----
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="job_work_receives_created",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["receive_number"]),
+            models.Index(fields=["issue"]),
+            models.Index(fields=["job_work_id"]),
+            models.Index(fields=["po_number"]),
+        ]
+
+    def __str__(self):
+        return f"{self.receive_number} · {self.job_work_id} · {self.completed_input_qty}"
+
+
+class JobWorkReceivePiece(models.Model):
+    """
+    One produced output piece, per receive.
+    """
+
+    receive = models.ForeignKey(
+        JobWorkReceive,
+        on_delete=models.CASCADE,
+        related_name="output_pieces",
+    )
+
+    piece_no = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    length = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    width = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    thickness = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    weight = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.piece_no} ({self.qty})"
+
+
+class JobWorkReceiveRemaining(models.Model):
+    """
+    One remaining input piece, per receive.
+    """
+
+    class ReworkChoice(models.TextChoices):
+        YES = "Yes", "Yes"
+        NO = "No", "No"
+
+    receive = models.ForeignKey(
+        JobWorkReceive,
+        on_delete=models.CASCADE,
+        related_name="remaining_pieces",
+    )
+
+    plate_no = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    length = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    width = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    thickness = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    weight = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    rework_required = models.CharField(
+        max_length=10,
+        choices=ReworkChoice.choices,
+        default=ReworkChoice.NO,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.plate_no} ({self.rework_required})"
+
+
+class JobWorkReceiveNumberSettings(models.Model):
+    """
+    Concurrency-safe counter for receive numbers.
+    """
+
+    prefix = models.CharField(
+        max_length=20,
+        default="JWR",
+    )
+
+    next_number = models.PositiveIntegerField(
+        default=1,
+    )
+
+    number_padding = models.PositiveIntegerField(
+        default=4,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return (
+            f"{self.prefix}"
+            f"{self.next_number:0{self.number_padding}d}"
+        )
+    
+
+# =====================================================================
+# ISSUE TO PRODUCTION
+# -----------------------------------------------------------------
+# One row per issue event against a JobWorkReceivePiece (the physical
+# piece that came back from Job Work). An issue consumes that piece's
+# remaining available quantity.
+#
+# Stock side: one OUT MaterialStockMovement on the piece's lot.
+# =====================================================================
+
+
+class ProductionIssue(models.Model):
+    """
+    One issue of a received Job Work piece into production.
+    Multiple issues per piece are allowed (partial issues).
+    """
+
+    class Status(models.TextChoices):
+        ISSUED = "Issued", "Issued"
+        IN_PRODUCTION = "In Production", "In Production"
+        COMPLETED = "Completed", "Completed"
+        CANCELLED = "Cancelled", "Cancelled"
+
+    # ---- Identity ----
+    issue_number = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+    )
+
+    issue_date = models.DateField(
+        auto_now_add=True,
+    )
+
+    # ---- Link back to the source ----
+    job_work_receive = models.ForeignKey(
+        JobWorkReceive,
+        on_delete=models.PROTECT,
+        related_name="production_issues",
+    )
+
+    job_work_piece = models.ForeignKey(
+        JobWorkReceivePiece,
+        on_delete=models.PROTECT,
+        related_name="production_issues",
+        null=True,
+        blank=True,
+        help_text=(
+            "The specific piece this issue was drawn from. Nullable for "
+            "legacy rows created before piece-level tracking was added."
+        ),
+    )
+
+    material_stock = models.ForeignKey(
+        "MaterialStock",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="production_issues",
+        help_text=(
+            "The stock lot the piece corresponds to. Set at create time "
+            "if a lot was created for this piece."
+        ),
+    )
+
+    # ---- Snapshot fields ----
+    job_work_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+
+    po_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+
+    po_type = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    supplier = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    description = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+    )
+
+    material = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    material_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    material_spec = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+    )
+
+    thickness = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    length = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    width = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    unit = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    job_work_type = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+    )
+
+    job_work_unit = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    process_name = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    process_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="production_issues",
+    )
+
+    dwg_description = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    revision = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ---- Piece identity (snapshot) ----
+    piece_no = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    uom = models.CharField(
+        max_length=20,
+        blank=True,
+        default="Nos",
+    )
+
+    # ---- Quantities ----
+    original_received_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    previously_issued_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    issued_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    remaining_available_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    # ---- People ----
+    issued_by = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ---- Status ----
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.ISSUED,
+    )
+
+    # ---- Audit ----
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="production_issues_created",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["issue_number"]),
+            models.Index(fields=["job_work_receive"]),
+            models.Index(fields=["job_work_piece"]),
+            models.Index(fields=["job_work_id"]),
+            models.Index(fields=["po_number"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.issue_number} · "
+            f"{self.job_work_id} · "
+            f"{self.issued_qty}"
+        )
+
+
+class ProductionIssueNumberSettings(models.Model):
+    """
+    Concurrency-safe counter for Production Issue numbers.
+    """
+
+    prefix = models.CharField(
+        max_length=20,
+        default="IP",
+    )
+
+    next_number = models.PositiveIntegerField(
+        default=1,
+    )
+
+    number_padding = models.PositiveIntegerField(
+        default=4,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return (
+            f"{self.prefix}"
+            f"{self.next_number:0{self.number_padding}d}"
         )
