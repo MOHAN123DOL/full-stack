@@ -69,6 +69,34 @@ function fmt(value) {
   return n.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+/**
+ * A lot flagged for rework cannot be issued. It stays visible on the
+ * page so the user can see it, but the Issue button is disabled with
+ * a tooltip until Rework marks it Done.
+ */
+function isReworkLocked(row) {
+  return String(row?.reworkRequired ?? "").toLowerCase() === "yes";
+}
+
+/**
+ * A lot is issuable when it has a linked project. No DWG/BOM check.
+ * The only blocker is: no project at all.
+ */
+function hasLinkedProject(row) {
+  if (!row) return false;
+  const p = row.project;
+  if (p === undefined || p === null) return false;
+  const s = String(p).trim();
+  if (s === "" || s === "—" || s === "-") return false;
+  return true;
+}
+
+const REWORK_LOCK_TITLE =
+  "Rework not completed — cannot issue until Rework marks it Done.";
+
+const NO_PROJECT_TITLE =
+  "This material is not linked to any project yet. Please integrate it with a project first.";
+
 /* ============================================================
    SHARED COMPONENTS
    ============================================================ */
@@ -125,7 +153,7 @@ function Modal({ open, title, subtitle, onClose, children }) {
 }
 
 /* ============================================================
-   EMPTY FILTERS
+   EMPTY FILTERS / FORM
    ============================================================ */
 
 const emptyFilters = {
@@ -200,7 +228,7 @@ export default function IssueToJobWork() {
 
   const authHeaders = useCallback(
     () => ({ Authorization: `Bearer ${accessToken}` }),
-    [accessToken],
+    [accessToken]
   );
 
   /* ============================================================
@@ -233,7 +261,7 @@ export default function IssueToJobWork() {
         if (!silent) setIsLoading(false);
       }
     },
-    [accessToken, authHeaders],
+    [accessToken, authHeaders]
   );
 
   const fetchProcesses = useCallback(async () => {
@@ -265,7 +293,7 @@ export default function IssueToJobWork() {
         setHistory([]);
       }
     },
-    [accessToken, authHeaders],
+    [accessToken, authHeaders]
   );
 
   /* ============================================================
@@ -337,7 +365,7 @@ export default function IssueToJobWork() {
 
   const activeStock = useMemo(
     () => stock.filter((s) => Number(s.availableQty) > 0),
-    [stock],
+    [stock]
   );
 
   const filteredStock = useMemo(() => {
@@ -423,7 +451,7 @@ export default function IssueToJobWork() {
     const unit1 = activeStock.filter((s) => s.unit === "Unit 1").length;
     const unit2 = activeStock.filter((s) => s.unit === "Unit 2").length;
     const readyToIssue = activeStock.filter(
-      (s) => s.project && s.project !== "—",
+      (s) => hasLinkedProject(s) && !isReworkLocked(s)
     ).length;
     return { total, unit1, unit2, readyToIssue };
   }, [activeStock]);
@@ -434,16 +462,15 @@ export default function IssueToJobWork() {
 
   const issueStock = useMemo(
     () => stock.find((s) => String(s.id) === String(issueTargetId)) || null,
-    [stock, issueTargetId],
+    [stock, issueTargetId]
   );
 
-  const isIntegrated = !!(
-    issueStock &&
-    issueStock.project &&
-    issueStock.project !== "—"
-  );
+  const issueHasProject = hasLinkedProject(issueStock);
+  const issueLocked = issueStock ? isReworkLocked(issueStock) : false;
+  const issueBlocked = issueLocked || !issueHasProject;
 
   function openIssue(s) {
+    if (isReworkLocked(s)) return;
     setIssueTargetId(s.id);
   }
 
@@ -483,7 +510,7 @@ export default function IssueToJobWork() {
       const res = await api.post(
         `${API_BASE}/job-work/processes/`,
         { name, processId: pid },
-        { headers: authHeaders() },
+        { headers: authHeaders() }
       );
 
       const created = res.data?.data;
@@ -518,8 +545,8 @@ export default function IssueToJobWork() {
 
   function validateForm() {
     if (!issueStock) return "Select a material to issue.";
-    if (!isIntegrated)
-      return "Complete DWG/BOM integration before issuing this material.";
+    if (issueLocked) return REWORK_LOCK_TITLE;
+    if (!issueHasProject) return NO_PROJECT_TITLE;
     if (!issueForm.jobWorkType) return "Select a job work type.";
     if (!issueForm.process) return "Select a process.";
 
@@ -579,7 +606,7 @@ export default function IssueToJobWork() {
       setSuccessMsg(
         `${issueForm.issueQty} ${issueStock.uom} of ${
           issueStock.material || issueStock.description
-        } issued for ${procMeta ? procMeta.name : issueForm.process}.`,
+        } issued for ${procMeta ? procMeta.name : issueForm.process}.`
       );
 
       closeIssue();
@@ -612,7 +639,6 @@ export default function IssueToJobWork() {
 
     const procMeta = processes.find((p) => p.processId === issueForm.process);
 
-    // Payload handed off to the Delivery Challan page.
     const dcPayload = {
       stockId: issueStock.id,
       stockCode: issueStock.stockId,
@@ -651,7 +677,6 @@ export default function IssueToJobWork() {
     try {
       setSavingIssue(true);
 
-      // Create the issue record first — stock drops immediately.
       await api.post(
         `${API_BASE}/job-work/issue/`,
         {
@@ -666,7 +691,7 @@ export default function IssueToJobWork() {
           jobWorkLocation: issueForm.jobWorkLocation.trim(),
           expectedReturnDate: issueForm.expectedReturnDate,
         },
-        { headers: authHeaders() },
+        { headers: authHeaders() }
       );
 
       await Promise.all([
@@ -715,8 +740,7 @@ export default function IssueToJobWork() {
 
       <div className="material-page">
         <div className="material-content">
-          {/* ---------------- HEADER ---------------- */}
-
+          {/* HEADER */}
           <div className="page-header-wrap">
             <div className="page-header-left">
               <button className="back-button" onClick={handleBack}>
@@ -726,7 +750,8 @@ export default function IssueToJobWork() {
               <div className="page-header-title-group">
                 <h1 className="page-header-title">Issue to Job Work</h1>
                 <p className="page-header-subtitle">
-                  Issue available material for in-house or outsourced job work.
+                  Issue available material for in-house or outsourced job
+                  work. Material must be linked to a project.
                 </p>
               </div>
             </div>
@@ -767,8 +792,7 @@ export default function IssueToJobWork() {
 
           {!isLoading && !error && (
             <>
-              {/* ---------------- SUMMARY CARDS ---------------- */}
-
+              {/* SUMMARY CARDS */}
               <div className="summary-cards">
                 <div className="summary-card">
                   <div className="summary-card-icon summary-card-icon-neutral">
@@ -815,15 +839,14 @@ export default function IssueToJobWork() {
                 </div>
               </div>
 
-              {/* ---------------- AVAILABLE MATERIAL ---------------- */}
-
+              {/* AVAILABLE MATERIAL */}
               <section className="panel">
                 <div className="panel-head">
                   <div>
                     <div className="panel-head-title">Available Material</div>
                     <p className="panel-head-subtitle">
                       Select material to issue for in-house or outsourced job
-                      work.
+                      work. Material must be linked to a project.
                     </p>
                   </div>
 
@@ -1020,7 +1043,6 @@ export default function IssueToJobWork() {
                         <th>Unit</th>
                         <th>PO Number</th>
                         <th>Description</th>
-
                         <th>Thickness</th>
                         <th>Length</th>
                         <th>Width</th>
@@ -1033,58 +1055,68 @@ export default function IssueToJobWork() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredStock.map((s) => (
-                        <tr key={s.id}>
-                          <td className="cell-mono">{s.stockId}</td>
-                          <td>{s.unit}</td>
-                          <td className="cell-mono">{s.poNumber}</td>
-                          <td>{s.description}</td>
-                          <td>{s.thickness || "—"}</td>
-                          <td>{s.length || "—"}</td>
-                          <td>{s.width || "—"}</td>
-                          <td>
-                            <strong>{fmt(s.availableQty)}</strong> {s.uom}
-                          </td>
-                          <td
-                            className={
-                              !s.project || s.project === "—"
-                                ? "cell-muted"
-                                : ""
-                            }
-                          >
-                            {s.project || "—"}
-                          </td>
-                          <td
-                            className={
-                              !s.dwgDescription || s.dwgDescription === "—"
-                                ? "cell-muted"
-                                : ""
-                            }
-                          >
-                            {s.dwgDescription || "—"}
-                          </td>
-                          <td
-                            className={
-                              !s.revision || s.revision === "—"
-                                ? "cell-muted"
-                                : ""
-                            }
-                          >
-                            {s.revision || "—"}
-                          </td>
-                          <td>
-                            <StatusBadge status={s.reworkRequired} />
-                          </td>
-                          <td>
-                            <button
-                              className="btn btn-primary btn-sm"
-                              onClick={() => openIssue(s)}
+                      {filteredStock.map((s) => {
+                        const locked = isReworkLocked(s);
+                        const noProject = !hasLinkedProject(s);
+
+                        let btnTitle = undefined;
+                        if (locked) btnTitle = REWORK_LOCK_TITLE;
+                        else if (noProject) btnTitle = NO_PROJECT_TITLE;
+
+                        return (
+                          <tr key={s.id}>
+                            <td className="cell-mono">{s.stockId}</td>
+                            <td>{s.unit}</td>
+                            <td className="cell-mono">{s.poNumber}</td>
+                            <td>{s.description}</td>
+                            <td>{s.thickness || "—"}</td>
+                            <td>{s.length || "—"}</td>
+                            <td>{s.width || "—"}</td>
+                            <td>
+                              <strong>{fmt(s.availableQty)}</strong> {s.uom}
+                            </td>
+                            <td
+                              className={
+                                !hasLinkedProject(s) ? "cell-muted" : ""
+                              }
                             >
-                              Issue
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                              {s.project || "—"}
+                            </td>
+                            <td
+                              className={
+                                !s.dwgDescription || s.dwgDescription === "—"
+                                  ? "cell-muted"
+                                  : ""
+                              }
+                            >
+                              {s.dwgDescription || "—"}
+                            </td>
+                            <td
+                              className={
+                                !s.revision || s.revision === "—"
+                                  ? "cell-muted"
+                                  : ""
+                              }
+                            >
+                              {s.revision || "—"}
+                            </td>
+                            <td>
+                              <StatusBadge status={s.reworkRequired} />
+                            </td>
+                            <td>
+                              <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => openIssue(s)}
+                                disabled={locked}
+                                title={btnTitle}
+                                aria-disabled={locked}
+                              >
+                                Issue
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
 
                       {filteredStock.length === 0 && (
                         <tr>
@@ -1106,8 +1138,7 @@ export default function IssueToJobWork() {
                 </div>
               </section>
 
-              {/* ---------------- ISSUE HISTORY ---------------- */}
-
+              {/* ISSUE HISTORY */}
               <section className="panel">
                 <div className="panel-head">
                   <div>
@@ -1194,8 +1225,7 @@ export default function IssueToJobWork() {
             </>
           )}
 
-          {/* ---------------- ISSUE MODAL ---------------- */}
-
+          {/* ISSUE MODAL */}
           <Modal
             open={!!issueStock}
             title="Issue to Job Work"
@@ -1263,12 +1293,49 @@ export default function IssueToJobWork() {
                   </div>
                 </div>
 
-                {/* Integration check */}
-                {isIntegrated ? (
+                {/* Rework lock warning */}
+                {issueLocked && (
+                  <div className="integration-block integration-warning">
+                    <div className="integration-block-head">
+                      <AlertTriangle size={16} />
+                      <span>Rework Not Completed</span>
+                    </div>
+                    <p>{REWORK_LOCK_TITLE}</p>
+                  </div>
+                )}
+
+                {/* No project warning */}
+                {!issueLocked && !issueHasProject && (
+                  <div className="integration-block integration-warning">
+                    <div className="integration-block-head">
+                      <AlertTriangle size={16} />
+                      <span>Project Required</span>
+                    </div>
+                    <p>
+                      <strong>
+                        {issueStock.poNumber} / {issueStock.description}
+                      </strong>{" "}
+                      is not linked to a project yet. Please integrate it with
+                      a project first.
+                    </p>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        closeIssue();
+                        navigate("/inventory/material/po-integration");
+                      }}
+                    >
+                      Go to Project Integration <ArrowRight size={14} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Project info — shown when ready */}
+                {!issueBlocked && (
                   <div className="integration-block integration-ok">
                     <div className="integration-block-head">
                       <CheckCircle2 size={16} />
-                      <span>Integrated Requirement</span>
+                      <span>Linked Project</span>
                     </div>
                     <div className="kv-grid kv-grid-compact">
                       <div className="kv">
@@ -1285,34 +1352,10 @@ export default function IssueToJobWork() {
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="integration-block integration-warning">
-                    <div className="integration-block-head">
-                      <AlertTriangle size={16} />
-                      <span>Integration Required</span>
-                    </div>
-                    <p>
-                      <strong>
-                        {issueStock.poNumber} / {issueStock.description}
-                      </strong>{" "}
-                      is not integrated with a DWG/BOM. Please complete the
-                      integration first.
-                    </p>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => {
-                        closeIssue();
-                        navigate("/inventory/material/po-integration");
-                      }}
-                    >
-                      Go to DWG + BOM Integration <ArrowRight size={14} />
-                    </button>
-                  </div>
                 )}
 
-                {isIntegrated && (
+                {!issueBlocked && (
                   <>
-                    {/* Job work type */}
                     <div className="form-field">
                       <label>Job Work Type</label>
                       <div className="segment-toggle" role="group">
@@ -1418,7 +1461,6 @@ export default function IssueToJobWork() {
                           </div>
                         </div>
 
-                        {/* Issued By — free text */}
                         <div className="form-field">
                           <label>Issued By</label>
                           <input
@@ -1450,7 +1492,6 @@ export default function IssueToJobWork() {
                               Outsourcing Details
                             </div>
 
-                            {/* Vendor — free text */}
                             <div className="form-field">
                               <label>Vendor</label>
                               <input
@@ -1472,7 +1513,7 @@ export default function IssueToJobWork() {
                                   onChange={(e) =>
                                     setFormField(
                                       "vendorContact",
-                                      e.target.value,
+                                      e.target.value
                                     )
                                   }
                                 />
@@ -1485,7 +1526,7 @@ export default function IssueToJobWork() {
                                   onChange={(e) =>
                                     setFormField(
                                       "jobWorkLocation",
-                                      e.target.value,
+                                      e.target.value
                                     )
                                   }
                                 />
@@ -1500,7 +1541,7 @@ export default function IssueToJobWork() {
                                 onChange={(e) =>
                                   setFormField(
                                     "expectedReturnDate",
-                                    e.target.value,
+                                    e.target.value
                                   )
                                 }
                               />
@@ -1560,12 +1601,22 @@ export default function IssueToJobWork() {
                     )}
                   </>
                 )}
+
+                {issueBlocked && (
+                  <div className="modal-actions">
+                    <button
+                      className="btn btn-secondary"
+                      onClick={closeIssue}
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </Modal>
 
-          {/* ---------------- CREATE PROCESS MODAL ---------------- */}
-
+          {/* CREATE PROCESS MODAL */}
           <Modal
             open={showCreateProcess}
             title="Create New Process"

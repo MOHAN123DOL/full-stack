@@ -1,10 +1,10 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, 
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
-                      NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
+                      NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
-                          QuotationNextNumberAPIView, RefreshTokenAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
+                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
                           UserProfileListCreateAPIView, AttendanceEmployeeView,
     AttendanceViewSet,
     WageConfigViewSet,
@@ -15,6 +15,12 @@ from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsRepo
     JobWorkProcessListCreateAPIView,
     JobWorkIssueListAPIView,
     JobWorkIssueCreateAPIView,
+    DispatchReadyListAPIView,
+    DispatchHistoryAPIView,
+    DispatchSearchAPIView,
+    DispatchByDCAPIView,
+    DispatchDetailAPIView,
+    DispatchCreateAPIView,
     
     )
 
@@ -576,8 +582,115 @@ path(
 ),
 
 
+path(
+    "material/assembly/",
+    AssemblyListCreateAPIView.as_view(),
+    name="material-assembly-list-create",
+),
+path(
+    "material/assembly/sources/",
+    AssemblySourcesListAPIView.as_view(),
+    name="material-assembly-sources",
+),
+path(
+    "material/assembly/projects/",
+    AssemblyProjectListAPIView.as_view(),
+    name="material-assembly-projects",
+),
+path(
+    "material/assembly/<str:assembly_id>/",
+    AssemblyDetailAPIView.as_view(),
+    name="material-assembly-detail",
+),
 
 
+
+# ============================================================
+# REWORK
+# ============================================================
+path(
+    "material/rework/",
+    ReworkListAPIView.as_view(),
+    name="material-rework-list",
+),
+path(
+    "material/rework/<int:pk>/",
+    ReworkDetailAPIView.as_view(),
+    name="material-rework-detail",
+),
+path(
+    "material/rework/<int:pk>/start/",
+    ReworkStartAPIView.as_view(),
+    name="material-rework-start",
+),
+path(
+    "material/rework/<int:pk>/complete/",
+    ReworkCompleteAPIView.as_view(),
+    name="material-rework-complete",
+),
+path(
+    "material/rework/<int:pk>/qc/",
+    ReworkQcAPIView.as_view(),
+    name="material-rework-qc",
+),
+path(
+    "material/rework/<int:pk>/cancel/",
+    ReworkCancelAPIView.as_view(),
+    name="material-rework-cancel",
+),
+
+
+
+path(
+    "material/production/operation/",
+    ProductionOperationListAPIView.as_view(),
+    name="material-production-operation-list",
+),
+path(
+    "material/production/operation/<str:assembly_id>/",
+    ProductionOperationDetailAPIView.as_view(),
+    name="material-production-operation-detail",
+),
+path(
+    "material/production/operation/<str:assembly_id>/action/",
+    ProductionOperationActionAPIView.as_view(),
+    name="material-production-operation-action",
+),
+
+
+# ============================================================
+# DISPATCH
+# ============================================================
+path(
+    "material/dispatch/ready/",
+    DispatchReadyListAPIView.as_view(),
+    name="material-dispatch-ready",
+),
+path(
+    "material/dispatch/history/",
+    DispatchHistoryAPIView.as_view(),
+    name="material-dispatch-history",
+),
+path(
+    "material/dispatch/search/",
+    DispatchSearchAPIView.as_view(),
+    name="material-dispatch-search",
+),
+path(
+    "material/dispatch/by-dc/",
+    DispatchByDCAPIView.as_view(),
+    name="material-dispatch-by-dc",
+),
+path(
+    "material/dispatch/create/<str:assembly_id>/",
+    DispatchCreateAPIView.as_view(),
+    name="material-dispatch-create",
+),
+path(
+    "material/dispatch/<str:assembly_id>/",
+    DispatchDetailAPIView.as_view(),
+    name="material-dispatch-detail",
+),
 
 
    

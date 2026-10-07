@@ -3447,3 +3447,950 @@ class ProductionIssueSerializer(serializers.ModelSerializer):
         if obj.length and obj.width:
             return f"{obj.length} × {obj.width}"
         return ""
+
+
+
+
+
+
+
+# =====================================================================
+# ASSEMBLY SERIALIZERS
+# =====================================================================
+
+from .models import Assembly, AssemblyInput, AssemblyProcess
+
+
+class AssemblyInputSerializer(serializers.ModelSerializer):
+
+    id = serializers.IntegerField(read_only=True)
+    sourceType = serializers.CharField(source="source_type", read_only=True)
+
+    jobWorkPieceId = serializers.IntegerField(
+        source="job_work_piece_id", read_only=True
+    )
+    sourceAssemblyId = serializers.IntegerField(
+        source="source_assembly_id", read_only=True
+    )
+    sourceAssemblyCode = serializers.SerializerMethodField()
+
+    useQty = serializers.DecimalField(
+        source="use_qty", max_digits=15, decimal_places=3, read_only=True
+    )
+
+    materialName = serializers.CharField(
+        source="material_name", read_only=True
+    )
+    materialCode = serializers.CharField(
+        source="material_code", read_only=True
+    )
+    unit = serializers.CharField(read_only=True)
+    thickness = serializers.CharField(read_only=True)
+    length = serializers.CharField(read_only=True)
+    width = serializers.CharField(read_only=True)
+    drawingNumber = serializers.CharField(
+        source="drawing_number", read_only=True
+    )
+
+    class Meta:
+        model = AssemblyInput
+        fields = [
+            "id",
+            "sourceType",
+            "jobWorkPieceId",
+            "sourceAssemblyId",
+            "sourceAssemblyCode",
+            "useQty",
+            "materialName",
+            "materialCode",
+            "unit",
+            "thickness",
+            "length",
+            "width",
+            "drawingNumber",
+        ]
+        read_only_fields = fields
+
+    def get_sourceAssemblyCode(self, obj):
+        return (
+            obj.source_assembly.assembly_id
+            if obj.source_assembly
+            else None
+        )
+
+
+class AssemblyProcessSerializer(serializers.ModelSerializer):
+
+    id = serializers.IntegerField(read_only=True)
+    sequence = serializers.IntegerField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    processId = serializers.CharField(source="process_id", read_only=True)
+    qcRequired = serializers.BooleanField(
+        source="qc_required", read_only=True
+    )
+    executionType = serializers.CharField(
+        source="execution_type", read_only=True
+    )
+    executionUnit = serializers.CharField(
+        source="execution_unit", read_only=True
+    )
+    vendor = serializers.CharField(read_only=True)
+    vendorContact = serializers.CharField(
+        source="vendor_contact", read_only=True
+    )
+    vendorLocation = serializers.CharField(
+        source="vendor_location", read_only=True
+    )
+    expectedReturnDate = serializers.DateField(
+        source="expected_return_date", read_only=True
+    )
+    outsourcingRemarks = serializers.CharField(
+        source="outsourcing_remarks", read_only=True
+    )
+
+    class Meta:
+        model = AssemblyProcess
+        fields = [
+            "id",
+            "sequence",
+            "name",
+            "processId",
+            "qcRequired",
+            "executionType",
+            "executionUnit",
+            "vendor",
+            "vendorContact",
+            "vendorLocation",
+            "expectedReturnDate",
+            "outsourcingRemarks",
+        ]
+        read_only_fields = fields
+
+
+class AssemblySerializer(serializers.ModelSerializer):
+
+    id = serializers.IntegerField(read_only=True)
+    assemblyId = serializers.CharField(
+        source="assembly_id", read_only=True
+    )
+    project = serializers.SerializerMethodField()
+    projectId = serializers.IntegerField(source="project_id", read_only=True)
+    status = serializers.CharField(read_only=True)
+
+    inputs = AssemblyInputSerializer(many=True, read_only=True)
+    processes = AssemblyProcessSerializer(many=True, read_only=True)
+
+    createdDate = serializers.SerializerMethodField()
+    createdAt = serializers.DateTimeField(
+        source="created_at", read_only=True
+    )
+
+    class Meta:
+        model = Assembly
+        fields = [
+            "id",
+            "assemblyId",
+            "project",
+            "projectId",
+            "status",
+            "inputs",
+            "processes",
+            "createdDate",
+            "createdAt",
+        ]
+        read_only_fields = fields
+
+    def get_project(self, obj):
+        return obj.project.code if obj.project else ""
+
+    def get_createdDate(self, obj):
+        return obj.created_at.date().isoformat()
+
+
+
+# =====================================================================
+# REWORK SERIALIZERS
+# =====================================================================
+from .models import (
+    ReworkRecord,
+    ReworkCompletion,
+    ReworkHistory,
+)
+
+
+# ---------------------------------------------------------------------
+# Helper: minutes → "1 h 45 min"
+# ---------------------------------------------------------------------
+def _fmt_minutes(m):
+    if m is None:
+        return "—"
+    if m < 60:
+        return f"{m} min"
+    h, rem = divmod(int(m), 60)
+    if rem == 0:
+        return f"{h} h"
+    return f"{h} h {rem} min"
+
+
+class ReworkCompletionSerializer(serializers.ModelSerializer):
+
+    completedBy = serializers.CharField(
+        source="completed_by", read_only=True,
+    )
+    createdAt = serializers.DateTimeField(
+        source="created_at", read_only=True,
+    )
+    date = serializers.SerializerMethodField()
+    time = serializers.SerializerMethodField()
+
+    # Minutes between this completion and the previous one
+    # (or the record's started_at if this is the first).
+    minutesSincePrevious = serializers.SerializerMethodField()
+    minutesSincePreviousLabel = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ReworkCompletion
+        fields = [
+            "id", "qty", "completedBy", "remarks",
+            "date", "time", "createdAt",
+            "minutesSincePrevious", "minutesSincePreviousLabel",
+        ]
+        read_only_fields = fields
+
+    def get_date(self, obj):
+        return obj.created_at.date().isoformat()
+
+    def get_time(self, obj):
+        return obj.created_at.strftime("%H:%M")
+
+    def _prev_anchor(self, obj):
+        prev = (
+            ReworkCompletion.objects
+            .filter(rework=obj.rework, created_at__lt=obj.created_at)
+            .order_by("-created_at")
+            .first()
+        )
+        if prev:
+            return prev.created_at
+        return obj.rework.started_at
+
+    def get_minutesSincePrevious(self, obj):
+        anchor = self._prev_anchor(obj)
+        if not anchor:
+            return None
+        delta = obj.created_at - anchor
+        return int(delta.total_seconds() // 60)
+
+    def get_minutesSincePreviousLabel(self, obj):
+        return _fmt_minutes(self.get_minutesSincePrevious(obj))
+
+
+class ReworkHistorySerializer(serializers.ModelSerializer):
+
+    performedBy = serializers.CharField(
+        source="performed_by", read_only=True,
+    )
+    event = serializers.CharField(source="event_text", read_only=True)
+    date = serializers.SerializerMethodField()
+    time = serializers.SerializerMethodField()
+    at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = ReworkHistory
+        fields = ["id", "date", "time", "at", "event", "performedBy"]
+        read_only_fields = fields
+
+    def get_date(self, obj):
+        return obj.created_at.date().isoformat()
+
+    def get_time(self, obj):
+        return obj.created_at.strftime("%H:%M")
+
+
+class ReworkRecordSerializer(serializers.ModelSerializer):
+
+    id = serializers.IntegerField(read_only=True)
+    reworkId = serializers.CharField(
+        source="rework_number", read_only=True,
+    )
+    sourceType = serializers.CharField(
+        source="source_type", read_only=True,
+    )
+    sourceLabel = serializers.SerializerMethodField()
+
+    projectId = serializers.IntegerField(
+        source="project_id", read_only=True,
+    )
+    project = serializers.CharField(
+        source="project_code", read_only=True,
+    )
+
+    poNumber = serializers.CharField(source="po_number", read_only=True)
+    poDescription = serializers.CharField(
+        source="po_description", read_only=True,
+    )
+    dwgDescription = serializers.CharField(
+        source="dwg_description", read_only=True,
+    )
+    revision = serializers.CharField(read_only=True)
+
+    material = serializers.CharField(read_only=True)
+    materialCode = serializers.CharField(
+        source="material_code", read_only=True,
+    )
+    materialSpec = serializers.CharField(
+        source="material_spec", read_only=True,
+    )
+
+    thickness = serializers.CharField(read_only=True)
+    length = serializers.CharField(read_only=True)
+    width = serializers.CharField(read_only=True)
+    size = serializers.CharField(read_only=True)
+    unit = serializers.CharField(read_only=True)
+
+    jobWorkPieceNo = serializers.CharField(
+        source="job_work_piece_no", read_only=True,
+    )
+    assemblyCode = serializers.CharField(
+        source="assembly_code", read_only=True,
+    )
+    process = serializers.CharField(
+        source="process_name", read_only=True,
+    )
+    processId = serializers.CharField(
+        source="process_id", read_only=True,
+    )
+
+    requiredQty = serializers.DecimalField(
+        source="required_qty",
+        max_digits=15, decimal_places=3, read_only=True,
+    )
+    completedQty = serializers.DecimalField(
+        source="completed_qty",
+        max_digits=15, decimal_places=3, read_only=True,
+    )
+    balanceQty = serializers.SerializerMethodField()
+
+    reason = serializers.CharField(read_only=True)
+    flaggedBy = serializers.CharField(
+        source="flagged_by", read_only=True,
+    )
+
+    reworkBy = serializers.CharField(
+        source="rework_by", read_only=True,
+    )
+    supervisor = serializers.CharField(read_only=True)
+    startRemarks = serializers.CharField(
+        source="start_remarks", read_only=True,
+    )
+
+    startedAt = serializers.DateTimeField(
+        source="started_at", read_only=True,
+    )
+    completedAt = serializers.DateTimeField(
+        source="completed_at", read_only=True,
+    )
+    durationMinutes = serializers.IntegerField(
+        source="duration_minutes", read_only=True,
+    )
+    durationLabel = serializers.SerializerMethodField()
+
+    createdDate = serializers.SerializerMethodField()
+    createdTime = serializers.SerializerMethodField()
+
+    qcRequired = serializers.BooleanField(
+        source="qc_required", read_only=True,
+    )
+    qcVerifiedBy = serializers.CharField(
+        source="qc_verified_by", read_only=True,
+    )
+    qcResult = serializers.CharField(
+        source="qc_result", read_only=True,
+    )
+    qcRemarks = serializers.CharField(
+        source="qc_remarks", read_only=True,
+    )
+    qcAt = serializers.DateTimeField(source="qc_at", read_only=True)
+
+    status = serializers.CharField(read_only=True)
+
+    completions = ReworkCompletionSerializer(
+        many=True, read_only=True,
+    )
+    history = ReworkHistorySerializer(
+        many=True, read_only=True,
+    )
+
+    class Meta:
+        model = ReworkRecord
+        fields = [
+            "id", "reworkId",
+            "sourceType", "sourceLabel",
+            "projectId", "project",
+            "poNumber", "poDescription",
+            "dwgDescription", "revision",
+            "material", "materialCode", "materialSpec",
+            "thickness", "length", "width", "size", "unit",
+            "jobWorkPieceNo",
+            "assemblyCode", "process", "processId",
+            "requiredQty", "completedQty", "balanceQty",
+            "reason", "flaggedBy",
+            "reworkBy", "supervisor", "startRemarks",
+            "startedAt", "completedAt",
+            "durationMinutes", "durationLabel",
+            "createdDate", "createdTime",
+            "qcRequired", "qcVerifiedBy", "qcResult", "qcRemarks", "qcAt",
+            "status",
+            "completions", "history",
+        ]
+        read_only_fields = fields
+
+    def get_sourceLabel(self, obj):
+        return obj.get_source_type_display()
+
+    def get_balanceQty(self, obj):
+        return float(obj.balance_qty or 0)
+
+    def get_durationLabel(self, obj):
+        return _fmt_minutes(obj.duration_minutes)
+
+    def get_createdDate(self, obj):
+        return obj.created_at.date().isoformat()
+
+    def get_createdTime(self, obj):
+        return obj.created_at.strftime("%H:%M")
+
+
+
+# =====================================================================
+# PRODUCTION OPERATION SERIALIZERS
+# =====================================================================
+
+from .models import (
+    AssemblyExecution,
+    AssemblyStageExecution,
+    AssemblyStageMovement,
+    AssemblyExecutionEvent,
+)
+
+
+# ---------------------------------------------------------------------
+# Movement — used in the stage detail history (Eye view)
+# ---------------------------------------------------------------------
+class AssemblyStageMovementSerializer(serializers.ModelSerializer):
+
+    movement = serializers.CharField(read_only=True)
+    quantity = serializers.DecimalField(
+        max_digits=15, decimal_places=3, read_only=True
+    )
+    performedBy = serializers.CharField(
+        source="performed_by", read_only=True
+    )
+    supervisedBy = serializers.CharField(
+        source="supervised_by", read_only=True
+    )
+    remarks = serializers.CharField(read_only=True)
+    dcRef = serializers.CharField(source="dc_ref", read_only=True)
+    expectedReturnDate = serializers.DateField(
+        source="expected_return_date", read_only=True
+    )
+    createdAt = serializers.DateTimeField(
+        source="created_at", read_only=True
+    )
+
+    class Meta:
+        model = AssemblyStageMovement
+        fields = [
+            "id",
+            "movement",
+            "quantity",
+            "performedBy",
+            "supervisedBy",
+            "remarks",
+            "dcRef",
+            "expectedReturnDate",
+            "createdAt",
+        ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------
+# Stage execution
+# ---------------------------------------------------------------------
+class AssemblyStageExecutionSerializer(serializers.ModelSerializer):
+
+    id = serializers.IntegerField(read_only=True)
+    sequence = serializers.IntegerField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+    processId = serializers.CharField(
+        source="process_id", read_only=True
+    )
+    qcRequired = serializers.BooleanField(
+        source="qc_required", read_only=True
+    )
+
+    executionType = serializers.CharField(
+        source="execution_type", read_only=True
+    )
+    executionUnit = serializers.CharField(
+        source="execution_unit", read_only=True
+    )
+    reworkRecords = serializers.SerializerMethodField(
+    method_name="get_reworkRecords"
+)
+    vendor = serializers.CharField(read_only=True)
+    vendorContact = serializers.CharField(
+        source="vendor_contact", read_only=True
+    )
+    vendorLocation = serializers.CharField(
+        source="vendor_location", read_only=True
+    )
+    expectedReturnDate = serializers.DateField(
+        source="expected_return_date", read_only=True
+    )
+
+    # Quantity counters (floats so the frontend can do math directly)
+    availableQty = serializers.FloatField(
+        source="available_qty", read_only=True
+    )
+    pendingOperationQty = serializers.FloatField(
+        source="pending_operation_qty", read_only=True
+    )
+    sentQty = serializers.FloatField(source="sent_qty", read_only=True)
+    receivedQty = serializers.FloatField(
+        source="received_qty", read_only=True
+    )
+    awaitingQcQty = serializers.FloatField(
+        source="awaiting_qc_qty", read_only=True
+    )
+    reworkQty = serializers.FloatField(source="rework_qty", read_only=True)
+    releasedQty = serializers.FloatField(
+        source="released_qty", read_only=True
+    )
+
+    started = serializers.BooleanField(read_only=True)
+
+    # Derived — pending from vendor (outsourcing)
+    pendingFromVendor = serializers.SerializerMethodField()
+
+    # Last-event snapshots for the row's action buttons
+    lastOperation = serializers.SerializerMethodField()
+    lastQc = serializers.SerializerMethodField()
+    lastRework = serializers.SerializerMethodField()
+    lastOutsourcing = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AssemblyStageExecution
+        fields = [
+            "id",
+            "sequence",
+            "name",
+            "processId",
+            "qcRequired",
+            "executionType",
+            "executionUnit",
+            "vendor",
+            "reworkRecords",
+            "vendorContact",
+            "vendorLocation",
+            "expectedReturnDate",
+            "availableQty",
+            "pendingOperationQty",
+            "sentQty",
+            "receivedQty",
+            "pendingFromVendor",
+            "awaitingQcQty",
+            "reworkQty",
+            "releasedQty",
+            "started",
+            "lastOperation",
+            "lastQc",
+            "lastRework",
+            "lastOutsourcing",
+        ]
+        read_only_fields = fields
+
+    # ---- derived helpers -------------------------------------------------
+
+    def get_pendingFromVendor(self, obj):
+        return float((obj.sent_qty or 0) - (obj.received_qty or 0))
+
+    def _last_movement(self, obj, movement_type):
+        mv = (
+            obj.movements
+            .filter(movement=movement_type)
+            .order_by("-created_at")
+            .first()
+        )
+        if not mv:
+            return None
+        return {
+            "performedBy": mv.performed_by,
+            "supervisedBy": mv.supervised_by,
+            "date": mv.created_at.date().isoformat(),
+            "time": mv.created_at.strftime("%H:%M"),
+            "remarks": mv.remarks,
+            "quantity": float(mv.quantity or 0),
+            "dcRef": mv.dc_ref,
+            "expectedReturnDate": (
+                mv.expected_return_date.isoformat()
+                if mv.expected_return_date else ""
+            ),
+        }
+
+    def get_lastOperation(self, obj):
+        # Prefer Complete, fall back to Start
+        return (
+            self._last_movement(obj, "Complete")
+            or self._last_movement(obj, "Start")
+        )
+
+    def get_lastQc(self, obj):
+        accept = self._last_movement(obj, "QC Accept")
+        reject = self._last_movement(obj, "QC Reject")
+        if not accept and not reject:
+            return None
+        chosen = accept or reject
+        return {
+            "verifiedBy": chosen["performedBy"],
+            "remarks": chosen["remarks"],
+            "date": chosen["date"],
+            "acceptedQty": float(accept["quantity"]) if accept else 0.0,
+            "rejectedQty": float(reject["quantity"]) if reject else 0.0,
+        }
+    def get_reworkRecords(self, obj):
+        from .models import ReworkRecord
+        rows = obj.rework_records.all().order_by("-created_at")
+        return [
+            {
+                "id": r.id,
+                "reworkId": r.rework_number,
+                "status": r.status,
+                "requiredQty": float(r.required_qty or 0),
+                "completedQty": float(r.completed_qty or 0),
+                "balanceQty": float(r.balance_qty or 0),
+                "reason": r.reason,
+                "qcRequired": r.qc_required,
+                "createdAt": r.created_at,
+            }
+            for r in rows
+        ]
+
+    def get_lastRework(self, obj):
+        mv = self._last_movement(obj, "Rework Done")
+        if not mv:
+            return None
+        return {
+            "by": mv["performedBy"],
+            "date": mv["date"],
+            "remarks": mv["remarks"],
+            "reworkedQty": mv["quantity"],
+            "reworkRef": mv["dcRef"],
+        }
+
+    def get_lastOutsourcing(self, obj):
+        sent = self._last_movement(obj, "Send Out")
+        recv = self._last_movement(obj, "Receive In")
+
+        latest = None
+        if sent and recv:
+            latest = "received" if recv["date"] >= sent["date"] else "sent"
+        elif recv:
+            latest = "received"
+        elif sent:
+            latest = "sent"
+
+        if latest is None:
+            return None
+
+        chosen = recv if latest == "received" else sent
+        return {
+            "action": latest,
+            "qty": chosen["quantity"],
+            "vendor": obj.vendor,
+            "dcRef": chosen["dcRef"],
+            "date": chosen["date"],
+            "remarks": chosen["remarks"],
+            "expectedReturnDate": chosen["expectedReturnDate"],
+        }
+
+
+# ---------------------------------------------------------------------
+# Event (Production History)
+# ---------------------------------------------------------------------
+class AssemblyExecutionEventSerializer(serializers.ModelSerializer):
+
+    eventDate = serializers.DateField(
+        source="event_date", read_only=True
+    )
+    event = serializers.CharField(
+        source="event_text", read_only=True
+    )
+
+    class Meta:
+        model = AssemblyExecutionEvent
+        fields = ["id", "eventDate", "event"]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------
+# Execution header — the full assembly the frontend renders
+# ---------------------------------------------------------------------
+class AssemblyExecutionSerializer(serializers.ModelSerializer):
+
+    assemblyId = serializers.CharField(
+        source="assembly.assembly_id", read_only=True
+    )
+    project = serializers.SerializerMethodField()
+    projectId = serializers.IntegerField(
+        source="assembly.project_id", read_only=True
+    )
+    plannedQty = serializers.SerializerMethodField()
+    createdDate = serializers.SerializerMethodField()
+
+    stages = AssemblyStageExecutionSerializer(
+        many=True, read_only=True
+    )
+    events = AssemblyExecutionEventSerializer(
+        many=True, read_only=True
+    )
+
+    status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = AssemblyExecution
+        fields = [
+            "id",
+            "assemblyId",
+            "project",
+            "projectId",
+            "plannedQty",
+            "createdDate",
+            "status",
+            "started_at",
+            "completed_at",
+            "stages",
+            "events",
+        ]
+        read_only_fields = fields
+
+    def get_project(self, obj):
+        return obj.assembly.project.code if obj.assembly.project else ""
+
+    def get_plannedQty(self, obj):
+        """
+        An Assembly is ONE buildable unit.
+
+        Its `inputs` describe the recipe — "these materials go INTO
+        this one assembly" — they do NOT multiply the planned qty.
+        Every Assembly produces exactly 1 unit.
+        """
+        return 1.0
+
+    def get_createdDate(self, obj):
+        return obj.created_at.date().isoformat()
+
+
+
+
+
+
+
+# =====================================================================
+# DISPATCH SERIALIZERS
+# =====================================================================
+
+from .models import (
+    DispatchTransaction,
+    DispatchNumberSettings,
+    AssemblyExecution,
+)
+
+
+class DispatchTransactionSerializer(serializers.ModelSerializer):
+    """
+    Read shape for one dispatch shipment row.
+    """
+
+    id = serializers.IntegerField(read_only=True)
+
+    dispatchId = serializers.CharField(
+        source="dispatch_number", read_only=True
+    )
+
+    date = serializers.DateField(
+        source="dispatch_date", read_only=True
+    )
+
+    time = serializers.CharField(
+        source="dispatch_time", read_only=True
+    )
+
+    assemblyId = serializers.CharField(
+        source="assembly_code", read_only=True
+    )
+
+    project = serializers.CharField(
+        source="project_code", read_only=True
+    )
+
+    dwgDescription = serializers.CharField(
+        source="dwg_description", read_only=True
+    )
+
+    revision = serializers.CharField(read_only=True)
+
+    dispatchTo = serializers.CharField(
+        source="dispatch_to", read_only=True
+    )
+
+    location = serializers.CharField(read_only=True)
+
+    vehicleNumber = serializers.CharField(
+        source="vehicle_number", read_only=True
+    )
+
+    transporter = serializers.CharField(read_only=True)
+
+    driverName = serializers.CharField(
+        source="driver_name", read_only=True
+    )
+
+    driverContact = serializers.CharField(
+        source="driver_contact", read_only=True
+    )
+
+    qty = serializers.FloatField(source="quantity", read_only=True)
+
+    remarks = serializers.CharField(read_only=True)
+
+    dcChallanNumber = serializers.CharField(
+        source="dc_challan_number", read_only=True
+    )
+
+    deliveryChallanId = serializers.IntegerField(
+        source="delivery_challan_id", read_only=True
+    )
+
+    createdAt = serializers.DateTimeField(
+        source="created_at", read_only=True
+    )
+
+    class Meta:
+        model = DispatchTransaction
+        fields = [
+            "id",
+            "dispatchId",
+            "date",
+            "time",
+            "assemblyId",
+            "project",
+            "dwgDescription",
+            "revision",
+            "dispatchTo",
+            "location",
+            "vehicleNumber",
+            "transporter",
+            "driverName",
+            "driverContact",
+            "qty",
+            "remarks",
+            "dcChallanNumber",
+            "deliveryChallanId",
+            "createdAt",
+        ]
+        read_only_fields = fields
+
+
+class DispatchCreateSerializer(serializers.Serializer):
+    """
+    Write shape for creating a dispatch.
+    """
+
+    date = serializers.DateField()
+
+    time = serializers.CharField(
+        required=False, allow_blank=True, max_length=10
+    )
+
+    dispatchTo = serializers.CharField(max_length=255)
+
+    location = serializers.CharField(
+        required=False, allow_blank=True, max_length=255
+    )
+
+    vehicleNumber = serializers.CharField(
+        required=False, allow_blank=True, max_length=50
+    )
+
+    transporter = serializers.CharField(
+        required=False, allow_blank=True, max_length=255
+    )
+
+    driverName = serializers.CharField(
+        required=False, allow_blank=True, max_length=150
+    )
+
+    driverContact = serializers.CharField(
+        required=False, allow_blank=True, max_length=50
+    )
+
+    qty = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        min_value=Decimal("0.001"),
+    )
+
+    remarks = serializers.CharField(
+        required=False, allow_blank=True
+    )
+
+    dcChallanNumber = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=100,
+    )
+
+    deliveryChallanId = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+    )
+
+    def validate_dcChallanNumber(self, value):
+        return (value or "").strip()
+class DispatchReadyAssemblySerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    assemblyId = serializers.CharField()
+    project = serializers.CharField(allow_blank=True)
+    projectId = serializers.IntegerField(allow_null=True)
+
+    dwgs = serializers.ListField(child=serializers.CharField())
+    dwgText = serializers.CharField(allow_blank=True)
+    revision = serializers.CharField(allow_blank=True)
+    description = serializers.CharField(allow_blank=True)
+
+    plannedQty = serializers.FloatField()
+    dispatchedQty = serializers.FloatField()
+    balanceQty = serializers.FloatField()
+    dispatchStatus = serializers.CharField()
+
+    productionStartDate = serializers.DateField(allow_null=True)
+    productionEndDate = serializers.DateField(allow_null=True)
+    duration = serializers.CharField(allow_blank=True)
+
+    # ---- Completion comparison ----
+    plannedEndDate = serializers.DateField(allow_null=True)
+    actualEndDate = serializers.DateField(allow_null=True)
+    completionStatus = serializers.CharField(allow_blank=True)
+    completionDaysVariance = serializers.IntegerField(allow_null=True)
+
+    # ---- Dispatch rollup ----
+    firstDispatchDate = serializers.DateField(allow_null=True)
+    lastDispatchDate = serializers.DateField(allow_null=True)
+
+    processChain = serializers.ListField()
+    reworkPendingQty = serializers.FloatField()
+
+    dcReferences = serializers.ListField(child=serializers.CharField())
+    dispatches = serializers.ListField()

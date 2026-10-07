@@ -14,6 +14,7 @@ import {
   Boxes,
   RefreshCw,
   Activity,
+  AlertTriangle,
 } from "lucide-react";
 
 import Header from "../../components/Header";
@@ -52,7 +53,6 @@ const STOCK_STATUSES = [
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
-
 /* ============================================================
    HELPERS
    ============================================================ */
@@ -62,9 +62,9 @@ function getApiError(error, fallback = GENERIC_ERROR) {
   if (typeof data?.detail === "string") return data.detail;
   if (typeof data?.message === "string") return data.message;
   if (data && typeof data === "object") {
-    const first = Object.values(data).flat().find(
-      (v) => typeof v === "string"
-    );
+    const first = Object.values(data)
+      .flat()
+      .find((v) => typeof v === "string");
     if (first) return first;
   }
   if (error?.message) return error.message;
@@ -78,6 +78,17 @@ function fmt(value) {
   return n.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+/**
+ * A lot flagged for rework cannot be issued. It stays visible in
+ * the yard so the user can see it, but the Issue action is blocked
+ * until the Rework module marks it Done.
+ */
+function isReworkLocked(row) {
+  return String(row?.reworkRequired ?? "").toLowerCase() === "yes";
+}
+
+const REWORK_LOCK_TITLE =
+  "Rework not completed — cannot issue until Rework marks it Done.";
 
 /* ============================================================
    SHARED COMPONENTS
@@ -109,10 +120,7 @@ function Modal({ open, title, subtitle, onClose, children }) {
   if (!open) return null;
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal-box"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
             <h3 className="modal-title">{title}</h3>
@@ -132,7 +140,6 @@ function Modal({ open, title, subtitle, onClose, children }) {
   );
 }
 
-
 /* ============================================================
    EMPTY FILTERS
    ============================================================ */
@@ -148,7 +155,6 @@ const emptyFilters = {
   stockStatus: "All",
   reworkRequired: "All",
 };
-
 
 /* ============================================================
    MAIN COMPONENT
@@ -179,7 +185,6 @@ export default function MaterialStock() {
   const { options: filterOptions, refresh: refreshFilterOptions } =
     useFilterOptions("material-stock", { enabled: !!accessToken });
 
-
   /* ============================================================
      AUTH HEADERS
      ============================================================ */
@@ -188,7 +193,6 @@ export default function MaterialStock() {
     () => ({ Authorization: `Bearer ${accessToken}` }),
     [accessToken]
   );
-
 
   /* ============================================================
      FETCH
@@ -224,7 +228,6 @@ export default function MaterialStock() {
     [accessToken, authHeaders]
   );
 
-
   /* ============================================================
      INITIAL LOAD
      ============================================================ */
@@ -237,7 +240,6 @@ export default function MaterialStock() {
     }
     fetchStock();
   }, [accessToken, fetchStock]);
-
 
   /* ============================================================
      FILTER HANDLERS
@@ -265,7 +267,6 @@ export default function MaterialStock() {
     filters.sourceType !== "All" ||
     filters.stockStatus !== "All" ||
     filters.reworkRequired !== "All";
-
 
   /* ============================================================
      FILTERING
@@ -350,7 +351,6 @@ export default function MaterialStock() {
     });
   }, [stock, search, unitTab, filters]);
 
-
   /* ============================================================
      SUMMARY
      ============================================================ */
@@ -365,9 +365,16 @@ export default function MaterialStock() {
     const cuttingRemaining = stock.filter(
       (s) => s.sourceType === "Cutting Remaining"
     ).length;
-    return { totalItems, unit1, unit2, poStock, cuttingRemaining };
+    const reworkPending = stock.filter(isReworkLocked).length;
+    return {
+      totalItems,
+      unit1,
+      unit2,
+      poStock,
+      cuttingRemaining,
+      reworkPending,
+    };
   }, [stock]);
-
 
   /* ============================================================
      NAVIGATION
@@ -378,6 +385,7 @@ export default function MaterialStock() {
   }
 
   function goToIssue(item) {
+    if (isReworkLocked(item)) return;
     navigate("/inventory/material/issue-to-jobwork", {
       state: { stockId: item.id },
     });
@@ -385,13 +393,9 @@ export default function MaterialStock() {
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([
-      fetchStock({ silent: true }),
-      refreshFilterOptions(),
-    ]);
+    await Promise.all([fetchStock({ silent: true }), refreshFilterOptions()]);
     setRefreshing(false);
   }
-
 
   /* ============================================================
      RENDER
@@ -403,7 +407,6 @@ export default function MaterialStock() {
 
       <div className="material-page">
         <div className="material-content">
-
           {/* ---------------- HEADER ---------------- */}
 
           <div className="page-header-wrap">
@@ -416,8 +419,8 @@ export default function MaterialStock() {
               <div className="page-header-title-group">
                 <h1 className="page-header-title">Material Stock</h1>
                 <p className="page-header-subtitle">
-                  Track available material by unit, source, project
-                  and dimensions.
+                  Track available material by unit, source, project and
+                  dimensions.
                 </p>
               </div>
             </div>
@@ -428,10 +431,7 @@ export default function MaterialStock() {
                 onClick={handleRefresh}
                 disabled={refreshing || isLoading}
               >
-                <RefreshCw
-                  size={14}
-                  className={refreshing ? "spin" : ""}
-                />
+                <RefreshCw size={14} className={refreshing ? "spin" : ""} />
                 {refreshing ? "Refreshing..." : "Refresh"}
               </button>
             </div>
@@ -479,12 +479,8 @@ export default function MaterialStock() {
                     <Building2 size={18} strokeWidth={1.8} />
                   </div>
                   <div>
-                    <span className="summary-card-value">
-                      {summary.unit1}
-                    </span>
-                    <span className="summary-card-label">
-                      Unit 1 Stock
-                    </span>
+                    <span className="summary-card-value">{summary.unit1}</span>
+                    <span className="summary-card-label">Unit 1 Stock</span>
                   </div>
                 </div>
 
@@ -493,12 +489,8 @@ export default function MaterialStock() {
                     <Warehouse size={18} strokeWidth={1.8} />
                   </div>
                   <div>
-                    <span className="summary-card-value">
-                      {summary.unit2}
-                    </span>
-                    <span className="summary-card-label">
-                      Unit 2 Stock
-                    </span>
+                    <span className="summary-card-value">{summary.unit2}</span>
+                    <span className="summary-card-label">Unit 2 Stock</span>
                   </div>
                 </div>
 
@@ -507,12 +499,8 @@ export default function MaterialStock() {
                     <Boxes size={18} strokeWidth={1.8} />
                   </div>
                   <div>
-                    <span className="summary-card-value">
-                      {summary.poStock}
-                    </span>
-                    <span className="summary-card-label">
-                      PO Stock
-                    </span>
+                    <span className="summary-card-value">{summary.poStock}</span>
+                    <span className="summary-card-label">PO Stock</span>
                   </div>
                 </div>
 
@@ -529,6 +517,18 @@ export default function MaterialStock() {
                     </span>
                   </div>
                 </div>
+
+                <div className="summary-card">
+                  <div className="summary-card-icon summary-card-icon-danger">
+                    <AlertTriangle size={18} strokeWidth={1.8} />
+                  </div>
+                  <div>
+                    <span className="summary-card-value">
+                      {summary.reworkPending}
+                    </span>
+                    <span className="summary-card-label">Rework Pending</span>
+                  </div>
+                </div>
               </div>
 
               {/* ---------------- AVAILABLE STOCK ---------------- */}
@@ -536,12 +536,10 @@ export default function MaterialStock() {
               <section className="panel">
                 <div className="panel-head">
                   <div>
-                    <div className="panel-head-title">
-                      Available Stock
-                    </div>
+                    <div className="panel-head-title">Available Stock</div>
                     <p className="panel-head-subtitle">
-                      Only material with available quantity greater
-                      than zero is listed.
+                      Only material with available quantity greater than zero
+                      is listed.
                     </p>
                   </div>
 
@@ -595,9 +593,6 @@ export default function MaterialStock() {
 
                 {showFilters && (
                   <div className="filters-grid">
-
-                    {/* ---- HEADLINE ---- */}
-
                     <div className="form-field">
                       <label>Thickness</label>
                       <select
@@ -632,15 +627,11 @@ export default function MaterialStock() {
                       </select>
                     </div>
 
-                    {/* ---- DIMENSIONS ---- */}
-
                     <div className="form-field">
                       <label>Length</label>
                       <select
                         value={filters.length}
-                        onChange={(e) =>
-                          updateFilter("length", e.target.value)
-                        }
+                        onChange={(e) => updateFilter("length", e.target.value)}
                       >
                         <option value="All">All</option>
                         {(filterOptions.length || []).map((v) => (
@@ -655,9 +646,7 @@ export default function MaterialStock() {
                       <label>Width</label>
                       <select
                         value={filters.width}
-                        onChange={(e) =>
-                          updateFilter("width", e.target.value)
-                        }
+                        onChange={(e) => updateFilter("width", e.target.value)}
                       >
                         <option value="All">All</option>
                         {(filterOptions.width || []).map((v) => (
@@ -667,8 +656,6 @@ export default function MaterialStock() {
                         ))}
                       </select>
                     </div>
-
-                    {/* ---- REMAINING ---- */}
 
                     <div className="form-field">
                       <label>Material</label>
@@ -755,7 +742,6 @@ export default function MaterialStock() {
                         ))}
                       </select>
                     </div>
-
                   </div>
                 )}
 
@@ -790,112 +776,117 @@ export default function MaterialStock() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredStock.map((s) => (
-                        <tr key={s.id}>
-                          <td className="cell-mono">{s.stockId}</td>
-                          <td>{s.unit}</td>
-                          <td>
-                            <StatusBadge status={s.sourceType} />
-                          </td>
-                          <td className="cell-mono">{s.poNumber}</td>
-                          <td>{s.description}</td>
-                          <td>{s.material || "—"}</td>
-                          <td className="cell-mono">
-                            {s.materialCode || "—"}
-                          </td>
-                          <td>{s.materialSpec || "—"}</td>
-                          <td>{s.thickness || "—"}</td>
-                          <td>{s.length || "—"}</td>
-                          <td>{s.width || "—"}</td>
-                          <td
-                            className={
-                              !s.heatNumber || s.heatNumber === "—"
-                                ? "cell-muted"
-                                : "cell-mono"
-                            }
-                          >
-                            {s.heatNumber || "—"}
-                          </td>
-                          <td
-                            className={
-                              !s.plateNumber || s.plateNumber === "—"
-                                ? "cell-muted"
-                                : "cell-mono"
-                            }
-                          >
-                            {s.plateNumber || "—"}
-                          </td>
-                          <td className="cell-muted">
-                            {fmt(s.originalQty)}
-                          </td>
-                          <td>
-                            <strong>{fmt(s.availableQty)}</strong>
-                          </td>
-                          <td>{s.uom || "—"}</td>
-                          <td
-                            className={
-                              !s.project || s.project === "—"
-                                ? "cell-muted"
-                                : ""
-                            }
-                          >
-                            {s.project || "—"}
-                          </td>
-                          <td
-                            className={
-                              !s.dwgDescription || s.dwgDescription === "—"
-                                ? "cell-muted"
-                                : ""
-                            }
-                          >
-                            {s.dwgDescription || "—"}
-                          </td>
-                          <td
-                            className={
-                              !s.revision || s.revision === "—"
-                                ? "cell-muted"
-                                : ""
-                            }
-                          >
-                            {s.revision || "—"}
-                          </td>
-                          <td>
-                            <StatusBadge status={s.stockStatus} />
-                          </td>
-                          <td>
-                            <StatusBadge status={s.reworkRequired} />
-                          </td>
-                          <td>
-                            <div className="table-row-actions">
-                              <button
-                                onClick={() => setViewStock(s)}
-                                aria-label="View"
-                              >
-                                <Eye size={14} />
-                              </button>
-                              <button
-                                className="btn btn-primary btn-sm"
-                                onClick={() => goToIssue(s)}
-                              >
-                                Issue
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredStock.map((s) => {
+                        const locked = isReworkLocked(s);
+                        return (
+                          <tr key={s.id}>
+                            <td className="cell-mono">{s.stockId}</td>
+                            <td>{s.unit}</td>
+                            <td>
+                              <StatusBadge status={s.sourceType} />
+                            </td>
+                            <td className="cell-mono">{s.poNumber}</td>
+                            <td>{s.description}</td>
+                            <td>{s.material || "—"}</td>
+                            <td className="cell-mono">
+                              {s.materialCode || "—"}
+                            </td>
+                            <td>{s.materialSpec || "—"}</td>
+                            <td>{s.thickness || "—"}</td>
+                            <td>{s.length || "—"}</td>
+                            <td>{s.width || "—"}</td>
+                            <td
+                              className={
+                                !s.heatNumber || s.heatNumber === "—"
+                                  ? "cell-muted"
+                                  : "cell-mono"
+                              }
+                            >
+                              {s.heatNumber || "—"}
+                            </td>
+                            <td
+                              className={
+                                !s.plateNumber || s.plateNumber === "—"
+                                  ? "cell-muted"
+                                  : "cell-mono"
+                              }
+                            >
+                              {s.plateNumber || "—"}
+                            </td>
+                            <td className="cell-muted">
+                              {fmt(s.originalQty)}
+                            </td>
+                            <td>
+                              <strong>{fmt(s.availableQty)}</strong>
+                            </td>
+                            <td>{s.uom || "—"}</td>
+                            <td
+                              className={
+                                !s.project || s.project === "—"
+                                  ? "cell-muted"
+                                  : ""
+                              }
+                            >
+                              {s.project || "—"}
+                            </td>
+                            <td
+                              className={
+                                !s.dwgDescription || s.dwgDescription === "—"
+                                  ? "cell-muted"
+                                  : ""
+                              }
+                            >
+                              {s.dwgDescription || "—"}
+                            </td>
+                            <td
+                              className={
+                                !s.revision || s.revision === "—"
+                                  ? "cell-muted"
+                                  : ""
+                              }
+                            >
+                              {s.revision || "—"}
+                            </td>
+                            <td>
+                              <StatusBadge status={s.stockStatus} />
+                            </td>
+                            <td>
+                              <StatusBadge status={s.reworkRequired} />
+                            </td>
+                            <td>
+                              <div className="table-row-actions">
+                                <button
+                                  onClick={() => setViewStock(s)}
+                                  aria-label="View"
+                                >
+                                  <Eye size={14} />
+                                </button>
+
+                                <button
+                                  className="btn btn-primary btn-sm"
+                                  onClick={() => goToIssue(s)}
+                                  disabled={locked}
+                                  title={locked ? REWORK_LOCK_TITLE : undefined}
+                                  aria-disabled={locked}
+                                >
+                                  Issue
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
 
                       {filteredStock.length === 0 && (
                         <tr>
                           <td colSpan={22}>
                             <div className="empty-state">
                               <p className="empty-state-title">
-                                No stock matches your search or
-                                filters
+                                No stock matches your search or filters
                               </p>
                               <p className="empty-state-desc">
-                                Try a different thickness, size, PO
-                                number or clear filters to see all
-                                available material.
+                                Try a different thickness, size, PO number or
+                                clear filters to see all available material.
                               </p>
                             </div>
                           </td>
@@ -907,7 +898,6 @@ export default function MaterialStock() {
               </section>
             </>
           )}
-
 
           {/* ---------------- VIEW STOCK MODAL ---------------- */}
 
@@ -930,9 +920,7 @@ export default function MaterialStock() {
                   </div>
                   <div className="kv">
                     <span>PO Number</span>
-                    <strong className="mono">
-                      {viewStock.poNumber}
-                    </strong>
+                    <strong className="mono">{viewStock.poNumber}</strong>
                   </div>
                   <div className="kv">
                     <span>Description</span>
@@ -1013,9 +1001,17 @@ export default function MaterialStock() {
                   >
                     Close
                   </button>
+
                   <button
                     className="btn btn-primary"
+                    disabled={isReworkLocked(viewStock)}
+                    title={
+                      isReworkLocked(viewStock)
+                        ? REWORK_LOCK_TITLE
+                        : undefined
+                    }
                     onClick={() => {
+                      if (isReworkLocked(viewStock)) return;
                       const target = viewStock;
                       setViewStock(null);
                       goToIssue(target);
@@ -1027,7 +1023,6 @@ export default function MaterialStock() {
               </>
             )}
           </Modal>
-
         </div>
       </div>
     </>

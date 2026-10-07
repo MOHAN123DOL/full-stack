@@ -4,7 +4,7 @@ from django.db import transaction
 from decimal import Decimal
 from django.db.models import Sum
 from decimal import Decimal, InvalidOperation
-
+from .services import mark_rework_done, _freeze_duration , create_rework_from_job_work , create_rework_from_production
 from django.db import transaction
 from django.db.models import Sum
 
@@ -14,6 +14,12 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
 from .models import (
+    AssemblyExecution,
+    AssemblyExecutionEvent,
+    AssemblyStageExecution,
+    AssemblyStageMovement,
+    DispatchNumberSettings,
+    DispatchTransaction,
     PurchaseOrder,
     PurchaseOrderItem,
     DummyPurchaseOrderItem,
@@ -22,7 +28,7 @@ from .models import (
     MaterialGRN,
     MaterialGRNNumberSettings,
 )
-from .serializers import JobWorkReceiveSerializer, MaterialGRNSerializer, ProductionIssueSerializer
+from .serializers import AssemblyExecutionSerializer, AssemblySerializer, AssemblyStageExecutionSerializer, DispatchCreateSerializer, DispatchReadyAssemblySerializer, DispatchTransactionSerializer, JobWorkReceiveSerializer, MaterialGRNSerializer, ProductionIssueSerializer
 from .permissions import IsMaterialPlanning
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -11095,6 +11101,102 @@ def _resolve_filter_options__production_issue(request):
 
     return payload
 
+# ---------------------------------------------------------------------
+# FILTER-OPTIONS RESOLVER — Production Assembly Integration
+# ---------------------------------------------------------------------
+def _resolve_filter_options__assembly(request):
+    """
+    Dropdown values for the Production Assembly Integration page.
+
+    Query params:
+        ?search=<text>   optional — case-insensitive, matches
+                         project code, project name, drawing number,
+                         material name, or material code.
+
+    When `search` is supplied, every dropdown returned is narrowed
+    to values that exist in assemblies matching the search term.
+    This is what makes a 2M-project picker usable: the client sends
+    what the user typed, the server answers with only the matching
+    options.
+    """
+
+    search = (request.query_params.get("search") or "").strip()
+
+    # ---- Base queryset ----
+    assemblies = (
+        Assembly.objects
+        .select_related("project")
+        .prefetch_related("inputs")
+        .all()
+    )
+
+    # ---- Apply search at the Assembly level ----
+    if search:
+        assemblies = assemblies.filter(
+            models.Q(project__code__icontains=search)
+            | models.Q(project__name__icontains=search)
+            | models.Q(assembly_id__icontains=search)
+            | models.Q(inputs__drawing_number__icontains=search)
+            | models.Q(inputs__material_name__icontains=search)
+            | models.Q(inputs__material_code__icontains=search)
+        ).distinct()
+
+    project_set   = set()
+    thickness_set = set()
+    size_set      = set()
+    unit_set      = set()
+    status_set    = set()
+
+    # Cap what we scan. With 2M assemblies, iterating every row to
+    # build the option sets is wasteful — the options only need to
+    # reflect what the user is currently looking at. 2,000 is plenty
+    # to cover a realistic filtered view.
+    MAX_SCAN = 2000
+    scanned = 0
+
+    for asm in assemblies.iterator(chunk_size=500):
+
+        scanned += 1
+        if scanned > MAX_SCAN:
+            break
+
+        if asm.project:
+            project_set.add(asm.project.code)
+
+        status_set.add(asm.status)
+
+        for inp in asm.inputs.all():
+
+            if inp.source_type != "material":
+                continue
+
+            thickness_set |= _non_empty([inp.thickness])
+
+            if inp.length and inp.width:
+                size_set.add(f"{inp.length} × {inp.width}")
+
+            unit_set |= _non_empty([inp.unit])
+
+    payload = {}
+
+    if project_set:
+        # Sort project codes so the dropdown is deterministic.
+        payload["project"] = sorted(project_set)
+
+    if thickness_set:
+        payload["thickness"] = _sort_numeric(thickness_set)
+
+    if size_set:
+        payload["size"] = sorted(size_set)
+
+    if unit_set:
+        payload["unit"] = sorted(unit_set)
+
+    if status_set:
+        payload["status"] = sorted(status_set)
+
+    return payload
+
 
 # ---------------------------------------------------------------------
 # SOURCE REGISTRY — add new pages here
@@ -11105,6 +11207,7 @@ FILTER_OPTION_SOURCES = {
       "material-job-work": _resolve_filter_options__material_job_work,
        "job-work-receive": _resolve_filter_options__job_work_receive,
        "production-issue": _resolve_filter_options__production_issue,
+       "assembly":          _resolve_filter_options__assembly, 
     # "material-issue":    _resolve_filter_options__material_issue,
     # "consumable-stock":  _resolve_filter_options__consumable_stock,
     # ...
@@ -11644,6 +11747,11 @@ class JobWorkIssueCreateAPIView(APIView):
           "jobWorkLocation": "Pune",
           "expectedReturnDate": "2026-10-20"
         }
+
+    Single rule:
+      - If the stock lot has a project → allowed.
+      - If not → rejected with a project error.
+    No DWG/BOM check. No BOMPOIntegration lookup.
     """
 
     permission_classes = [IsAuthenticated, IsMaterialPlanning]
@@ -11692,7 +11800,10 @@ class JobWorkIssueCreateAPIView(APIView):
 
         if quantity <= 0:
             return Response(
-                {"success": False, "message": "Quantity must be greater than 0."},
+                {
+                    "success": False,
+                    "message": "Quantity must be greater than 0.",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -11729,38 +11840,22 @@ class JobWorkIssueCreateAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ---- Validate integration exists (project resolved via integration) ----
-        integration = None
-        if stock.purchase_order_item_id:
-            integration = (
-                BOMPOIntegration.objects
-                .filter(purchase_order_item_id=stock.purchase_order_item_id)
-                .select_related("project")
-                .order_by("-created_at")
-                .first()
-            )
-        elif stock.dummy_purchase_order_item_id:
-            integration = (
-                BOMPOIntegration.objects
-                .filter(dummy_purchase_order_item_id=stock.dummy_purchase_order_item_id)
-                .select_related("project")
-                .order_by("-created_at")
-                .first()
-            )
-
-        if integration is None:
+        # ============================================================
+        # PROJECT CHECK — the only gate
+        # ============================================================
+        if stock.project is None:
             return Response(
                 {
                     "success": False,
                     "message": (
-                        "Complete DWG/BOM integration before issuing "
-                        "this material."
+                        "This material is not linked to any project. "
+                        "Please integrate it with a project before issuing."
                     ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        resolved_project = integration.project if integration else stock.project
+        resolved_project = stock.project
 
         # ---- Job-work-type-specific fields ----
         job_work_unit = ""
@@ -11784,9 +11879,14 @@ class JobWorkIssueCreateAPIView(APIView):
 
         else:
             vendor = str(request.data.get("vendor", "")).strip()
-            vendor_contact = str(request.data.get("vendorContact", "")).strip()
-            job_work_location = str(request.data.get("jobWorkLocation", "")).strip()
+            vendor_contact = str(
+                request.data.get("vendorContact", "")
+            ).strip()
+            job_work_location = str(
+                request.data.get("jobWorkLocation", "")
+            ).strip()
             erd_raw = request.data.get("expectedReturnDate")
+
             if not vendor:
                 return Response(
                     {"success": False, "message": "Vendor is required."},
@@ -11794,19 +11894,28 @@ class JobWorkIssueCreateAPIView(APIView):
                 )
             if not job_work_location:
                 return Response(
-                    {"success": False, "message": "Job work location is required."},
+                    {
+                        "success": False,
+                        "message": "Job work location is required.",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if not erd_raw:
                 return Response(
-                    {"success": False, "message": "Expected return date is required."},
+                    {
+                        "success": False,
+                        "message": "Expected return date is required.",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             try:
                 expected_return_date = date.fromisoformat(str(erd_raw))
             except (TypeError, ValueError):
                 return Response(
-                    {"success": False, "message": "Invalid expected return date."},
+                    {
+                        "success": False,
+                        "message": "Invalid expected return date.",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -11865,8 +11974,6 @@ class JobWorkIssueCreateAPIView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
-
 # ---------------------------------------------------------------------
 # RECEIVE FROM JOB WORK (RETURN + NEW LOT)
 # ---------------------------------------------------------------------
@@ -12161,6 +12268,12 @@ class JobWorkReceiveCreateAPIView(APIView):
       - select_for_update() locks the issue row
       - Re-checks balance INSIDE the transaction after the lock
       - Returns 400 if the previous click already consumed the balance
+
+    Side effects:
+      - Completed input returns to the source lot as an IN movement
+      - Each remaining piece becomes its own MaterialStock lot
+      - When reworkRequired == "Yes" the lot is flagged AND a
+        ReworkRecord is created in the Rework module
     """
 
     permission_classes = [IsAuthenticated, IsMaterialPlanning]
@@ -12170,10 +12283,6 @@ class JobWorkReceiveCreateAPIView(APIView):
 
         # ============================================================
         # 1. LOCK THE ISSUE ROW
-        # ------------------------------------------------------------
-        # If two requests arrive simultaneously, the second one blocks
-        # here until the first commits. Then it re-reads the freshly
-        # updated quantity_returned and sees the true balance.
         # ============================================================
         try:
             issue = (
@@ -12217,10 +12326,6 @@ class JobWorkReceiveCreateAPIView(APIView):
 
         # ============================================================
         # 3. BALANCE CHECK — under the lock
-        # ------------------------------------------------------------
-        # By the time we reach this line, we hold the row lock. If a
-        # previous click already committed, `quantity_returned` is
-        # up-to-date and balance reflects the new state.
         # ============================================================
         issued = issue.quantity_issued or Decimal("0")
         already_returned = issue.quantity_returned or Decimal("0")
@@ -12251,9 +12356,6 @@ class JobWorkReceiveCreateAPIView(APIView):
 
         # ============================================================
         # 4. OUTPUT PIECES
-        # ------------------------------------------------------------
-        # Dict keys use MODEL field names (snake_case). bulk_create
-        # bypasses the serializer, so we translate here.
         # ============================================================
         cleaned_output = []
         total_output_qty = Decimal("0")
@@ -12305,10 +12407,6 @@ class JobWorkReceiveCreateAPIView(APIView):
 
         # ============================================================
         # 5. REMAINING PIECES
-        # ------------------------------------------------------------
-        # User-controlled count. Each row needs a plate_no. Rows that
-        # have rework_required == Yes will spawn a new MaterialStock
-        # lot flagged for rework.
         # ============================================================
         remaining_input_qty = balance - completed_input_qty
         cleaned_remaining = []
@@ -12417,10 +12515,12 @@ class JobWorkReceiveCreateAPIView(APIView):
         # 9. REMAINING PIECES → NEW MaterialStock LOTS
         # ------------------------------------------------------------
         # Each remaining piece becomes its own stock lot. If
-        # rework_required == "Yes", the lot is flagged so it shows up
-        # on the Rework page.
+        # rework_required == "Yes", the lot is flagged AND a
+        # ReworkRecord is created in the Rework module.
         # ============================================================
         for p in cleaned_remaining:
+
+            is_rework = (p["rework_required"] == "Yes")
 
             lot = MaterialStock.objects.create(
                 stock_id=generate_stock_id(),
@@ -12452,7 +12552,7 @@ class JobWorkReceiveCreateAPIView(APIView):
                 dwg_description=issue.dwg_description or "",
                 revision=issue.revision or "",
                 stock_status=MaterialStock.StockStatus.REMAINING,
-                rework_required=(p["rework_required"] == "Yes"),
+                rework_required=is_rework,
                 remarks=(
                     f"Received as remaining from {issue.issue_number} "
                     f"({receive.receive_number})"
@@ -12472,6 +12572,23 @@ class JobWorkReceiveCreateAPIView(APIView):
                 remarks=p.get("remarks", ""),
                 created_by=request.user,
             )
+
+            # --------------------------------------------------------
+            # 9b. Flag for Rework → create ReworkRecord
+            # --------------------------------------------------------
+            if is_rework:
+                remaining_row = (
+                    JobWorkReceiveRemaining.objects
+                    .filter(receive=receive, plate_no=p["plate_no"])
+                    .first()
+                )
+
+                if remaining_row is not None:
+                    create_rework_from_job_work(
+                        job_work_receive=receive,
+                        job_work_remaining=remaining_row,
+                        created_by=request.user,
+                    )
 
         # ============================================================
         # 10. UPDATE THE ISSUE
@@ -12509,8 +12626,6 @@ class JobWorkReceiveCreateAPIView(APIView):
             return Decimal(str(value))
         except (InvalidOperation, TypeError, ValueError):
             return None
-        
-
 # =====================================================================
 # ISSUE TO PRODUCTION
 # -----------------------------------------------------------------
@@ -12903,4 +13018,2975 @@ class ProductionIssueCreateAPIView(APIView):
                 "data": ProductionIssueSerializer(prod_issue).data,
             },
             status=status.HTTP_201_CREATED,
+        )
+
+
+
+# =====================================================================
+# PRODUCTION ASSEMBLY INTEGRATION
+# =====================================================================
+
+from .models import (
+    Assembly,
+    AssemblyInput,
+    AssemblyProcess,
+    AssemblyNumberSettings,
+    JobWorkReceivePiece,
+    ProductionIssue,
+)
+
+
+# ---------------------------------------------------------------------
+# ASSEMBLY ID GENERATOR — auto-seeds counter on first call
+# ---------------------------------------------------------------------
+def generate_assembly_id():
+    """
+    Returns the next Assembly ID.
+
+    - Locks the active settings row and increments the counter.
+    - Auto-creates the settings row on first use → ASM001.
+    - Padding is a MINIMUM: ASM999 → ASM1000 works.
+    - Must be called inside a transaction (select_for_update).
+    """
+    settings_obj = (
+        AssemblyNumberSettings.objects
+        .select_for_update()
+        .filter(is_active=True)
+        .first()
+    )
+
+    if settings_obj is None:
+        try:
+            settings_obj = AssemblyNumberSettings.objects.create(
+                prefix="ASM",
+                next_number=1,
+                number_padding=3,
+                is_active=True,
+            )
+        except IntegrityError:
+            settings_obj = (
+                AssemblyNumberSettings.objects
+                .select_for_update()
+                .filter(is_active=True)
+                .first()
+            )
+
+    number = (
+        f"{settings_obj.prefix}"
+        f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
+    )
+
+    settings_obj.next_number += 1
+    settings_obj.save(
+        update_fields=["next_number", "updated_at"]
+    )
+
+    return number
+
+
+# ---------------------------------------------------------------------
+# AVAILABILITY HELPERS
+# ---------------------------------------------------------------------
+ASSEMBLY_PRODUCED_QTY = Decimal("1")
+
+
+def _material_used_in_other_assemblies(piece_id, exclude_assembly_id=None):
+    qs = AssemblyInput.objects.filter(
+        source_type="material",
+        job_work_piece_id=piece_id,
+    )
+    if exclude_assembly_id:
+        qs = qs.exclude(assembly_id=exclude_assembly_id)
+    return qs.aggregate(total=Sum("use_qty"))["total"] or Decimal("0")
+
+
+def _piece_received_qty(piece_id):
+    try:
+        piece = JobWorkReceivePiece.objects.get(id=piece_id)
+    except JobWorkReceivePiece.DoesNotExist:
+        return Decimal("0")
+    return piece.qty or Decimal("0")
+
+
+def _assembly_used_in_other_assemblies(assembly_id, exclude_assembly_id=None):
+    qs = AssemblyInput.objects.filter(
+        source_type="assembly",
+        source_assembly_id=assembly_id,
+    )
+    if exclude_assembly_id:
+        qs = qs.exclude(assembly_id=exclude_assembly_id)
+    return qs.aggregate(total=Sum("use_qty"))["total"] or Decimal("0")
+
+
+def _material_availability(piece_id, exclude_assembly_id=None):
+    received = _piece_received_qty(piece_id)
+    used_in_asm = _material_used_in_other_assemblies(
+        piece_id, exclude_assembly_id
+    )
+    issued = (
+        ProductionIssue.objects
+        .filter(job_work_piece_id=piece_id)
+        .aggregate(total=Sum("issued_qty"))["total"]
+        or Decimal("0")
+    )
+    return max(received - used_in_asm - issued, Decimal("0"))
+
+
+def _assembly_availability(assembly_id, exclude_assembly_id=None):
+    used = _assembly_used_in_other_assemblies(
+        assembly_id, exclude_assembly_id
+    )
+    return max(ASSEMBLY_PRODUCED_QTY - used, Decimal("0"))
+
+
+# ---------------------------------------------------------------------
+# LIST + CREATE
+# ---------------------------------------------------------------------
+class AssemblyListCreateAPIView(APIView):
+    """
+    GET  /erp/material/assembly/
+    POST /erp/material/assembly/
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    # ---------------- GET ----------------
+    def get(self, request):
+        qs = (
+            Assembly.objects
+            .select_related("project")
+            .prefetch_related("inputs", "processes")
+            .all()
+            .order_by("-created_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": AssemblySerializer(qs, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # ---------------- POST ----------------
+    @transaction.atomic
+    def post(self, request):
+
+        project_id = request.data.get("projectId")
+        inputs = request.data.get("inputs") or []
+        processes = request.data.get("processes") or []
+
+        if not project_id:
+            return Response(
+                {"success": False, "message": "projectId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Project not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not inputs:
+            return Response(
+                {
+                    "success": False,
+                    "message": "At least one input is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not processes:
+            return Response(
+                {
+                    "success": False,
+                    "message": "At least one process is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Collect referenced IDs ----
+        material_ids = [
+            r.get("jobWorkPieceId")
+            for r in inputs
+            if r.get("sourceType") == "material"
+        ]
+        assembly_ids = [
+            r.get("sourceAssemblyId")
+            for r in inputs
+            if r.get("sourceType") == "assembly"
+        ]
+
+        material_map = {
+            p.id: p for p in (
+                JobWorkReceivePiece.objects
+                .filter(id__in=material_ids)
+                .select_related("receive")
+            )
+        }
+
+        assembly_map = {
+            a.id: a for a in Assembly.objects.filter(id__in=assembly_ids)
+        }
+
+        # ---- Validate every input ----
+        for idx, r in enumerate(inputs, start=1):
+
+            src_type = r.get("sourceType")
+
+            try:
+                qty = Decimal(str(r.get("useQty", "0")))
+            except (InvalidOperation, TypeError, ValueError):
+                return Response(
+                    {
+                        "success": False,
+                        "message": f"Input #{idx}: invalid quantity.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if qty <= 0:
+                return Response(
+                    {
+                        "success": False,
+                        "message": f"Input #{idx}: quantity must be > 0.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if src_type == "material":
+                piece = material_map.get(r.get("jobWorkPieceId"))
+                if not piece:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"Input #{idx}: material not found."
+                            ),
+                        },
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                available = _material_availability(piece.id)
+                if qty > available:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"Input #{idx}: quantity exceeds "
+                                f"available ({available})."
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            elif src_type == "assembly":
+                sub = assembly_map.get(r.get("sourceAssemblyId"))
+                if not sub:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"Input #{idx}: assembly not found."
+                            ),
+                        },
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                available = _assembly_availability(sub.id)
+                if qty > available:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"Input #{idx}: quantity exceeds "
+                                f"available ({available})."
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            else:
+                return Response(
+                    {
+                        "success": False,
+                        "message": f"Input #{idx}: unknown sourceType.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # ---- Generate Assembly ID ----
+        assembly_id = generate_assembly_id()
+
+        # ---- Create the Assembly header ----
+        assembly = Assembly.objects.create(
+            assembly_id=assembly_id,
+            project=project,
+            status=Assembly.Status.PLANNED,
+            created_by=request.user,
+        )
+
+        # ---- Create inputs ----
+        for r in inputs:
+            src_type = r.get("sourceType")
+            qty = Decimal(str(r.get("useQty")))
+
+            if src_type == "material":
+                piece = material_map[r.get("jobWorkPieceId")]
+                receive = piece.receive
+
+                AssemblyInput.objects.create(
+                    assembly=assembly,
+                    source_type="material",
+                    job_work_piece=piece,
+                    use_qty=qty,
+                    material_name=receive.material or "",
+                    material_code=receive.material_code or "",
+                    unit=receive.uom or "Nos",
+                    thickness=piece.thickness or receive.thickness or "",
+                    length=piece.length or "",
+                    width=piece.width or "",
+                    drawing_number=receive.dwg_description or "",
+                )
+
+            else:
+                sub = assembly_map[r.get("sourceAssemblyId")]
+
+                AssemblyInput.objects.create(
+                    assembly=assembly,
+                    source_type="assembly",
+                    source_assembly=sub,
+                    use_qty=qty,
+                    material_name=sub.assembly_id,
+                    material_code="—",
+                    unit="No.",
+                )
+
+        # ---- Create processes ----
+        for idx, p in enumerate(processes, start=1):
+
+            name = str(p.get("name", "")).strip()
+            pid = str(p.get("processId", "")).strip()
+
+            if not name or not pid:
+                continue
+
+            exec_type = str(
+                p.get("executionType", "In-House")
+            ).strip()
+            exec_unit = str(p.get("executionUnit", "")).strip()
+
+            AssemblyProcess.objects.create(
+                assembly=assembly,
+                sequence=idx,
+                name=name,
+                process_id=pid,
+                qc_required=bool(p.get("qcRequired", False)),
+                execution_type=(
+                    "Outsourcing"
+                    if exec_type == "Outsourcing"
+                    else "In-House"
+                ),
+                execution_unit=(
+                    exec_unit if exec_type != "Outsourcing" else ""
+                ),
+                vendor=str(p.get("vendor", "")).strip(),
+                vendor_contact=str(
+                    p.get("vendorContact", "")
+                ).strip(),
+                vendor_location=str(
+                    p.get("vendorLocation", "")
+                ).strip(),
+                expected_return_date=(
+                    p.get("expectedReturnDate") or None
+                ),
+                outsourcing_remarks=str(
+                    p.get("outsourcingRemarks", "")
+                ).strip(),
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{assembly.assembly_id} created.",
+                "data": AssemblySerializer(assembly).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ---------------------------------------------------------------------
+# DETAIL — GET / PATCH / DELETE
+# ---------------------------------------------------------------------
+class AssemblyDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def _get(self, assembly_id):
+        try:
+            return (
+                Assembly.objects
+                .select_related("project")
+                .prefetch_related("inputs", "processes")
+                .get(assembly_id=assembly_id)
+            )
+        except Assembly.DoesNotExist:
+            return None
+
+    # ---------------- GET ----------------
+    def get(self, request, assembly_id):
+        asm = self._get(assembly_id)
+        if not asm:
+            return Response(
+                {"success": False, "message": "Assembly not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {"success": True, "data": AssemblySerializer(asm).data},
+            status=status.HTTP_200_OK,
+        )
+
+    # ---------------- PATCH ----------------
+    @transaction.atomic
+    def patch(self, request, assembly_id):
+
+        asm = (
+            Assembly.objects
+            .select_for_update()
+            .filter(assembly_id=assembly_id)
+            .first()
+        )
+
+        if not asm:
+            return Response(
+                {"success": False, "message": "Assembly not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if asm.status != Assembly.Status.PLANNED:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This assembly can only be edited while it is "
+                        "Planned."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        inputs = request.data.get("inputs")
+        processes = request.data.get("processes")
+
+        # ---- Replace inputs ----
+        if isinstance(inputs, list):
+
+            asm.inputs.all().delete()
+
+            material_ids = [
+                r.get("jobWorkPieceId")
+                for r in inputs
+                if r.get("sourceType") == "material"
+            ]
+            assembly_ids = [
+                r.get("sourceAssemblyId")
+                for r in inputs
+                if r.get("sourceType") == "assembly"
+            ]
+
+            material_map = {
+                p.id: p for p in (
+                    JobWorkReceivePiece.objects
+                    .filter(id__in=material_ids)
+                    .select_related("receive")
+                )
+            }
+
+            assembly_map = {
+                a.id: a for a in Assembly.objects.filter(
+                    id__in=assembly_ids
+                )
+            }
+
+            for idx, r in enumerate(inputs, start=1):
+
+                src_type = r.get("sourceType")
+
+                try:
+                    qty = Decimal(str(r.get("useQty", "0")))
+                except (InvalidOperation, TypeError, ValueError):
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"Input #{idx}: invalid quantity."
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                if qty <= 0:
+                    continue
+
+                if src_type == "material":
+
+                    piece = material_map.get(r.get("jobWorkPieceId"))
+                    if not piece:
+                        continue
+
+                    available = _material_availability(
+                        piece.id, asm.id
+                    )
+                    if qty > available:
+                        return Response(
+                            {
+                                "success": False,
+                                "message": (
+                                    f"Input #{idx}: quantity exceeds "
+                                    f"available ({available})."
+                                ),
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    receive = piece.receive
+
+                    AssemblyInput.objects.create(
+                        assembly=asm,
+                        source_type="material",
+                        job_work_piece=piece,
+                        use_qty=qty,
+                        material_name=receive.material or "",
+                        material_code=receive.material_code or "",
+                        unit=receive.uom or "Nos",
+                        thickness=(
+                            piece.thickness
+                            or receive.thickness
+                            or ""
+                        ),
+                        length=piece.length or "",
+                        width=piece.width or "",
+                        drawing_number=receive.dwg_description or "",
+                    )
+
+                elif src_type == "assembly":
+
+                    sub = assembly_map.get(r.get("sourceAssemblyId"))
+                    if not sub:
+                        continue
+
+                    available = _assembly_availability(sub.id, asm.id)
+                    if qty > available:
+                        return Response(
+                            {
+                                "success": False,
+                                "message": (
+                                    f"Input #{idx}: quantity exceeds "
+                                    f"available ({available})."
+                                ),
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    AssemblyInput.objects.create(
+                        assembly=asm,
+                        source_type="assembly",
+                        source_assembly=sub,
+                        use_qty=qty,
+                        material_name=sub.assembly_id,
+                        material_code="—",
+                        unit="No.",
+                    )
+
+        # ---- Replace processes ----
+        if isinstance(processes, list):
+
+            asm.processes.all().delete()
+
+            for idx, p in enumerate(processes, start=1):
+
+                name = str(p.get("name", "")).strip()
+                pid = str(p.get("processId", "")).strip()
+
+                if not name or not pid:
+                    continue
+
+                exec_type = str(
+                    p.get("executionType", "In-House")
+                ).strip()
+
+                AssemblyProcess.objects.create(
+                    assembly=asm,
+                    sequence=idx,
+                    name=name,
+                    process_id=pid,
+                    qc_required=bool(p.get("qcRequired", False)),
+                    execution_type=(
+                        "Outsourcing"
+                        if exec_type == "Outsourcing"
+                        else "In-House"
+                    ),
+                    execution_unit=(
+                        str(p.get("executionUnit", "")).strip()
+                        if exec_type != "Outsourcing"
+                        else ""
+                    ),
+                    vendor=str(p.get("vendor", "")).strip(),
+                    vendor_contact=str(
+                        p.get("vendorContact", "")
+                    ).strip(),
+                    vendor_location=str(
+                        p.get("vendorLocation", "")
+                    ).strip(),
+                    expected_return_date=(
+                        p.get("expectedReturnDate") or None
+                    ),
+                    outsourcing_remarks=str(
+                        p.get("outsourcingRemarks", "")
+                    ).strip(),
+                )
+
+        asm.save()
+
+        asm = self._get(assembly_id)
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{asm.assembly_id} updated.",
+                "data": AssemblySerializer(asm).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # ---------------- DELETE ----------------
+    @transaction.atomic
+    def delete(self, request, assembly_id):
+
+        asm = (
+            Assembly.objects
+            .select_for_update()
+            .filter(assembly_id=assembly_id)
+            .first()
+        )
+
+        if not asm:
+            return Response(
+                {"success": False, "message": "Assembly not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if asm.status != Assembly.Status.PLANNED:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This assembly can only be deleted while it is "
+                        "Planned."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        dependent = (
+            AssemblyInput.objects
+            .filter(
+                source_type="assembly",
+                source_assembly=asm,
+            )
+            .select_related("assembly")
+            .first()
+        )
+
+        if dependent:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"This assembly can't be deleted because "
+                        f"{dependent.assembly.assembly_id} uses it."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        asm.delete()
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{assembly_id} deleted.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------
+# SOURCES — available inputs for the wizard
+# ---------------------------------------------------------------------
+class AssemblySourcesListAPIView(APIView):
+    """
+    GET /erp/material/assembly/sources/?projectId=<id>
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        project_id = request.query_params.get("projectId")
+        exclude_assembly_id = request.query_params.get(
+            "excludeAssemblyId"
+        )
+
+        if not project_id:
+            return Response(
+                {"success": False, "message": "projectId is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- Materials ----
+        pieces = (
+            JobWorkReceivePiece.objects
+            .select_related(
+                "receive",
+                "receive__project",
+                "receive__issue",
+            )
+            .filter(receive__project_id=project_id)
+            .all()
+        )
+
+        material_rows = []
+
+        for piece in pieces:
+
+            available = _material_availability(
+                piece.id, exclude_assembly_id
+            )
+            if available <= 0:
+                continue
+
+            receive = piece.receive
+
+            material_rows.append({
+                "id": piece.id,
+                "materialName": receive.material or "",
+                "materialCode": receive.material_code or "",
+                "unit": receive.uom or "Nos",
+                "thickness": (
+                    piece.thickness or receive.thickness or ""
+                ),
+                "length": piece.length or "",
+                "width": piece.width or "",
+                "drawingNumber": receive.dwg_description or "",
+                "jobWorkId": receive.job_work_id or "",
+                "poNumber": receive.po_number or "",
+                "availableQty": float(available),
+                "receivedQty": float(piece.qty or 0),
+            })
+
+        # ---- Assemblies ----
+        assembly_qs = (
+            Assembly.objects
+            .select_related("project")
+            .filter(project_id=project_id)
+        )
+
+        if exclude_assembly_id:
+            assembly_qs = assembly_qs.exclude(
+                id=exclude_assembly_id
+            )
+
+        assembly_rows = []
+
+        for sub in assembly_qs:
+
+            available = _assembly_availability(
+                sub.id, exclude_assembly_id
+            )
+            if available <= 0:
+                continue
+
+            assembly_rows.append({
+                "id": sub.id,
+                "assemblyId": sub.assembly_id,
+                "project": (
+                    sub.project.code if sub.project else ""
+                ),
+                "status": sub.status,
+                "availableQty": float(available),
+            })
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "materials": material_rows,
+                    "assemblies": assembly_rows,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+# =====================================================================
+# ASSEMBLY — PROJECT PICKER SOURCE
+# ---------------------------------------------------------------
+# Returns only projects that have at least one ProductionIssue.
+# That's the definition of "ready to be assembled" — the project
+# already has material sitting in production.
+#
+# GET /erp/material/assembly/projects/?search=bhel
+# =====================================================================
+# =====================================================================
+# ASSEMBLY — PROJECT PICKER SOURCE
+# -----------------------------------------------------------------
+# Returns only projects that have at least one ProductionIssue
+# (i.e. projects with physical material already sitting in
+# production), along with the aggregated availability of that
+# material for building new assemblies.
+#
+# Availability model (same as AssemblyListCreateAPIView):
+#     available = received − used_in_assemblies − issued_to_production
+#
+#   received              → sum of JobWorkReceivePiece.qty for all
+#                           pieces belonging to the project
+#   used_in_assemblies    → sum of AssemblyInput.use_qty across all
+#                           assemblies that already consume those pieces
+#   issued_to_production  → sum of ProductionIssue.issued_qty for
+#                           those pieces (movement out of the pool
+#                           that is not tied to an assembly input)
+#
+# GET /erp/material/assembly/projects/?search=bhel
+# =====================================================================
+
+class AssemblyProjectListAPIView(APIView):
+    """
+    Searchable list of projects that have issued production material.
+
+    Query params:
+        ?search=<text>   optional — matches project code or name
+                         (case-insensitive, contains).
+
+    Response:
+        {
+          "success": true,
+          "data": [
+            {
+              "id": 1,
+              "code": "BHEL-032",
+              "name": "BHEL Unit 32",
+              "receivedQty": 30.0,
+              "usedInAssembliesQty": 19.0,
+              "availableQty": 11.0
+            },
+            ...
+          ]
+        }
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        search = (request.query_params.get("search") or "").strip()
+
+        # ---------------------------------------------------------
+        # 1. Projects that have at least one ProductionIssue
+        # ---------------------------------------------------------
+        projects_qs = (
+            Project.objects
+            .filter(production_issues__isnull=False)
+            .distinct()
+            .order_by("code")
+        )
+
+        if search:
+            projects_qs = projects_qs.filter(
+                models.Q(code__icontains=search)
+                | models.Q(name__icontains=search)
+            )
+
+        # ---------------------------------------------------------
+        # 2. Pre-aggregate what we need, project by project
+        #
+        # We do this in bulk to avoid N+1 queries: for each project
+        # we want the ids of all its received pieces, then a single
+        # aggregate over those pieces for "received", "used", and
+        # "issued".
+        # ---------------------------------------------------------
+
+        data = []
+
+        for project in projects_qs:
+
+            # ---- Pieces belonging to this project ----
+            piece_ids = list(
+                JobWorkReceivePiece.objects
+                .filter(receive__project=project)
+                .values_list("id", flat=True)
+            )
+
+            if not piece_ids:
+                data.append({
+                    "id": project.id,
+                    "code": project.code,
+                    "name": project.name,
+                    "receivedQty": 0.0,
+                    "usedInAssembliesQty": 0.0,
+                    "availableQty": 0.0,
+                })
+                continue
+
+            # ---- Total received for this project's pieces ----
+            received_agg = (
+                JobWorkReceivePiece.objects
+                .filter(id__in=piece_ids)
+                .aggregate(total=Sum("qty"))
+            )
+            received = received_agg["total"] or Decimal("0")
+
+            # ---- How much has already been allocated to assemblies ----
+            used_agg = (
+                AssemblyInput.objects
+                .filter(
+                    source_type="material",
+                    job_work_piece_id__in=piece_ids,
+                )
+                .aggregate(total=Sum("use_qty"))
+            )
+            used_in_assemblies = used_agg["total"] or Decimal("0")
+
+            # ---- How much has been issued to production directly
+            #      (outside the assembly pipeline). This subtracts
+            #      from the pool so the project doesn't advertise
+            #      qty it no longer has.
+            issued_agg = (
+                ProductionIssue.objects
+                .filter(job_work_piece_id__in=piece_ids)
+                .aggregate(total=Sum("issued_qty"))
+            )
+            issued_to_production = issued_agg["total"] or Decimal("0")
+
+            # ---- Available = received − used − issued ----
+            available = (
+                received
+                - used_in_assemblies
+                - issued_to_production
+            )
+
+            if available < 0:
+                available = Decimal("0")
+
+            data.append({
+                "id": project.id,
+                "code": project.code,
+                "name": project.name,
+                "receivedQty": float(received),
+                "usedInAssembliesQty": float(used_in_assemblies),
+                "issuedToProductionQty": float(issued_to_production),
+                "availableQty": float(available),
+            })
+
+        return Response(
+            {"success": True, "data": data},
+            status=status.HTTP_200_OK,
+        )
+
+
+
+
+# =====================================================================
+# REWORK VIEWS
+# =====================================================================
+from decimal import Decimal
+
+from django.db import transaction
+from django.utils import timezone
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from .models import (
+    ReworkRecord,
+    ReworkHistory,
+)
+from .serializers import ReworkRecordSerializer
+
+from .permissions import IsMaterialPlanning
+
+
+# =====================================================================
+# LIST
+# =====================================================================
+class ReworkListAPIView(APIView):
+    """
+    GET /erp/material/rework/
+
+    Optional:
+        ?source=job-work-receive | production
+        ?status=<status>
+        ?view=active | history
+        ?projectId=<id>
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        qs = (
+            ReworkRecord.objects
+            .select_related("project")
+            .prefetch_related("completions", "history")
+            .all()
+            .order_by("-created_at")
+        )
+
+        source = request.query_params.get("source")
+        if source:
+            qs = qs.filter(source_type=source)
+
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        project_id = request.query_params.get("projectId")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+
+        view = request.query_params.get("view")
+        if view == "active":
+            qs = qs.filter(status__in=[
+                ReworkRecord.Status.REQUIRED,
+                ReworkRecord.Status.IN_PROGRESS,
+                ReworkRecord.Status.PARTIAL,
+                ReworkRecord.Status.QC_PENDING,
+            ])
+
+        return Response(
+            {
+                "success": True,
+                "data": ReworkRecordSerializer(qs, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# DETAIL
+# =====================================================================
+class ReworkDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request, pk):
+        try:
+            rw = (
+                ReworkRecord.objects
+                .select_related("project")
+                .prefetch_related("completions", "history")
+                .get(id=pk)
+            )
+        except ReworkRecord.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Rework not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            {"success": True, "data": ReworkRecordSerializer(rw).data},
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# START
+# =====================================================================
+class ReworkStartAPIView(APIView):
+    """
+    POST /erp/material/rework/<id>/start/
+
+    Body:
+        {
+          "by": "Suresh",
+          "supervisor": "Ravi",
+          "remarks": "..."
+        }
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        try:
+            rw = ReworkRecord.objects.select_for_update().get(id=pk)
+        except ReworkRecord.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Rework not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if rw.status != ReworkRecord.Status.REQUIRED:
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Cannot start a record that is {rw.status}.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        by = str(request.data.get("by", "")).strip()
+        supervisor = str(request.data.get("supervisor", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        if not by:
+            return Response(
+                {"success": False, "message": "by is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not supervisor:
+            return Response(
+                {"success": False, "message": "supervisor is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rw.rework_by = by
+        rw.supervisor = supervisor
+        rw.start_remarks = remarks
+        rw.started_at = timezone.now()
+        rw.status = ReworkRecord.Status.IN_PROGRESS
+        rw.save()
+
+        ReworkHistory.objects.create(
+            rework=rw,
+            event_text=f"Rework started by {by} (Supervisor: {supervisor}).",
+            performed_by=by,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Rework started.",
+                "data": ReworkRecordSerializer(rw).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# COMPLETE
+# =====================================================================
+class ReworkCompleteAPIView(APIView):
+    """
+    POST /erp/material/rework/<id>/complete/
+
+    Body:
+        {
+          "qty": 2,
+          "by": "Suresh",
+          "remarks": "..."
+        }
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def post(self, request, pk):
+        try:
+            rw = ReworkRecord.objects.get(id=pk)
+        except ReworkRecord.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Rework not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        by = str(request.data.get("by", "")).strip()
+        if not by:
+            return Response(
+                {"success": False, "message": "by is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            rw = mark_rework_done(
+                rework=rw,
+                done_qty=request.data.get("qty"),
+                completed_by=by,
+                remarks=str(request.data.get("remarks", "")).strip(),
+            )
+        except ValueError as exc:
+            return Response(
+                {"success": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rw = (
+            ReworkRecord.objects
+            .prefetch_related("completions", "history")
+            .get(id=rw.id)
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Rework completion saved.",
+                "data": ReworkRecordSerializer(rw).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# QC (source=production and qc_required only)
+# =====================================================================
+class ReworkQcAPIView(APIView):
+    """
+    POST /erp/material/rework/<id>/qc/
+
+    Body:
+        {
+          "verifiedBy": "Ravi Shankar",
+          "result": "Approved" | "Rejected",
+          "remarks": "..."
+        }
+
+    Approved → record goes to READY_NEXT (already handed back in
+                mark_rework_done for no-QC records; for QC-required
+                records, the actual stage release happens here).
+    Rejected → record goes back to REQUIRED with completed_qty reset
+                and the hand-back is undone.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        try:
+            rw = ReworkRecord.objects.select_for_update().get(id=pk)
+        except ReworkRecord.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Rework not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if rw.status != ReworkRecord.Status.QC_PENDING:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"QC verification only applies to records "
+                        f"in QC Pending. This one is {rw.status}."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        verified_by = str(request.data.get("verifiedBy", "")).strip()
+        result = str(request.data.get("result", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        if not verified_by:
+            return Response(
+                {"success": False, "message": "verifiedBy is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if result not in ("Approved", "Rejected"):
+            return Response(
+                {
+                    "success": False,
+                    "message": "result must be Approved or Rejected.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rw.qc_verified_by = verified_by
+        rw.qc_result = result
+        rw.qc_remarks = remarks
+        rw.qc_at = timezone.now()
+
+        if result == "Approved":
+            rw.status = ReworkRecord.Status.READY_NEXT
+            rw.save()
+
+            ReworkHistory.objects.create(
+                rework=rw,
+                event_text=(
+                    f"QC Approved by {verified_by} — "
+                    f"Ready for Next Process."
+                ),
+                performed_by=verified_by,
+            )
+        else:
+            # QC rejected the rework itself. Send it back to Required.
+            # NOTE: this assumes the hand-back in mark_rework_done
+            # has NOT yet physically moved the quantity anywhere
+            # (Production Operation's stage was only marked
+            # awaiting_qc_qty, not released_qty). Adjust if that
+            # invariant changes.
+            rw.status = ReworkRecord.Status.REQUIRED
+            rw.completed_qty = Decimal("0")
+            rw.completed_at = None
+            rw.duration_minutes = None
+            rw.save()
+
+            ReworkHistory.objects.create(
+                rework=rw,
+                event_text=(
+                    f"QC Rejected by {verified_by} — Rework Required again."
+                ),
+                performed_by=verified_by,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": f"QC result saved ({result}).",
+                "data": ReworkRecordSerializer(rw).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# CANCEL
+# =====================================================================
+class ReworkCancelAPIView(APIView):
+    """
+    POST /erp/material/rework/<id>/cancel/
+
+    Body: { "remarks": "..." }
+
+    Cancelling does NOT touch the source — the caller is
+    responsible for cleaning up any counter that was bumped
+    when the record was created. Use only when a record was
+    created by mistake.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        try:
+            rw = ReworkRecord.objects.select_for_update().get(id=pk)
+        except ReworkRecord.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Rework not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if rw.status in (
+            ReworkRecord.Status.AVAILABLE_STOCK,
+            ReworkRecord.Status.READY_NEXT,
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "A completed rework cannot be cancelled.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        rw.status = ReworkRecord.Status.CANCELLED
+        rw.completed_at = rw.completed_at or timezone.now()
+        if rw.started_at and rw.completed_at:
+            _freeze_duration(rw)
+        rw.save()
+
+        ReworkHistory.objects.create(
+            rework=rw,
+            event_text=f"Rework cancelled. {remarks}".strip(),
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Rework cancelled.",
+                "data": ReworkRecordSerializer(rw).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+# =====================================================================
+# PRODUCTION OPERATION
+# -----------------------------------------------------------------
+# Execution layer on top of Assembly / AssemblyProcess.
+#
+# Lazy model:
+#   - First call to GET /material/production/operation/ creates one
+#     AssemblyExecution row per Assembly that has a processChain,
+#     plus one AssemblyStageExecution per AssemblyProcess.
+#   - Every action (start/complete/qc/rework/send/receive) writes an
+#     AssemblyStageMovement and updates the stage counters in the
+#     same transaction.
+#
+#   The route is NEVER redefined here. It is read from AssemblyProcess.
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# Lazily create the execution + stages for one Assembly.
+# Called inside select_for_update() so two concurrent opens are safe.
+# ---------------------------------------------------------------------
+def _ensure_execution(assembly):
+    """
+    Returns (execution, created).
+
+    Lazily materialises the AssemblyExecution + one
+    AssemblyStageExecution per AssemblyProcess.
+
+    If the execution already exists, stages are re-synced ONLY if
+    the Assembly has processes that aren't yet represented.
+    Never deletes or reorders existing stages.
+
+    Quantity model
+    --------------
+    An Assembly is ONE buildable unit. Its `inputs` describe the
+    recipe — "these materials go INTO this one assembly" — they
+    do NOT multiply the planned quantity. Every Assembly produces
+    exactly 1 unit.
+
+    Therefore the first stage is seeded with qty = 1. Every later
+    stage starts at 0 and only receives quantity when the previous
+    stage releases it (via _release_to_next_stage).
+    """
+    execution, created = AssemblyExecution.objects.get_or_create(
+        assembly=assembly,
+        defaults={"status": AssemblyExecution.Status.PENDING},
+    )
+
+    existing_seq = set(
+        execution.stages.values_list("sequence", flat=True)
+    )
+
+    processes = list(assembly.processes.order_by("sequence", "id"))
+
+    if not processes:
+        return execution, created
+
+    first_sequence = processes[0].sequence
+
+    for proc in processes:
+        if proc.sequence in existing_seq:
+            continue
+
+        is_first_stage = (proc.sequence == first_sequence)
+
+        AssemblyStageExecution.objects.create(
+            execution=execution,
+            assembly_process=proc,
+            sequence=proc.sequence,
+            name=proc.name,
+            process_id=proc.process_id,
+            qc_required=proc.qc_required,
+            execution_type=proc.execution_type,
+            execution_unit=proc.execution_unit or "",
+            vendor=proc.vendor or "",
+            vendor_contact=proc.vendor_contact or "",
+            vendor_location=proc.vendor_location or "",
+            expected_return_date=proc.expected_return_date,
+            # An Assembly is 1 unit. The first stage owns that unit;
+            # every later stage starts empty and is filled by the
+            # previous stage's release.
+            available_qty=Decimal("1") if is_first_stage else Decimal("0"),
+            pending_operation_qty=Decimal("1") if is_first_stage else Decimal("0"),
+        )
+
+    return execution, created
+# ---------------------------------------------------------------------
+# Cascade helper — moves accepted qty to the next stage
+# ---------------------------------------------------------------------
+def _release_to_next_stage(execution, from_sequence, qty):
+    if qty <= 0:
+        return
+    next_stage = (
+        execution.stages
+        .filter(sequence=from_sequence + 1)
+        .first()
+    )
+    if next_stage is None:
+        # Final stage — mark execution completed
+        execution.status = AssemblyExecution.Status.COMPLETED
+        execution.completed_at = timezone.now()
+        execution.save(update_fields=["status", "completed_at", "updated_at"])
+        AssemblyExecutionEvent.objects.create(
+            execution=execution,
+            event_text=(
+                f"{execution.assembly.assembly_id} completed — "
+                f"all quantity cleared every stage."
+            ),
+        )
+        return
+
+    next_stage.available_qty += qty
+    next_stage.pending_operation_qty += qty
+    next_stage.save(update_fields=[
+        "available_qty", "pending_operation_qty", "updated_at"
+    ])
+
+
+def _log_event(execution, text):
+    AssemblyExecutionEvent.objects.create(
+        execution=execution,
+        event_text=text,
+    )
+
+
+# ---------------------------------------------------------------------
+# Helper — parse Decimal safely
+# ---------------------------------------------------------------------
+def _to_decimal(value, field_name="quantity"):
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError(f"{field_name} is not a valid number.")
+
+
+# =====================================================================
+# LIST + LAZY MATERIALIZE
+# -----------------------------------------------------------------
+# GET /erp/material/production/operation/
+#   ?projectId=<id>    (optional filter)
+# =====================================================================
+class ProductionOperationListAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsAccountsOrMaterialPlanning]
+
+    @transaction.atomic
+    def get(self, request):
+
+        project_id = request.query_params.get("projectId")
+
+        assemblies = (
+            Assembly.objects
+            .select_related("project")
+            .prefetch_related("inputs", "processes")
+            .all()
+        )
+
+        if project_id:
+            assemblies = assemblies.filter(project_id=project_id)
+
+        # Only assemblies that actually have a route
+        assemblies = [
+            a for a in assemblies if a.processes.exists()
+        ]
+
+        # Lazy materialize the execution for each
+        for asm in assemblies:
+            _ensure_execution(asm)
+
+        executions = (
+            AssemblyExecution.objects
+            .select_related("assembly", "assembly__project")
+            .prefetch_related(
+                "stages",
+                "stages__movements",
+                "events",
+            )
+            .filter(assembly__in=assemblies)
+            .order_by("-created_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": AssemblyExecutionSerializer(
+                    executions, many=True
+                ).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# DETAIL
+# -----------------------------------------------------------------
+# GET /erp/material/production/operation/<assembly_id>/
+# =====================================================================
+class ProductionOperationDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def get(self, request, assembly_id):
+        try:
+            asm = (
+                Assembly.objects
+                .select_related("project")
+                .prefetch_related("inputs", "processes")
+                .get(assembly_id=assembly_id)
+            )
+        except Assembly.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Assembly not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        execution, _ = _ensure_execution(asm)
+
+        execution = (
+            AssemblyExecution.objects
+            .select_related("assembly", "assembly__project")
+            .prefetch_related(
+                "stages",
+                "stages__movements",
+                "events",
+            )
+            .get(id=execution.id)
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": AssemblyExecutionSerializer(execution).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# ACTION ENDPOINT — one URL, mode in the body
+# -----------------------------------------------------------------
+# POST /erp/material/production/operation/<assembly_id>/action/
+#
+# Body:
+#   {
+#     "sequence": 2,
+#     "mode": "start" | "complete" | "qc" | "rework"
+#            | "send-outsourcing" | "receive-outsourcing",
+#     ...mode-specific fields
+#   }
+#
+# Splitting into one endpoint keeps routing and auth in one place.
+# =====================================================================
+class ProductionOperationActionAPIView(APIView):
+    """
+    POST /erp/material/production/operation/<assembly_id>/action/
+
+    Body:
+        {
+            "sequence": <int>,
+            "mode": "start" | "complete" | "qc" | "rework"
+                    | "send-outsourcing" | "receive-outsourcing",
+            ...mode-specific fields
+        }
+
+    All quantity movement is transactional. Stage counters are
+    updated in the same transaction as the AssemblyStageMovement
+    row that justifies the change.
+
+    Rework flow
+    -----------
+    - `_complete` with rejected > 0 → creates a ReworkRecord via
+      services.create_rework_from_production. The rejected qty sits
+      in stage.rework_qty and does NOT move forward.
+
+    - `_rework` is a CONFIRMATION only. Actual hand-back happens
+      inside the Rework module via services.mark_rework_done, which
+      calls services._hand_back_to_production_qc / _next. This
+      endpoint refuses while the Rework record is still open.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    # =================================================================
+    # ENTRY POINT
+    # =================================================================
+    @transaction.atomic
+    def post(self, request, assembly_id):
+
+        # ---- Resolve assembly ----
+        try:
+            asm = Assembly.objects.get(assembly_id=assembly_id)
+        except Assembly.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Assembly not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---- Lazy materialise + lock execution ----
+        execution, _ = _ensure_execution(asm)
+
+        execution = (
+            AssemblyExecution.objects
+            .select_for_update()
+            .get(id=execution.id)
+        )
+
+        sequence = request.data.get("sequence")
+        mode = str(request.data.get("mode", "")).strip()
+
+        if not sequence:
+            return Response(
+                {"success": False, "message": "sequence is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            stage = (
+                execution.stages
+                .select_for_update()
+                .get(sequence=sequence)
+            )
+        except AssemblyStageExecution.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Stage not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---- Dispatch ----
+        try:
+            if mode == "start":
+                return self._start(request, execution, stage)
+            if mode == "complete":
+                return self._complete(request, execution, stage)
+            if mode == "qc":
+                return self._qc(request, execution, stage)
+            if mode == "rework":
+                return self._rework(request, execution, stage)
+            if mode == "send-outsourcing":
+                return self._send_outsourcing(request, execution, stage)
+            if mode == "receive-outsourcing":
+                return self._receive_outsourcing(request, execution, stage)
+        except ValueError as exc:
+            return Response(
+                {"success": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {"success": False, "message": f"Unknown mode: {mode}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # =================================================================
+    # START
+    # =================================================================
+    def _start(self, request, execution, stage):
+        """
+        Records the operator / supervisor who started work on a
+        stage. Flips `started = True` so the frontend swaps the
+        button to "Complete Process".
+        """
+
+        by = str(request.data.get("startedBy", "")).strip()
+        supervisor = str(request.data.get("supervisedBy", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        if not by:
+            raise ValueError("startedBy is required.")
+        if not supervisor:
+            raise ValueError("supervisedBy is required.")
+
+        if stage.started:
+            raise ValueError("This stage is already started.")
+
+        if stage.pending_operation_qty <= 0:
+            raise ValueError("Nothing pending to start.")
+
+        stage.started = True
+        stage.save(update_fields=["started", "updated_at"])
+
+        AssemblyStageMovement.objects.create(
+            stage=stage,
+            movement=AssemblyStageMovement.Movement.START,
+            quantity=stage.pending_operation_qty,
+            performed_by=by,
+            supervised_by=supervisor,
+            remarks=remarks,
+            created_by=request.user,
+        )
+
+        _log_event(
+            execution,
+            f"{stage.name} started by {by} "
+            f"(Supervisor: {supervisor})",
+        )
+
+        if execution.status == AssemblyExecution.Status.PENDING:
+            execution.status = AssemblyExecution.Status.IN_PROGRESS
+            execution.started_at = execution.started_at or timezone.now()
+            execution.save(update_fields=[
+                "status", "started_at", "updated_at"
+            ])
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{stage.name} started.",
+                "data": AssemblyStageExecutionSerializer(stage).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =================================================================
+    # COMPLETE
+    # =================================================================
+    def _complete(self, request, execution, stage):
+        """
+        Records completion of some or all pending qty at a stage.
+
+        - Completed qty → QC bucket (if QC required) OR straight to
+          the next stage (if not).
+        - Rejected qty  → Rework bucket AND a new ReworkRecord in the
+          Rework module via services.create_rework_from_production.
+
+        The rejected portion does NOT flow forward. It only moves when
+        the Rework module marks the record done and hands it back.
+        """
+
+        completed = _to_decimal(
+            request.data.get("completedQty", "0"), "completedQty"
+        )
+        rejected = _to_decimal(
+            request.data.get("rejectedQty", "0"), "rejectedQty"
+        )
+        remarks = str(request.data.get("remarks", "")).strip()
+        by = str(request.data.get("by", "")).strip()
+
+        # ---- Validation ----
+        if completed < 0 or rejected < 0:
+            raise ValueError("Quantities cannot be negative.")
+
+        if completed + rejected <= 0:
+            raise ValueError(
+                "Enter Completed and/or Rejected quantity."
+            )
+
+        if completed + rejected > stage.pending_operation_qty:
+            raise ValueError(
+                f"Completed + Rejected cannot exceed pending "
+                f"({stage.pending_operation_qty})."
+            )
+
+        if rejected > 0 and not by:
+            raise ValueError(
+                "`by` is required when flagging qty for rework."
+            )
+
+        # ---- Apply the change ----
+        stage.pending_operation_qty -= (completed + rejected)
+
+        if stage.qc_required:
+            stage.awaiting_qc_qty += completed
+        else:
+            stage.released_qty += completed
+            _release_to_next_stage(
+                execution, stage.sequence, completed
+            )
+
+        stage.rework_qty += rejected
+        stage.started = False
+        stage.save()
+
+        # ---- Movement log ----
+        AssemblyStageMovement.objects.create(
+            stage=stage,
+            movement=AssemblyStageMovement.Movement.COMPLETE,
+            quantity=completed,
+            performed_by=by,
+            remarks=remarks,
+            created_by=request.user,
+        )
+
+        # ---- Rework record for rejected qty ----
+        if rejected > 0:
+            AssemblyStageMovement.objects.create(
+                stage=stage,
+                movement=AssemblyStageMovement.Movement.QC_REJECT,
+                quantity=rejected,
+                performed_by=by,
+                remarks="Flagged for rework on completion.",
+                created_by=request.user,
+            )
+
+            create_rework_from_production(
+                assembly_stage_execution=stage,
+                qty=rejected,
+                reason=remarks or "Flagged for rework on completion.",
+                flagged_by=by,
+                qc_required=bool(stage.qc_required),
+                created_by=request.user,
+            )
+
+        _log_event(
+            execution,
+            f"{stage.name} completed — {completed} Nos"
+            + (
+                f", {rejected} Nos sent to Rework module"
+                if rejected > 0 else ""
+            ),
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{stage.name} completion saved.",
+                "data": AssemblyStageExecutionSerializer(stage).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =================================================================
+    # QC VERIFY
+    # =================================================================
+    def _qc(self, request, execution, stage):
+        """
+        Records QC accept/reject against qty waiting in
+        `awaiting_qc_qty`.
+
+        - Accepted → released to next stage.
+        - Rejected → Rework bucket AND a new ReworkRecord.
+        """
+
+        accepted = _to_decimal(
+            request.data.get("acceptedQty", "0"), "acceptedQty"
+        )
+        rejected = _to_decimal(
+            request.data.get("rejectedQty", "0"), "rejectedQty"
+        )
+        verified_by = str(request.data.get("verifiedBy", "")).strip()
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        if not verified_by:
+            raise ValueError("verifiedBy is required.")
+        if accepted < 0 or rejected < 0:
+            raise ValueError("Quantities cannot be negative.")
+        if accepted + rejected <= 0:
+            raise ValueError("Enter Accepted and/or Rejected quantity.")
+        if accepted + rejected > stage.awaiting_qc_qty:
+            raise ValueError(
+                f"Accepted + Rejected cannot exceed awaiting QC "
+                f"({stage.awaiting_qc_qty})."
+            )
+
+        stage.awaiting_qc_qty -= (accepted + rejected)
+        stage.released_qty += accepted
+        stage.rework_qty += rejected
+        stage.save()
+
+        if accepted > 0:
+            AssemblyStageMovement.objects.create(
+                stage=stage,
+                movement=AssemblyStageMovement.Movement.QC_ACCEPT,
+                quantity=accepted,
+                performed_by=verified_by,
+                remarks=remarks,
+                created_by=request.user,
+            )
+            _release_to_next_stage(
+                execution, stage.sequence, accepted
+            )
+
+        if rejected > 0:
+            AssemblyStageMovement.objects.create(
+                stage=stage,
+                movement=AssemblyStageMovement.Movement.QC_REJECT,
+                quantity=rejected,
+                performed_by=verified_by,
+                remarks=remarks,
+                created_by=request.user,
+            )
+
+            create_rework_from_production(
+                assembly_stage_execution=stage,
+                qty=rejected,
+                reason=remarks or "Rejected at QC.",
+                flagged_by=verified_by,
+                qc_required=bool(stage.qc_required),
+                created_by=request.user,
+            )
+
+        _log_event(
+            execution,
+            f"{stage.name} QC: {accepted} Accepted, {rejected} Rejected "
+            f"by {verified_by}"
+            + (
+                f" — {rejected} Nos sent to Rework module"
+                if rejected > 0 else ""
+            ),
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "QC verification saved.",
+                "data": AssemblyStageExecutionSerializer(stage).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =================================================================
+    # REWORK — CONFIRMATION ONLY
+    # =================================================================
+    def _rework(self, request, execution, stage):
+        """
+        Confirmation handler for the "Rework Done?" button.
+
+        Production Operation does NOT move quantity itself. The
+        actual hand-back happens inside the Rework module when
+        services.mark_rework_done is called (via
+        ReworkCompleteAPIView).
+
+        This endpoint only:
+            1. Refuses if there are still open Rework records for
+               this stage — the user must finish them in the
+               Rework module first.
+            2. Returns the current stage state so the UI refreshes.
+        """
+
+        from .models import ReworkRecord
+
+        # ---- Is there anything open? ----
+        open_records = list(
+            stage.rework_records.exclude(
+                status__in=[
+                    ReworkRecord.Status.READY_NEXT,
+                    ReworkRecord.Status.AVAILABLE_STOCK,
+                    ReworkRecord.Status.CANCELLED,
+                ]
+            )
+        )
+
+        if open_records:
+            numbers = ", ".join(r.rework_number for r in open_records)
+            raise ValueError(
+                f"Rework is still open in the Rework module "
+                f"({numbers}). Complete it there first — Production "
+                f"Operation will advance automatically once it is "
+                f"marked done."
+            )
+
+        # ---- Nothing held in rework? ----
+        if stage.rework_qty <= 0:
+            raise ValueError(
+                "Nothing is currently sitting in the rework pool "
+                "for this stage."
+            )
+
+        # ---- Reached here → records are done, but the stage
+        #      counter still shows rework_qty > 0. This means
+        #      _hand_back_to_production_* ran but couldn't move
+        #      the qty (e.g. cancelled mid-flight). Log it.
+        _log_event(
+            execution,
+            f"Rework confirmation received for {stage.name} — "
+            f"stage state unchanged.",
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Rework confirmation received. Stage state will "
+                    "refresh once the Rework module completes the "
+                    "record."
+                ),
+                "data": AssemblyStageExecutionSerializer(stage).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =================================================================
+    # SEND TO OUTSOURCING
+    # =================================================================
+    def _send_outsourcing(self, request, execution, stage):
+
+        if stage.execution_type != "Outsourcing":
+            raise ValueError("This stage is not outsourced.")
+
+        qty = _to_decimal(request.data.get("qty", "0"), "qty")
+        remarks = str(request.data.get("remarks", "")).strip()
+        dc_ref = str(request.data.get("dcRef", "")).strip()
+        erd_raw = request.data.get("expectedReturnDate")
+
+        if qty <= 0:
+            raise ValueError("Enter the quantity to send to the vendor.")
+        if qty > stage.pending_operation_qty:
+            raise ValueError(
+                f"Quantity cannot exceed what is available to send "
+                f"({stage.pending_operation_qty})."
+            )
+        if not dc_ref:
+            raise ValueError("dcRef is required.")
+
+        expected_return_date = None
+        if erd_raw:
+            try:
+                expected_return_date = date.fromisoformat(str(erd_raw))
+            except (TypeError, ValueError):
+                raise ValueError("Invalid expectedReturnDate.")
+
+        stage.pending_operation_qty -= qty
+        stage.sent_qty += qty
+        stage.save()
+
+        AssemblyStageMovement.objects.create(
+            stage=stage,
+            movement=AssemblyStageMovement.Movement.SEND_OUT,
+            quantity=qty,
+            remarks=remarks,
+            dc_ref=dc_ref,
+            expected_return_date=expected_return_date,
+            created_by=request.user,
+        )
+
+        _log_event(
+            execution,
+            f"{qty} Nos sent to {stage.vendor or 'vendor'} for "
+            f"{stage.name} — Delivery Challan {dc_ref} generated",
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Send saved. Open the Delivery Challan module.",
+                "data": AssemblyStageExecutionSerializer(stage).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # =================================================================
+    # RECEIVE FROM OUTSOURCING
+    # =================================================================
+    def _receive_outsourcing(self, request, execution, stage):
+
+        if stage.execution_type != "Outsourcing":
+            raise ValueError("This stage is not outsourced.")
+
+        qty = _to_decimal(
+            request.data.get("receivedQty", "0"), "receivedQty"
+        )
+        remarks = str(request.data.get("remarks", "")).strip()
+
+        pending_return = stage.sent_qty - stage.received_qty
+
+        if qty <= 0:
+            raise ValueError("Enter the quantity received from the vendor.")
+        if qty > pending_return:
+            raise ValueError(
+                f"Received quantity cannot exceed pending from vendor "
+                f"({pending_return})."
+            )
+
+        stage.received_qty += qty
+
+        if stage.qc_required:
+            stage.awaiting_qc_qty += qty
+        else:
+            stage.released_qty += qty
+            _release_to_next_stage(
+                execution, stage.sequence, qty
+            )
+
+        stage.save()
+
+        AssemblyStageMovement.objects.create(
+            stage=stage,
+            movement=AssemblyStageMovement.Movement.RECEIVE_IN,
+            quantity=qty,
+            remarks=remarks,
+            created_by=request.user,
+        )
+
+        remaining = pending_return - qty
+        _log_event(
+            execution,
+            f"{qty} Nos received back from {stage.vendor or 'vendor'} "
+            f"for {stage.name}"
+            + (
+                f" — {remaining} Nos still pending from vendor"
+                if remaining > 0 else " — full quantity returned"
+            ),
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Receipt saved.",
+                "data": AssemblyStageExecutionSerializer(stage).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    
+
+
+# =====================================================================
+# DISPATCH — HELPERS
+# =====================================================================
+
+
+def generate_dispatch_number():
+    """
+    Concurrency-safe dispatch number generator.
+    Auto-seeds → DISP-001. Call inside a transaction.
+    """
+    settings_obj = (
+        DispatchNumberSettings.objects
+        .select_for_update()
+        .filter(is_active=True)
+        .first()
+    )
+
+    if settings_obj is None:
+        try:
+            settings_obj = DispatchNumberSettings.objects.create(
+                prefix="DISP",
+                next_number=1,
+                number_padding=3,
+                is_active=True,
+            )
+        except IntegrityError:
+            settings_obj = (
+                DispatchNumberSettings.objects
+                .select_for_update()
+                .filter(is_active=True)
+                .first()
+            )
+
+    number = (
+        f"{settings_obj.prefix}"
+        f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
+    )
+
+    settings_obj.next_number += 1
+    settings_obj.save(
+        update_fields=["next_number", "updated_at"]
+    )
+
+    return number
+
+
+def _is_assembly_ready_for_dispatch(execution):
+    """
+    Completed production + no rework held anywhere.
+    """
+    if execution.status != AssemblyExecution.Status.COMPLETED:
+        return False
+
+    if execution.stages.filter(rework_qty__gt=0).exists():
+        return False
+
+    return True
+
+
+def _production_dates(execution):
+    """
+    Earliest Start movement + latest QC Accept movement for the
+    execution.
+    """
+    first_start = (
+        AssemblyStageMovement.objects
+        .filter(
+            stage__execution=execution,
+            movement=AssemblyStageMovement.Movement.START,
+        )
+        .order_by("created_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    last_accept = (
+        AssemblyStageMovement.objects
+        .filter(
+            stage__execution=execution,
+            movement=AssemblyStageMovement.Movement.QC_ACCEPT,
+        )
+        .order_by("-created_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+
+    start_date = first_start.date() if first_start else None
+    end_date = last_accept.date() if last_accept else None
+    return start_date, end_date
+
+
+def _assembly_dwgs(execution):
+    dwgs = set()
+    for inp in execution.assembly.inputs.all():
+        if inp.source_type == "material" and inp.drawing_number:
+            dwgs.add(inp.drawing_number)
+    return sorted(dwgs)
+
+
+def _serialize_dispatches_for_assembly(execution):
+    rows = (
+        execution.dispatches
+        .all()
+        .order_by("dispatch_date", "created_at")
+    )
+    return [
+        {
+            "id": d.id,
+            "dispatchId": d.dispatch_number,
+            "date": d.dispatch_date.isoformat(),
+            "time": d.dispatch_time or "",
+            "qty": float(d.quantity or 0),
+            "dispatchTo": d.dispatch_to or "",
+            "location": d.location or "",
+            "vehicleNumber": d.vehicle_number or "",
+            "transporter": d.transporter or "",
+            "driverName": d.driver_name or "",
+            "driverContact": d.driver_contact or "",
+            "remarks": d.remarks or "",
+            "dcChallanNumber": d.dc_challan_number or "",
+            "deliveryChallanId": d.delivery_challan_id,
+            "assemblyId": d.assembly_code,
+            "project": d.project_code,
+        }
+        for d in rows
+    ]
+def _compute_completion_status(
+    expected_date,
+    actual_date,
+    project_status,
+):
+    """
+    Returns (label, days_variance_or_none).
+
+    Rules:
+      No expected date              → ("No Plan", None)
+      No actual date + project done → ("Not Completed", None)
+      No actual date + still open   → ("In Progress", None)
+      Actual <= Expected            → ("On Time" | "Early", negative/0)
+      Actual >  Expected            → ("Late", positive)
+    """
+    if expected_date is None:
+        return "No Plan", None
+
+    if actual_date is None:
+        if project_status == "Completed":
+            return "Not Completed", None
+        return "In Progress", None
+
+    variance = (actual_date - expected_date).days
+
+    if variance > 0:
+        return "Late", variance
+    if variance < 0:
+        return "Early", variance
+    return "On Time", 0
+
+
+def _build_dispatch_row(execution):
+    planned_qty = 1.0
+
+    dispatched_qty = float(
+        execution.dispatches.aggregate(
+            total=Sum("quantity")
+        )["total"] or 0
+    )
+
+    balance_qty = max(planned_qty - dispatched_qty, 0.0)
+
+    if dispatched_qty <= 0:
+        dispatch_status = "Ready for Dispatch"
+    elif balance_qty > 0:
+        dispatch_status = "Partially Dispatched"
+    else:
+        dispatch_status = "Dispatched"
+
+    # ---- Production dates (from movements) ----
+    start_date, end_date = _production_dates(execution)
+
+    duration = "—"
+    if start_date and end_date:
+        days = (end_date - start_date).days
+        duration = f"{days} Day" + ("s" if days != 1 else "")
+
+    # ---- Expected vs Actual completion ----
+    project = execution.assembly.project
+    expected_completion = project.end_date if project else None
+    actual_completion = end_date  # last QC Accept
+
+    project_status = project.status if project else ""
+
+    completion_label, completion_variance = _compute_completion_status(
+        expected_date=expected_completion,
+        actual_date=actual_completion,
+        project_status=project_status,
+    )
+
+    rework_pending_qty = float(
+        execution.stages.aggregate(
+            total=Sum("rework_qty")
+        )["total"] or 0
+    )
+
+    dispatches = _serialize_dispatches_for_assembly(execution)
+
+    dc_references = [
+        d["dcChallanNumber"]
+        for d in dispatches
+        if d.get("dcChallanNumber")
+    ]
+
+    dispatch_dates = [d["date"] for d in dispatches if d.get("date")]
+    first_dispatch_date = min(dispatch_dates) if dispatch_dates else None
+    last_dispatch_date = max(dispatch_dates) if dispatch_dates else None
+
+    return {
+        "id": execution.id,
+        "assemblyId": execution.assembly.assembly_id,
+        "project": project.code if project else "",
+        "projectId": project.id if project else None,
+        "dwgs": _assembly_dwgs(execution),
+        "dwgText": " + ".join(_assembly_dwgs(execution)),
+        "revision": execution.assembly.dwg_description or "Rev-00",
+        "description": execution.assembly.notes or "",
+        "plannedQty": planned_qty,
+        "dispatchedQty": dispatched_qty,
+        "balanceQty": balance_qty,
+        "dispatchStatus": dispatch_status,
+        "productionStartDate": start_date,
+        "productionEndDate": end_date,
+        "duration": duration,
+
+        # ---- renamed to match frontend ----
+        "plannedEndDate": expected_completion,
+        "actualEndDate": actual_completion,
+        # -----------------------------------
+
+        "completionStatus": completion_label,
+        "completionDaysVariance": completion_variance,
+        "firstDispatchDate": first_dispatch_date,
+        "lastDispatchDate": last_dispatch_date,
+        "processChain": [
+            {"name": s.name, "qcRequired": s.qc_required}
+            for s in execution.stages.order_by("sequence")
+        ],
+        "reworkPendingQty": rework_pending_qty,
+        "dcReferences": dc_references,
+        "dispatches": dispatches,
+    }
+
+def _apply_date_filters(qs, request, date_field):
+    """
+    Apply ?dateFrom / ?dateTo on a queryset's date field.
+    """
+    date_from = request.query_params.get("dateFrom")
+    date_to = request.query_params.get("dateTo")
+
+    if date_from:
+        qs = qs.filter(**{f"{date_field}__gte": date_from})
+    if date_to:
+        qs = qs.filter(**{f"{date_field}__lte": date_to})
+
+    return qs
+
+
+def _matches_assembly_date_filters(row, request):
+    """
+    Return True if the row passes productionEndFrom/To AND
+    dispatchDateFrom/To filters.
+    """
+    prod_from = request.query_params.get("productionEndFrom")
+    prod_to = request.query_params.get("productionEndTo")
+
+    if prod_from or prod_to:
+        end = row.get("productionEndDate")
+        if end is None:
+            return False
+        if prod_from and str(end) < prod_from:
+            return False
+        if prod_to and str(end) > prod_to:
+            return False
+
+    disp_from = request.query_params.get("dispatchDateFrom")
+    disp_to = request.query_params.get("dispatchDateTo")
+
+    if disp_from or disp_to:
+        hit = False
+        for d in row.get("dispatches", []):
+            dd = d.get("date")
+            if not dd:
+                continue
+            if disp_from and dd < disp_from:
+                continue
+            if disp_to and dd > disp_to:
+                continue
+            hit = True
+            break
+        if not hit:
+            return False
+
+    return True
+
+
+# =====================================================================
+# DISPATCH — READY LIST
+# -----------------------------------------------------------------
+# GET /erp/material/dispatch/ready/
+#
+# Optional filters:
+#   ?search=<text>
+#   ?project=<code>
+#   ?assemblyId=<code>
+#   ?dispatchStatus=Ready for Dispatch|Partially Dispatched|Dispatched
+#   ?dcChallanNumber=<ref>
+#   ?productionEndFrom=YYYY-MM-DD
+#   ?productionEndTo=YYYY-MM-DD
+#   ?dispatchDateFrom=YYYY-MM-DD
+#   ?dispatchDateTo=YYYY-MM-DD
+# =====================================================================
+
+class DispatchReadyListAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        search = (request.query_params.get("search") or "").strip()
+        project_filter = request.query_params.get("project")
+        assembly_filter = request.query_params.get("assemblyId")
+        status_filter = request.query_params.get("dispatchStatus")
+        dc_filter = (request.query_params.get("dcChallanNumber") or "").strip()
+
+        executions = (
+            AssemblyExecution.objects
+            .select_related("assembly", "assembly__project")
+            .prefetch_related(
+                "stages",
+                "assembly__inputs",
+                "dispatches",
+            )
+            .filter(status=AssemblyExecution.Status.COMPLETED)
+            .order_by("-completed_at", "-created_at")
+        )
+
+        rows = []
+
+        for ex in executions:
+            if not _is_assembly_ready_for_dispatch(ex):
+                continue
+
+            if assembly_filter:
+                if ex.assembly.assembly_id.lower() != assembly_filter.lower():
+                    continue
+
+            if project_filter:
+                pcode = (
+                    ex.assembly.project.code
+                    if ex.assembly.project else ""
+                )
+                if pcode.lower() != project_filter.lower():
+                    continue
+
+            row = _build_dispatch_row(ex)
+
+            if status_filter:
+                if row["dispatchStatus"].lower() != status_filter.lower():
+                    continue
+
+            if dc_filter:
+                dcs = [d.lower() for d in row["dcReferences"]]
+                if not any(dc_filter.lower() in d for d in dcs):
+                    continue
+
+            if not _matches_assembly_date_filters(row, request):
+                continue
+
+            if search:
+                q = search.lower()
+                haystack_parts = [
+                    row.get("assemblyId") or "",
+                    row.get("project") or "",
+                    row.get("dwgText") or "",
+                    row.get("description") or "",
+                    row.get("dispatchStatus") or "",
+                ]
+                for d in row["dispatches"]:
+                    haystack_parts.extend([
+                        d.get("dispatchId") or "",
+                        d.get("dcChallanNumber") or "",
+                        d.get("vehicleNumber") or "",
+                        d.get("transporter") or "",
+                        d.get("driverName") or "",
+                        d.get("driverContact") or "",
+                        d.get("dispatchTo") or "",
+                        d.get("location") or "",
+                    ])
+                haystack = " ".join(haystack_parts).lower()
+                if q not in haystack:
+                    continue
+
+            rows.append(row)
+
+        serializer = DispatchReadyAssemblySerializer(rows, many=True)
+
+        return Response(
+            {
+                "success": True,
+                "count": len(rows),
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+
+# =====================================================================
+# DISPATCH — SEARCH
+# -----------------------------------------------------------------
+# GET /erp/material/dispatch/search/?q=<term>
+#
+# Returns matching transactions AND matching assemblies.
+# =====================================================================
+
+class DispatchSearchAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        q = (request.query_params.get("q") or "").strip()
+
+        if not q:
+            return Response(
+                {
+                    "success": True,
+                    "query": "",
+                    "transactions": [],
+                    "assemblies": [],
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        tx_qs = (
+            DispatchTransaction.objects
+            .filter(
+                Q(dispatch_number__icontains=q)
+                | Q(dc_challan_number__icontains=q)
+                | Q(assembly_code__icontains=q)
+                | Q(project_code__icontains=q)
+                | Q(vehicle_number__icontains=q)
+                | Q(driver_name__icontains=q)
+                | Q(dispatch_to__icontains=q)
+                | Q(location__icontains=q)
+            )
+            .order_by("-dispatch_date", "-created_at")[:50]
+        )
+
+        executions = (
+            AssemblyExecution.objects
+            .select_related("assembly", "assembly__project")
+            .prefetch_related(
+                "stages",
+                "assembly__inputs",
+                "dispatches",
+            )
+            .filter(status=AssemblyExecution.Status.COMPLETED)
+        )
+
+        matching_assemblies = []
+        q_lower = q.lower()
+
+        for ex in executions:
+            if not _is_assembly_ready_for_dispatch(ex):
+                continue
+
+            row = _build_dispatch_row(ex)
+
+            if not _matches_assembly_date_filters(row, request):
+                continue
+
+            haystack_parts = [
+                str(row.get("assemblyId") or ""),
+                str(row.get("project") or ""),
+                str(row.get("dwgText") or ""),
+                str(row.get("description") or ""),
+            ]
+            for d in row.get("dispatches", []):
+                haystack_parts.extend([
+                    str(d.get("dcChallanNumber") or ""),
+                    str(d.get("dispatchId") or ""),
+                    str(d.get("vehicleNumber") or ""),
+                    str(d.get("driverName") or ""),
+                ])
+
+            haystack = " ".join(haystack_parts).lower()
+
+            if q_lower in haystack:
+                matching_assemblies.append(row)
+
+        return Response(
+            {
+                "success": True,
+                "query": q,
+                "transactions": DispatchTransactionSerializer(
+                    tx_qs, many=True
+                ).data,
+                "assemblies": matching_assemblies[:50],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# DISPATCH — BY DC REFERENCE
+# -----------------------------------------------------------------
+# GET /erp/material/dispatch/by-dc/?ref=<dc number>
+# =====================================================================
+
+class DispatchByDCAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        ref = (request.query_params.get("ref") or "").strip()
+
+        if not ref:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Query parameter 'ref' is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        qs = (
+            DispatchTransaction.objects
+            .filter(dc_challan_number__icontains=ref)
+            .order_by("-dispatch_date", "-created_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "reference": ref,
+                "count": qs.count(),
+                "data": DispatchTransactionSerializer(qs, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+    
+
+# =====================================================================
+# DISPATCH — DETAIL
+# -----------------------------------------------------------------
+# GET /erp/material/dispatch/<assembly_id>/
+# =====================================================================
+
+class DispatchDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request, assembly_id):
+
+        try:
+            execution = (
+                AssemblyExecution.objects
+                .select_related("assembly", "assembly__project")
+                .prefetch_related(
+                    "stages",
+                    "assembly__inputs",
+                    "dispatches",
+                )
+                .get(assembly__assembly_id=assembly_id)
+            )
+        except AssemblyExecution.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Assembly not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        row = _build_dispatch_row(execution)
+
+        transactions = (
+            execution.dispatches
+            .all()
+            .order_by("-dispatch_date", "-created_at")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "assembly": row,
+                    "dispatches": DispatchTransactionSerializer(
+                        transactions, many=True
+                    ).data,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+    
+
+# =====================================================================
+# DISPATCH — CREATE
+# -----------------------------------------------------------------
+# POST /erp/material/dispatch/create/<assembly_id>/
+# =====================================================================
+
+class DispatchCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    @transaction.atomic
+    def post(self, request, assembly_id):
+
+        try:
+            execution = (
+                AssemblyExecution.objects
+                .select_for_update()
+                .select_related("assembly", "assembly__project")
+                .get(assembly__assembly_id=assembly_id)
+            )
+        except AssemblyExecution.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Assembly not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not _is_assembly_ready_for_dispatch(execution):
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This assembly is not ready for dispatch. "
+                        "It must complete every production stage with "
+                        "no rework pending."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = DispatchCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid dispatch data.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+
+        planned_qty = Decimal("1")
+        dispatched_so_far = (
+            execution.dispatches.aggregate(
+                total=Sum("quantity")
+            )["total"] or Decimal("0")
+        )
+        balance = planned_qty - dispatched_so_far
+
+        if data["qty"] > balance:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Dispatch quantity cannot exceed the "
+                        f"remaining balance ({balance})."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        dispatch_number = generate_dispatch_number()
+
+        dispatch_tx = DispatchTransaction.objects.create(
+            dispatch_number=dispatch_number,
+            dispatch_date=data["date"],
+            dispatch_time=(data.get("time") or "").strip(),
+            assembly_execution=execution,
+            assembly_code=execution.assembly.assembly_id,
+            project_code=(
+                execution.assembly.project.code
+                if execution.assembly.project else ""
+            ),
+            dwg_description=execution.assembly.dwg_description or "",
+            revision=(
+                execution.assembly.dwg_description or "Rev-00"
+            ),
+            dispatch_to=(data.get("dispatchTo") or "").strip(),
+            location=(data.get("location") or "").strip(),
+            vehicle_number=(data.get("vehicleNumber") or "").strip(),
+            transporter=(data.get("transporter") or "").strip(),
+            driver_name=(data.get("driverName") or "").strip(),
+            driver_contact=(data.get("driverContact") or "").strip(),
+            quantity=data["qty"],
+            remarks=(data.get("remarks") or "").strip(),
+            dc_challan_number=(
+                data.get("dcChallanNumber") or ""
+            ).strip(),
+            delivery_challan_id=(
+                data.get("deliveryChallanId") or None
+            ),
+            created_by=request.user,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{dispatch_number} recorded.",
+                "data": DispatchTransactionSerializer(dispatch_tx).data,
+                "assembly": _build_dispatch_row(execution),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
+
+# =====================================================================
+# DISPATCH — HISTORY
+# -----------------------------------------------------------------
+# GET /erp/material/dispatch/history/
+#
+# Optional filters:
+#   ?assemblyId=<code>
+#   ?dcChallanNumber=<ref>
+#   ?search=<text>
+#   ?dateFrom=YYYY-MM-DD
+#   ?dateTo=YYYY-MM-DD
+# =====================================================================
+
+class DispatchHistoryAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+
+        qs = DispatchTransaction.objects.all().order_by(
+            "-dispatch_date", "-created_at"
+        )
+
+        assembly_code = request.query_params.get("assemblyId")
+        if assembly_code:
+            qs = qs.filter(assembly_code=assembly_code)
+
+        dc_ref = request.query_params.get("dcChallanNumber")
+        if dc_ref:
+            qs = qs.filter(dc_challan_number__icontains=dc_ref)
+
+        qs = _apply_date_filters(qs, request, "dispatch_date")
+
+        search = (request.query_params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(dispatch_number__icontains=search)
+                | Q(dc_challan_number__icontains=search)
+                | Q(assembly_code__icontains=search)
+                | Q(project_code__icontains=search)
+                | Q(dwg_description__icontains=search)
+                | Q(dispatch_to__icontains=search)
+                | Q(location__icontains=search)
+                | Q(vehicle_number__icontains=search)
+                | Q(transporter__icontains=search)
+                | Q(driver_name__icontains=search)
+                | Q(driver_contact__icontains=search)
+            )
+
+        return Response(
+            {
+                "success": True,
+                "count": qs.count(),
+                "data": DispatchTransactionSerializer(qs, many=True).data,
+            },
+            status=status.HTTP_200_OK,
         )

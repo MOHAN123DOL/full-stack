@@ -1364,3 +1364,61 @@ a {
     margin-bottom: 2px;
   }
 }
+
+
+/* Added for backend integration */
+
+.grn-state-block {
+  padding: 48px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.balance-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #FEF3C7;
+  color: #B45309;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid #FDE68A;
+}
+
+.locked-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #ECFDF3;
+  color: #027A48;
+  border: 1px solid #D1FADF;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.modal-form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.status-badge-purple {
+  background: #EDE9FE;
+  color: #6D28D9;
+}
+
+.status-badge-danger {
+  background: #FEE2E2;
+  color: #B91C1C;
+}
+
+.btn-qc {
+  background: #8B5CF6;
+  color: #fff;
+}
+.btn-qc:hover {
+  background: #7C3AED;
+}

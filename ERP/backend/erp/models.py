@@ -4412,3 +4412,922 @@ class ProductionIssueNumberSettings(models.Model):
             f"{self.prefix}"
             f"{self.next_number:0{self.number_padding}d}"
         )
+
+
+
+# =====================================================================
+# PRODUCTION ASSEMBLY INTEGRATION
+# -----------------------------------------------------------------
+# An Assembly is a PLANNED combination of:
+#   - production materials (physical pieces that came back from Job Work)
+#   - previously-created assemblies
+# plus a process route with per-step execution config (In-House/Outsourcing).
+#
+# Assemblies do NOT execute production. They only describe what will be built.
+# Production Operation (future module) walks an assembly through its route.
+# =====================================================================
+
+
+class Assembly(models.Model):
+
+    class Status(models.TextChoices):
+        PLANNED = "Planned", "Planned"
+        IN_PROGRESS = "In Progress", "In Progress"
+        COMPLETED = "Completed", "Completed"
+        CANCELLED = "Cancelled", "Cancelled"
+
+    # ---- Identity ----
+    assembly_id = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+    )
+
+    project = models.ForeignKey(
+        "Project",
+        on_delete=models.PROTECT,
+        related_name="assemblies",
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.PLANNED,
+    )
+
+    # ---- Snapshot for reporting ----
+    dwg_description = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    notes = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # ---- Audit ----
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assemblies_created",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["assembly_id"]),
+            models.Index(fields=["project"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.assembly_id} ({self.project.name})"
+
+
+class AssemblyInput(models.Model):
+    """
+    One input line of an assembly — either a physical production material
+    (from a JobWorkReceivePiece) or a previously-created Assembly.
+    Exactly one of the two FKs must be set.
+    """
+
+    class SourceType(models.TextChoices):
+        MATERIAL = "material", "Material"
+        ASSEMBLY = "assembly", "Assembly"
+
+    assembly = models.ForeignKey(
+        Assembly,
+        on_delete=models.CASCADE,
+        related_name="inputs",
+    )
+
+    source_type = models.CharField(
+        max_length=20,
+        choices=SourceType.choices,
+    )
+
+    # Real material input
+    job_work_piece = models.ForeignKey(
+        "JobWorkReceivePiece",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="assembly_inputs",
+    )
+
+    # Nested assembly input
+    source_assembly = models.ForeignKey(
+        Assembly,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="used_by_inputs",
+    )
+
+    use_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
+
+    # ---- Snapshot fields ----
+    material_name = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    material_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    unit = models.CharField(
+        max_length=30,
+        blank=True,
+        default="Nos",
+    )
+
+    thickness = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    length = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    width = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    drawing_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(
+                        source_type="material",
+                        job_work_piece__isnull=False,
+                        source_assembly__isnull=True,
+                    )
+                    | models.Q(
+                        source_type="assembly",
+                        source_assembly__isnull=False,
+                        job_work_piece__isnull=True,
+                    )
+                ),
+                name="assembly_input_exactly_one_source",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.assembly.assembly_id} · "
+            f"{self.source_type} · {self.use_qty}"
+        )
+
+
+class AssemblyProcess(models.Model):
+
+    class ExecutionType(models.TextChoices):
+        IN_HOUSE = "In-House", "In-House"
+        OUTSOURCING = "Outsourcing", "Outsourcing"
+
+    assembly = models.ForeignKey(
+        Assembly,
+        on_delete=models.CASCADE,
+        related_name="processes",
+    )
+
+    sequence = models.PositiveIntegerField(default=1)
+
+    name = models.CharField(max_length=150)
+
+    process_id = models.CharField(max_length=50)
+
+    qc_required = models.BooleanField(default=False)
+
+    execution_type = models.CharField(
+        max_length=20,
+        choices=ExecutionType.choices,
+        default=ExecutionType.IN_HOUSE,
+    )
+
+    execution_unit = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # Outsourcing fields (nullable when In-House)
+    vendor = models.CharField(max_length=255, blank=True, default="")
+    vendor_contact = models.CharField(max_length=100, blank=True, default="")
+    vendor_location = models.CharField(max_length=255, blank=True, default="")
+    expected_return_date = models.DateField(null=True, blank=True)
+    outsourcing_remarks = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sequence", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["assembly", "sequence"],
+                name="assembly_process_unique_sequence",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.assembly.assembly_id} · {self.sequence}. {self.name}"
+
+
+class AssemblyNumberSettings(models.Model):
+    prefix = models.CharField(max_length=20, default="ASM")
+    next_number = models.PositiveIntegerField(default=1)
+    number_padding = models.PositiveIntegerField(default=3)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_active"],
+                condition=models.Q(is_active=True),
+                name="assemblynumbersettings_single_active",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
+
+
+
+# =====================================================================
+# PRODUCTION OPERATION
+# -----------------------------------------------------------------
+# Execution layer that walks an Assembly through its process route.
+#
+# An Assembly is a PLAN. Production Operation is what actually records:
+#   - who started/completed each process
+#   - how much quantity moves through each stage
+#   - QC accept/reject
+#   - rework hand-off to the Rework module
+#   - outsourcing send/receive with Delivery Challan refs
+#
+# Nothing here redefines the route. The route comes from
+# AssemblyProcess rows created in Production Assembly Integration.
+#
+# Full views/services are built separately. These models are also
+# the FK target for ReworkRecord.assembly_stage_execution.
+# =====================================================================
+
+
+class AssemblyExecution(models.Model):
+    """
+    One row per Assembly. Lazy-created the first time the assembly
+    is opened on Production Operation.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "Pending", "Pending"
+        IN_PROGRESS = "In Progress", "In Progress"
+        COMPLETED = "Completed", "Completed"
+        CANCELLED = "Cancelled", "Cancelled"
+
+    assembly = models.OneToOneField(
+        "Assembly",
+        on_delete=models.CASCADE,
+        related_name="execution",
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.assembly.assembly_id} — {self.status}"
+
+
+class AssemblyStageExecution(models.Model):
+    """
+    Execution state for ONE process step of one Assembly.
+
+    Counters are running tallies of quantity at each phase of the
+    stage. They are always derivable from AssemblyStageMovement rows
+    but cached here so the list view is one query.
+    """
+
+    class ExecutionType(models.TextChoices):
+        IN_HOUSE = "In-House", "In-House"
+        OUTSOURCING = "Outsourcing", "Outsourcing"
+
+    execution = models.ForeignKey(
+        AssemblyExecution,
+        on_delete=models.CASCADE,
+        related_name="stages",
+    )
+
+    assembly_process = models.ForeignKey(
+        "AssemblyProcess",
+        on_delete=models.PROTECT,
+        related_name="execution_rows",
+    )
+
+    sequence = models.PositiveIntegerField(default=1)
+    name = models.CharField(max_length=150)
+    process_id = models.CharField(max_length=50)
+    qc_required = models.BooleanField(default=False)
+
+    execution_type = models.CharField(
+        max_length=20,
+        choices=ExecutionType.choices,
+        default=ExecutionType.IN_HOUSE,
+    )
+    execution_unit = models.CharField(max_length=50, blank=True, default="")
+
+    # Outsourcing fields — mirrored from AssemblyProcess at row
+    # creation, then frozen. Production Operation never edits these.
+    vendor = models.CharField(max_length=255, blank=True, default="")
+    vendor_contact = models.CharField(max_length=100, blank=True, default="")
+    vendor_location = models.CharField(max_length=255, blank=True, default="")
+    expected_return_date = models.DateField(null=True, blank=True)
+
+    # ---- Quantity counters ----
+    available_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+    pending_operation_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+    sent_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+    received_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+    awaiting_qc_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+    rework_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+    released_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+
+    started = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["sequence", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["execution", "sequence"],
+                name="assemblystageexec_unique_sequence",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["execution"]),
+            models.Index(fields=["sequence"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.execution.assembly.assembly_id} · "
+            f"{self.sequence}. {self.name}"
+        )
+
+
+class AssemblyStageMovement(models.Model):
+    """
+    Append-only log of every quantity movement on a stage.
+    Never edited or deleted. Stage counters are updated in the same
+    transaction for read speed.
+    """
+
+    class Movement(models.TextChoices):
+        START = "Start", "Start"
+        COMPLETE = "Complete", "Complete"
+        QC_ACCEPT = "QC Accept", "QC Accept"
+        QC_REJECT = "QC Reject", "QC Reject"
+        REWORK_DONE = "Rework Done", "Rework Done"
+        SEND_OUT = "Send Out", "Send Out"
+        RECEIVE_IN = "Receive In", "Receive In"
+        RELEASE = "Release", "Release"
+
+    stage = models.ForeignKey(
+        AssemblyStageExecution,
+        on_delete=models.CASCADE,
+        related_name="movements",
+    )
+
+    movement = models.CharField(
+        max_length=20,
+        choices=Movement.choices,
+    )
+
+    quantity = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+
+    performed_by = models.CharField(max_length=150, blank=True, default="")
+    supervised_by = models.CharField(max_length=150, blank=True, default="")
+
+    remarks = models.TextField(blank=True, default="")
+
+    # Used by SEND_OUT (Delivery Challan ref) and REWORK_DONE
+    # (Rework record number) for traceability.
+    dc_ref = models.CharField(max_length=50, blank=True, default="")
+
+    expected_return_date = models.DateField(null=True, blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="assembly_stage_movements_created",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["stage"]),
+            models.Index(fields=["movement"]),
+        ]
+
+    def __str__(self):
+        return f"{self.stage} · {self.movement} · {self.quantity}"
+
+
+class AssemblyExecutionEvent(models.Model):
+    """
+    Human-readable history row per assembly. One row per meaningful
+    event. Displayed as the "Production History" section.
+    """
+
+    execution = models.ForeignKey(
+        AssemblyExecution,
+        on_delete=models.CASCADE,
+        related_name="events",
+    )
+
+    event_date = models.DateField(auto_now_add=True)
+    event_text = models.TextField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["execution"])]
+
+    def __str__(self):
+        return self.event_text[:80]
+
+
+# =====================================================================
+# REWORK MODULE
+# -----------------------------------------------------------------
+# One ReworkRecord per rework event. Two sources feed this table:
+#
+#   1. RECEIVE FROM JOB WORK — a returned piece flagged as
+#      "not usable as-is" (JobWorkReceiveRemaining.rework_required="Yes")
+#
+#   2. PRODUCTION OPERATION — QC rejects a quantity on an assembly stage
+#
+# The Rework module owns the work-detail: who, when, what was done.
+# When a record reaches full completion it hands the quantity back
+# to its source via services._hand_back_to_source(). Nothing in the
+# source modules polls; the hand-back is transactional.
+#
+# Duration is frozen on the record the moment it reaches a terminal
+# status. It is never recomputed afterwards.
+# =====================================================================
+
+
+class ReworkNumberSettings(models.Model):
+    """
+    Concurrency-safe counter for rework reference numbers.
+    Matches the pattern of every other *NumberSettings model.
+    """
+
+    prefix = models.CharField(max_length=20, default="RWK")
+    next_number = models.PositiveIntegerField(default=1)
+    number_padding = models.PositiveIntegerField(default=4)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
+
+
+class ReworkRecord(models.Model):
+
+    class Source(models.TextChoices):
+        JOB_WORK_RECEIVE = "job-work-receive", "Receive From Job Work"
+        PRODUCTION = "production", "Production Operation"
+
+    class Status(models.TextChoices):
+        REQUIRED = "Rework Required", "Rework Required"
+        IN_PROGRESS = "Rework In Progress", "Rework In Progress"
+        PARTIAL = "Partially Completed", "Partially Completed"
+        QC_PENDING = "QC Pending", "QC Pending"
+        READY_NEXT = "Ready for Next Process", "Ready for Next Process"
+        AVAILABLE_STOCK = "Available in Material Stock", "Available in Material Stock"
+        CANCELLED = "Cancelled", "Cancelled"
+
+    # ---- Identity ----
+    rework_number = models.CharField(
+        max_length=50, unique=True, db_index=True,
+    )
+
+    source_type = models.CharField(
+        max_length=30,
+        choices=Source.choices,
+        default=Source.PRODUCTION,
+        db_index=True,
+    )
+
+    # ---- Snapshot: Project / PO / DWG / Material ----
+    project = models.ForeignKey(
+        "Project",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="rework_records",
+    )
+    project_code = models.CharField(max_length=100, blank=True, default="")
+
+    po_number = models.CharField(max_length=100, blank=True, default="")
+    po_description = models.TextField(blank=True, default="")
+
+    dwg_description = models.CharField(max_length=255, blank=True, default="")
+    revision = models.CharField(max_length=50, blank=True, default="")
+
+    material = models.CharField(max_length=150, blank=True, default="")
+    material_code = models.CharField(max_length=100, blank=True, default="")
+    material_spec = models.CharField(max_length=200, blank=True, default="")
+
+    thickness = models.CharField(max_length=50, blank=True, default="")
+    length = models.CharField(max_length=50, blank=True, default="")
+    width = models.CharField(max_length=50, blank=True, default="")
+    size = models.CharField(max_length=100, blank=True, default="")
+
+    unit = models.CharField(max_length=50, blank=True, default="Nos")
+
+    # ---- Source-specific linkage (nullable) ----
+    job_work_remaining = models.ForeignKey(
+        "JobWorkReceiveRemaining",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="rework_records",
+    )
+    job_work_piece_no = models.CharField(max_length=100, blank=True, default="")
+
+    assembly_stage_execution = models.ForeignKey(
+        "AssemblyStageExecution",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="rework_records",
+    )
+    assembly_code = models.CharField(max_length=50, blank=True, default="")
+    process_name = models.CharField(max_length=150, blank=True, default="")
+    process_id = models.CharField(max_length=50, blank=True, default="")
+
+    # ---- Quantities ----
+    required_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+    completed_qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+
+    # ---- Reason / who flagged it ----
+    reason = models.TextField(
+        blank=True, default="",
+        help_text="Why this was flagged for rework.",
+    )
+    flagged_by = models.CharField(max_length=150, blank=True, default="")
+
+    # ---- Work details ----
+    rework_by = models.CharField(max_length=150, blank=True, default="")
+    supervisor = models.CharField(max_length=150, blank=True, default="")
+    start_remarks = models.TextField(blank=True, default="")
+
+    # ---- Timing ----
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    # Wall-clock minutes between started_at and completed_at.
+    # Populated once, when the record reaches a terminal status.
+    # Never recomputed afterwards.
+    duration_minutes = models.IntegerField(null=True, blank=True)
+
+    # ---- QC verification (source=production and qc_required only) ----
+    qc_required = models.BooleanField(default=False)
+    qc_verified_by = models.CharField(max_length=150, blank=True, default="")
+    qc_result = models.CharField(max_length=20, blank=True, default="")
+    qc_remarks = models.TextField(blank=True, default="")
+    qc_at = models.DateTimeField(null=True, blank=True)
+
+    # ---- Status ----
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.REQUIRED,
+        db_index=True,
+    )
+
+    # ---- Audit ----
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="rework_records_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["rework_number"]),
+            models.Index(fields=["source_type"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["project"]),
+        ]
+
+    def __str__(self):
+        return f"{self.rework_number} · {self.project_code} · {self.required_qty}"
+
+    @property
+    def balance_qty(self):
+        return (self.required_qty or 0) - (self.completed_qty or 0)
+
+
+class ReworkCompletion(models.Model):
+    """
+    One row per partial completion. Multiple per rework record allowed.
+    """
+
+    rework = models.ForeignKey(
+        ReworkRecord,
+        on_delete=models.CASCADE,
+        related_name="completions",
+    )
+
+    qty = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+
+    completed_by = models.CharField(max_length=150, blank=True, default="")
+    remarks = models.TextField(blank=True, default="")
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="rework_completions_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["rework"])]
+
+    def __str__(self):
+        return f"{self.rework.rework_number} · {self.qty}"
+
+
+class ReworkHistory(models.Model):
+    """
+    Append-only history. One row per meaningful event.
+    The row's created_at is the event timestamp.
+    """
+
+    rework = models.ForeignKey(
+        ReworkRecord,
+        on_delete=models.CASCADE,
+        related_name="history",
+    )
+
+    event_text = models.TextField()
+    performed_by = models.CharField(max_length=150, blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["rework"])]
+
+    def __str__(self):
+        return self.event_text[:80]
+
+
+
+
+
+
+# =====================================================================
+# DISPATCH
+# -----------------------------------------------------------------
+# One DispatchTransaction row per outbound shipment against a
+# completed Assembly. Production data (start/end dates, process
+# chain, rework state) lives on AssemblyExecution / AssemblyStageExecution
+# — this module only records outbound movement and references the
+# Delivery Challan used for the shipment.
+# =====================================================================
+
+
+class DispatchNumberSettings(models.Model):
+    """
+    Concurrency-safe counter for dispatch numbers, matching the
+    pattern used by every other *NumberSettings model.
+    """
+
+    prefix = models.CharField(max_length=20, default="DISP")
+    next_number = models.PositiveIntegerField(default=1)
+    number_padding = models.PositiveIntegerField(default=3)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_active"],
+                condition=models.Q(is_active=True),
+                name="dispatchnumbersettings_single_active",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
+
+
+class DispatchTransaction(models.Model):
+    """
+    One outbound shipment of a completed assembly.
+    """
+
+    # ---- Identity ----
+    dispatch_number = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+    )
+
+    dispatch_date = models.DateField()
+
+    dispatch_time = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+    )
+
+    # ---- Assembly link ----
+    assembly_execution = models.ForeignKey(
+        "AssemblyExecution",
+        on_delete=models.PROTECT,
+        related_name="dispatches",
+    )
+
+    # ---- Snapshot fields ----
+    assembly_code = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+
+    project_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    dwg_description = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    revision = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    # ---- Destination / transport ----
+    dispatch_to = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+
+    location = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+
+    vehicle_number = models.CharField(
+        max_length=50, blank=True, default=""
+    )
+
+    transporter = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+
+    driver_name = models.CharField(
+        max_length=150, blank=True, default=""
+    )
+
+    driver_contact = models.CharField(
+        max_length=50, blank=True, default=""
+    )
+
+    # ---- Quantity ----
+    quantity = models.DecimalField(
+        max_digits=15, decimal_places=3, default=0,
+    )
+
+    remarks = models.TextField(blank=True, default="")
+
+    # ---- Delivery Challan reference ----
+    dc_challan_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Delivery Challan number raised for this shipment.",
+    )
+
+    delivery_challan = models.ForeignKey(
+        "DeliveryChallan",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dispatch_transactions",
+        help_text="Optional link to the Delivery Challan record, if any.",
+    )
+
+    # ---- Audit ----
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dispatches_created",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-dispatch_date", "-created_at"]
+        indexes = [
+            models.Index(fields=["assembly_execution"]),
+            models.Index(fields=["assembly_code"]),
+            models.Index(fields=["dispatch_date"]),
+            models.Index(fields=["dc_challan_number"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.dispatch_number} — "
+            f"{self.assembly_code} — {self.quantity}"
+        )

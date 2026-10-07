@@ -1,23 +1,29 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Search, X, Eye, History } from "lucide-react";
+import {
+  ArrowLeft,
+  Search,
+  X,
+  Eye,
+  History,
+  RefreshCw,
+} from "lucide-react";
+
 import Header from "../../components/Header";
+import Loading from "../../components/loading";
+import Error from "../../components/error";
+
+import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
+
 import "./Rework.css";
 
-const today = () => new Date().toISOString().slice(0, 10);
-const nowTime = () =>
-  new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const hist = (date, time, event) => ({ date, time, event });
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
 
-const employees = [
-  "R. Kumar",
-  "S. Elango",
-  "Manoj Prabhu",
-  "Arun Kumar",
-  "Ravi Shankar",
-  "Suresh",
-  "Kumar",
-];
+const API_BASE = "/erp/material";
+const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 const STATUS = {
   REQUIRED: "Rework Required",
@@ -35,447 +41,154 @@ const ACTIVE_STATUSES = [
   STATUS.QC_PENDING,
 ];
 
-const TERMINAL_STATUSES = [STATUS.READY_NEXT, STATUS.AVAILABLE_STOCK];
+const SOURCE_JOB_WORK = "job-work-receive";
+const SOURCE_PRODUCTION = "production";
 
-const initialReworkJobWork = [
-  {
-    reworkId: "RW-RJ-001",
-    sourceType: "RECEIVE_FROM_JOBWORK",
-    sourceId: "JW-1001",
-    poId: "PO-001",
-    poNumber: "PO-001",
-    poDescription: "Description-1",
-    supplier: "—",
-    project: "BHEL Project",
-    dwg: "DWG-001",
-    dwgDescription: "DWG-001 / Description-1",
-    revision: "REV-01",
-    material: "Plate",
-    materialCode: "15110292000",
-    materialSpec: "IS2062 E250A",
-    thickness: "8 mm",
-    pieceNo: "PL-026",
-    length: "500",
-    width: "400",
-    size: "500 × 400",
-    unit: "Nos",
-    requiredQty: 1,
-    completedQty: 0,
-    status: STATUS.REQUIRED,
-    createdDate: "2026-09-05",
-    createdTime: "10:00",
-    start: null,
-    completions: [],
-    history: [
-      hist(
-        "2026-09-05",
-        "10:00",
-        "Remaining piece PL-026 flagged for rework during Receive From Job Work (1 of 26 not usable as-is)."
-      ),
-    ],
-  },
-  {
-    reworkId: "RW-RJ-002",
-    sourceType: "RECEIVE_FROM_JOBWORK",
-    sourceId: "JW-1002",
-    poId: "PO-002",
-    poNumber: "PO-002",
-    poDescription: "Description-2",
-    supplier: "Shree Fabricators",
-    project: "NTPC Structural Project",
-    dwg: "DWG-101",
-    dwgDescription: "DWG-101 / Description-2",
-    revision: "REV-01",
-    material: "Pipe",
-    materialCode: "15038626610",
-    materialSpec: "IS1161 YST240",
-    thickness: "4 mm",
-    pieceNo: "PI-045",
-    length: "1200",
-    width: "—",
-    size: "100 NB",
-    unit: "Mtr",
-    requiredQty: 1,
-    completedQty: 0,
-    status: STATUS.IN_PROGRESS,
-    createdDate: "2026-09-02",
-    createdTime: "15:20",
-    start: {
-      by: "Arun",
-      supervisor: "Ravi",
-      date: "2026-09-03",
-      time: "09:15",
-      remarks:
-        "Weld seam misalignment on outer joint — realign and reweld before re-offering to QC.",
-    },
-    completions: [],
-    history: [
-      hist(
-        "2026-09-02",
-        "15:20",
-        "Remaining piece PI-045 flagged for rework during Receive From Job Work."
-      ),
-      hist(
-        "2026-09-03",
-        "09:15",
-        "Rework started by Arun (Supervisor: Ravi)."
-      ),
-    ],
-  },
-  {
-    reworkId: "RW-RJ-003",
-    sourceType: "RECEIVE_FROM_JOBWORK",
-    sourceId: "JW-1004",
-    poId: "PO-004",
-    poNumber: "PO-004",
-    poDescription: "Description-4",
-    supplier: "—",
-    project: "BHEL Project",
-    dwg: "DWG-004",
-    dwgDescription: "DWG-004 / Description-4",
-    revision: "REV-02",
-    material: "Plate",
-    materialCode: "15110294000",
-    materialSpec: "IS2062 E250A",
-    thickness: "10 mm",
-    pieceNo: "PL-118 to PL-120",
-    length: "600",
-    width: "600",
-    size: "600 × 600",
-    unit: "Nos",
-    requiredQty: 3,
-    completedQty: 2,
-    status: STATUS.PARTIAL,
-    createdDate: "2026-08-28",
-    createdTime: "11:40",
-    start: {
-      by: "Suresh",
-      supervisor: "Ravi",
-      date: "2026-08-29",
-      time: "09:00",
-      remarks:
-        "3 plates undersized after cutting — trim and re-check dimensions.",
-    },
-    completions: [
-      {
-        by: "Suresh",
-        date: "2026-08-30",
-        time: "16:10",
-        qty: 2,
-        remarks: "PL-118 and PL-119 corrected and verified against drawing.",
-      },
-    ],
-    history: [
-      hist(
-        "2026-08-28",
-        "11:40",
-        "3 remaining pieces flagged for rework during Receive From Job Work."
-      ),
-      hist(
-        "2026-08-29",
-        "09:00",
-        "Rework started by Suresh (Supervisor: Ravi)."
-      ),
-      hist(
-        "2026-08-30",
-        "16:10",
-        "2 of 3 pieces completed by Suresh — 1 remaining."
-      ),
-    ],
-  },
-  {
-    reworkId: "RW-RJ-004",
-    sourceType: "RECEIVE_FROM_JOBWORK",
-    sourceId: "JW-1003",
-    poId: "DPO-001",
-    poNumber: "DPO-001",
-    poDescription: "Description-1",
-    supplier: "—",
-    project: "BHEL Project",
-    dwg: "DWG-001",
-    dwgDescription: "DWG-001 / Description-1",
-    revision: "REV-01",
-    material: "Plate",
-    materialCode: "15110293000",
-    materialSpec: "IS2062 E250A",
-    thickness: "10 mm",
-    pieceNo: "PL-060",
-    length: "500",
-    width: "600",
-    size: "500 × 600",
-    unit: "Nos",
-    requiredQty: 1,
-    completedQty: 1,
-    status: STATUS.AVAILABLE_STOCK,
-    createdDate: "2026-08-20",
-    createdTime: "09:30",
-    start: {
-      by: "Manoj Prabhu",
-      supervisor: "Ravi",
-      date: "2026-08-20",
-      time: "13:00",
-      remarks:
-        "Edge chipped during bending — grind and re-check squareness.",
-    },
-    completions: [
-      {
-        by: "Manoj Prabhu",
-        date: "2026-08-21",
-        time: "10:45",
-        qty: 1,
-        remarks: "Edge reworked and verified — dimension within tolerance.",
-      },
-    ],
-    history: [
-      hist(
-        "2026-08-20",
-        "09:30",
-        "Remaining piece PL-060 flagged for rework during Receive From Job Work."
-      ),
-      hist(
-        "2026-08-20",
-        "13:00",
-        "Rework started by Manoj Prabhu (Supervisor: Ravi)."
-      ),
-      hist(
-        "2026-08-21",
-        "10:45",
-        "1 of 1 pieces completed by Manoj Prabhu — Rework Completed."
-      ),
-      hist(
-        "2026-08-21",
-        "10:45",
-        "Material PL-060 made Available in Material Stock (Rework ID RW-RJ-004)."
-      ),
-    ],
-  },
-];
+/* ============================================================
+   HELPERS
+   ============================================================ */
 
-// =========================================================================
-// Seed data — Rework items sourced from Production Operation
-// =========================================================================
-const initialReworkProduction = [
-  {
-    reworkId: "RW-PO-001",
-    sourceType: "PRODUCTION_OPERATION",
-    sourceId: "ASM-001/WEL01",
-    project: "BHEL-001",
-    dwg: "DWG-01 + DWG-02",
-    assemblyId: "ASM-001",
-    material: "Plate + Pipe",
-    description: "Base Plate — Description-1",
-    process: "Welding",
-    processId: "WEL01",
-    unit: "Nos",
-    totalQty: 5,
-    qcAcceptedQty: 4,
-    rejectedQty: 1,
-    completedQty: 0,
-    qcRequired: true,
-    status: STATUS.REQUIRED,
-    createdDate: "2026-08-24",
-    createdTime: "11:15",
-    start: null,
-    completions: [],
-    qc: null,
-    history: [
-      hist(
-        "2026-08-24",
-        "11:15",
-        "Welding QC: 4 Accepted, 1 Rejected by Ravi Shankar — porosity near joint 3."
-      ),
-      hist(
-        "2026-08-24",
-        "11:15",
-        "1 Nos sent to Rework (Welding) — Rework ID RW-PO-001 created."
-      ),
-    ],
-  },
-  {
-    reworkId: "RW-PO-002",
-    sourceType: "PRODUCTION_OPERATION",
-    sourceId: "ASM-004/GRD01",
-    project: "BHEL-002",
-    dwg: "DWG-101",
-    assemblyId: "ASM-004",
-    material: "Angle",
-    description: "Support Angle — Description-5",
-    process: "Grinding",
-    processId: "GRD01",
-    unit: "Nos",
-    totalQty: 8,
-    qcAcceptedQty: 6,
-    rejectedQty: 2,
-    completedQty: 0,
-    qcRequired: false,
-    status: STATUS.IN_PROGRESS,
-    createdDate: "2026-08-21",
-    createdTime: "14:00",
-    start: {
-      by: "S. Elango",
-      supervisor: "Manoj Prabhu",
-      date: "2026-08-22",
-      time: "09:30",
-      remarks:
-        "2 pieces over-ground below tolerance — build up and re-finish.",
-    },
-    completions: [],
-    qc: null,
-    history: [
-      hist(
-        "2026-08-21",
-        "14:00",
-        "Grinding: 2 of 8 pieces over-ground — sent to Rework."
-      ),
-      hist(
-        "2026-08-22",
-        "09:30",
-        "Rework started by S. Elango (Supervisor: Manoj Prabhu)."
-      ),
-    ],
-  },
-  {
-    reworkId: "RW-PO-003",
-    sourceType: "PRODUCTION_OPERATION",
-    sourceId: "ASM-005/NDT01",
-    project: "BHEL-002",
-    dwg: "DWG-102",
-    assemblyId: "ASM-005",
-    material: "Channel",
-    description: "Cross Brace — Description-6",
-    process: "NDT",
-    processId: "NDT01",
-    unit: "Nos",
-    totalQty: 3,
+function getApiError(error, fallback = GENERIC_ERROR) {
+  const data = error?.response?.data;
+  if (typeof data?.detail === "string") return data.detail;
+  if (typeof data?.message === "string") return data.message;
+  if (data && typeof data === "object") {
+    const first = Object.values(data).flat().find((v) => typeof v === "string");
+    if (first) return first;
+  }
+  if (error?.message) return error.message;
+  return fallback;
+}
+
+function fmt(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function nowTime() {
+  return new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/* ============================================================
+   BACKEND ROW → FRONTEND ROW
+   ============================================================ */
+
+function buildRowFromApi(rec) {
+  const isRjw = rec.sourceType === SOURCE_JOB_WORK;
+
+  const requiredQty = Number(rec.requiredQty) || 0;
+  const completedQty = Number(rec.completedQty) || 0;
+  const balanceQty = Math.max(requiredQty - completedQty, 0);
+
+  const start = rec.startedAt
+    ? {
+        by: rec.reworkBy || "—",
+        supervisor: rec.supervisor || "—",
+        date: rec.startedAt.slice(0, 10),
+        time: rec.startedAt.slice(11, 16),
+        remarks: rec.startRemarks || "",
+      }
+    : null;
+
+  const completions = (rec.completions || []).map((c) => ({
+    by: c.completedBy || "—",
+    date: c.date,
+    time: c.time,
+    qty: Number(c.qty) || 0,
+    remarks: c.remarks || "",
+  }));
+
+  const qc = rec.qcVerifiedBy
+    ? {
+        verifiedBy: rec.qcVerifiedBy,
+        result: rec.qcResult,
+        date: rec.qcAt ? rec.qcAt.slice(0, 10) : "",
+        time: rec.qcAt ? rec.qcAt.slice(11, 16) : "",
+        remarks: rec.qcRemarks || "",
+      }
+    : null;
+
+  const base = {
+    id: rec.id,
+    reworkId: rec.reworkId,
+    sourceType: rec.sourceType,
+    sourceLabel: rec.sourceLabel,
+    isRjw,
+
+    status: rec.status,
+    requiredQty,
+    completedQty,
+    balanceQty,
+    durationMinutes: rec.durationMinutes,
+    durationLabel: rec.durationLabel,
+
+    createdDate: rec.createdDate,
+    createdTime: rec.createdTime,
+    startedAt: rec.startedAt,
+    completedAt: rec.completedAt,
+
+    project: rec.project,
+    dwg: rec.dwgDescription,
+    dwgDescription: rec.dwgDescription,
+    revision: rec.revision,
+    material: rec.material,
+    materialCode: rec.materialCode,
+    materialSpec: rec.materialSpec,
+    thickness: rec.thickness,
+    length: rec.length,
+    width: rec.width,
+    size: rec.size,
+    unit: rec.unit,
+    reason: rec.reason,
+    flaggedBy: rec.flaggedBy,
+
+    start,
+    completions,
+    qc,
+    history: (rec.history || []).map((h) => ({
+      date: h.date,
+      time: h.time,
+      event: h.event,
+    })),
+  };
+
+  if (isRjw) {
+    return {
+      ...base,
+      poId: rec.poNumber || "",
+      poNumber: rec.poNumber || "",
+      poDescription: rec.poDescription || "",
+      supplier: rec.flaggedBy || "—",
+      pieceNo: rec.jobWorkPieceNo || "",
+    };
+  }
+
+  return {
+    ...base,
+    assemblyId: rec.assemblyCode || "",
+    description: rec.reason || "",
+    process: rec.process || "",
+    processId: rec.processId || "",
+    totalQty: requiredQty,
     qcAcceptedQty: 0,
-    rejectedQty: 3,
-    completedQty: 2,
-    qcRequired: true,
-    status: STATUS.PARTIAL,
-    createdDate: "2026-08-18",
-    createdTime: "10:05",
-    start: {
-      by: "R. Kumar",
-      supervisor: "Arun Kumar",
-      date: "2026-08-19",
-      time: "08:45",
-      remarks:
-        "3 welds failed NDT — reweld and re-offer for inspection.",
-    },
-    completions: [
-      {
-        by: "R. Kumar",
-        date: "2026-08-20",
-        time: "17:00",
-        qty: 2,
-        remarks:
-          "2 welds re-done and visually verified — ready for re-inspection.",
-      },
-    ],
-    qc: null,
-    history: [
-      hist(
-        "2026-08-18",
-        "10:05",
-        "NDT: 3 of 3 pieces failed inspection — sent to Rework."
-      ),
-      hist(
-        "2026-08-19",
-        "08:45",
-        "Rework started by R. Kumar (Supervisor: Arun Kumar)."
-      ),
-      hist(
-        "2026-08-20",
-        "17:00",
-        "2 of 3 pieces completed by R. Kumar — 1 remaining."
-      ),
-    ],
-  },
-  {
-    reworkId: "RW-PO-004",
-    sourceType: "PRODUCTION_OPERATION",
-    sourceId: "ASM-003/FIT01",
-    project: "BHEL-001",
-    dwg: "DWG-01 + DWG-02",
-    assemblyId: "ASM-003",
-    material: "Plate + Pipe (via ASM-001, ASM-002)",
-    description: "Combined Frame — Description-1",
-    process: "Fit-up",
-    processId: "FIT01",
-    unit: "Unit",
-    totalQty: 1,
-    qcAcceptedQty: 0,
-    rejectedQty: 1,
-    completedQty: 1,
-    qcRequired: true,
-    status: STATUS.READY_NEXT,
-    createdDate: "2026-08-10",
-    createdTime: "09:00",
-    start: {
-      by: "Manoj Prabhu",
-      supervisor: "Arun Kumar",
-      date: "2026-08-11",
-      time: "09:30",
-      remarks: "Fit-up gap out of tolerance — re-align and re-tack.",
-    },
-    completions: [
-      {
-        by: "Manoj Prabhu",
-        date: "2026-08-12",
-        time: "15:20",
-        qty: 1,
-        remarks: "Gap corrected and re-tacked within tolerance.",
-      },
-    ],
-    qc: {
-      verifiedBy: "Ravi Shankar",
-      result: "Approved",
-      date: "2026-08-13",
-      time: "10:00",
-      remarks: "Fit-up re-verified — cleared for Welding.",
-    },
-    history: [
-      hist(
-        "2026-08-10",
-        "09:00",
-        "Fit-up: 1 of 1 piece rejected — sent to Rework."
-      ),
-      hist(
-        "2026-08-11",
-        "09:30",
-        "Rework started by Manoj Prabhu (Supervisor: Arun Kumar)."
-      ),
-      hist(
-        "2026-08-12",
-        "15:20",
-        "1 of 1 pieces completed by Manoj Prabhu — Rework Completed."
-      ),
-      hist(
-        "2026-08-13",
-        "10:00",
-        "QC Approved by Ravi Shankar — Ready for Next Process."
-      ),
-    ],
-  },
-];
+    rejectedQty: requiredQty,
+    qcRequired: !!rec.qcRequired,
+  };
+}
 
-// -------------------------------------------------------------------------
-// Row builders
-// -------------------------------------------------------------------------
-const buildRjwRow = (item) => ({
-  ...item,
-  balanceQty: item.requiredQty - item.completedQty,
-});
+/* ============================================================
+   FILTERS
+   ============================================================ */
 
-const buildPoRow = (item) => ({
-  ...item,
-  requiredQty: item.rejectedQty,
-  balanceQty: item.rejectedQty - item.completedQty,
-});
-
-// -------------------------------------------------------------------------
-// Filters
-// -------------------------------------------------------------------------
 const RJW_FILTER_FIELDS = [
   { key: "project", label: "Project", type: "select" },
   { key: "poNumber", label: "PO Number", type: "select" },
@@ -551,9 +264,10 @@ const matchesSearch = (row, search, fields) => {
   );
 };
 
-// -------------------------------------------------------------------------
-// Forms
-// -------------------------------------------------------------------------
+/* ============================================================
+   FORMS
+   ============================================================ */
+
 const emptyStartForm = () => ({
   by: "",
   supervisor: "",
@@ -587,14 +301,20 @@ const ACTION_SAVE_LABELS = {
   qc: "Save QC Result",
 };
 
-// =========================================================================
-// Main component
-// =========================================================================
+/* ============================================================
+   MAIN COMPONENT
+   ============================================================ */
+
 export default function Rework() {
   const navigate = useNavigate();
+  const { accessToken } = useAuth();
 
-  const [rjwItems, setRjwItems] = useState(initialReworkJobWork);
-  const [poItems, setPoItems] = useState(initialReworkProduction);
+  const [rjwItems, setRjwItems] = useState([]);
+  const [poItems, setPoItems] = useState([]);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
 
   const [activeTab, setActiveTab] = useState("rjw");
   const [viewMode, setViewMode] = useState("active");
@@ -606,9 +326,9 @@ export default function Rework() {
   const [actionState, setActionState] = useState(null);
   const [form, setForm] = useState({});
   const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const isRjw = activeTab === "rjw";
-  const setItems = isRjw ? setRjwItems : setPoItems;
 
   const filterFields = isRjw ? RJW_FILTER_FIELDS : PO_FILTER_FIELDS;
   const searchFields = isRjw ? RJW_SEARCH_FIELDS : PO_SEARCH_FIELDS;
@@ -617,13 +337,61 @@ export default function Rework() {
       ? [...filterFields, HISTORY_EXTRA_FIELD]
       : filterFields;
 
-  // ---------------------------------------------------------------------
-  // Derived rows
-  // ---------------------------------------------------------------------
-  const allRows = useMemo(
-    () => (isRjw ? rjwItems.map(buildRjwRow) : poItems.map(buildPoRow)),
-    [isRjw, rjwItems, poItems]
+  /* ============================================================
+     AUTH HEADERS
+     ============================================================ */
+
+  const authHeaders = useCallback(
+    () => ({ Authorization: `Bearer ${accessToken}` }),
+    [accessToken]
   );
+
+  /* ============================================================
+     FETCH
+     ============================================================ */
+
+  const fetchAll = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!accessToken) return;
+      try {
+        if (!silent) setIsLoading(true);
+        setError("");
+
+        const res = await api.get(`${API_BASE}/rework/`, {
+          headers: authHeaders(),
+        });
+
+        const list = Array.isArray(res.data?.data) ? res.data.data : [];
+        const rows = list.map(buildRowFromApi);
+
+        setRjwItems(rows.filter((r) => r.isRjw));
+        setPoItems(rows.filter((r) => !r.isRjw));
+      } catch (err) {
+        console.error("Failed to load rework records:", err);
+        setError(getApiError(err, "Failed to load rework records."));
+        setRjwItems([]);
+        setPoItems([]);
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [accessToken, authHeaders]
+  );
+
+  useEffect(() => {
+    if (!accessToken) {
+      setError("Your session has expired. Please login again.");
+      setIsLoading(false);
+      return;
+    }
+    fetchAll();
+  }, [accessToken, fetchAll]);
+
+  /* ============================================================
+     DERIVED
+     ============================================================ */
+
+  const allRows = isRjw ? rjwItems : poItems;
 
   const scopedRows = useMemo(
     () =>
@@ -649,23 +417,17 @@ export default function Rework() {
   );
 
   const viewRow = viewId
-    ? isRjw
-      ? buildRjwRow(rjwItems.find((r) => r.reworkId === viewId))
-      : buildPoRow(poItems.find((r) => r.reworkId === viewId))
+    ? allRows.find((r) => r.reworkId === viewId)
     : null;
 
-  const actionItem = actionState
-    ? (isRjw ? rjwItems : poItems).find((r) => r.reworkId === actionState.id)
-    : null;
-  const actionRow = actionItem
-    ? isRjw
-      ? buildRjwRow(actionItem)
-      : buildPoRow(actionItem)
+  const actionRow = actionState
+    ? allRows.find((r) => r.reworkId === actionState.id)
     : null;
 
-  // ---------------------------------------------------------------------
-  // Handlers
-  // ---------------------------------------------------------------------
+  /* ============================================================
+     HANDLERS
+     ============================================================ */
+
   const switchTab = (tab) => {
     setActiveTab(tab);
     setViewMode("active");
@@ -696,140 +458,131 @@ export default function Rework() {
     else setForm(emptyQcForm());
   };
   const closeAction = () => {
+    if (saving) return;
     setActionState(null);
     setForm({});
     setFormError("");
   };
 
-  const updateItem = (id, updater) => {
-    setItems((prev) =>
-      prev.map((it) => (it.reworkId === id ? updater(it) : it))
-    );
-  };
-  const pushHistory = (id, event) => {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.reworkId === id
-          ? { ...it, history: [...it.history, hist(today(), nowTime(), event)] }
-          : it
-      )
-    );
+  /* ============================================================
+     SAVE — START
+     ============================================================ */
+
+  const handleSaveStart = async () => {
+    if (!form.by.trim()) return setFormError("Please enter Rework Done By.");
+    if (!form.supervisor.trim())
+      return setFormError("Please enter Supervisor.");
+
+    setSaving(true);
+    setFormError("");
+    try {
+      await api.post(
+        `${API_BASE}/rework/${actionRow.id}/start/`,
+        {
+          by: form.by.trim(),
+          supervisor: form.supervisor.trim(),
+          remarks: form.remarks.trim(),
+        },
+        { headers: authHeaders() }
+      );
+      closeAction();
+      await fetchAll({ silent: true });
+    } catch (err) {
+      setFormError(getApiError(err, "Failed to start rework."));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleSaveStart = () => {
-    if (!form.by) return setFormError("Please select Rework Done By.");
-    if (!form.supervisor) return setFormError("Please select Supervisor.");
-    const { id } = actionState;
-    updateItem(id, (it) => ({
-      ...it,
-      status: STATUS.IN_PROGRESS,
-      start: {
-        by: form.by,
-        supervisor: form.supervisor,
-        date: form.date,
-        time: form.time,
-        remarks: form.remarks.trim(),
-      },
-    }));
-    pushHistory(id, `Rework started by ${form.by} (Supervisor: ${form.supervisor}).`);
-    closeAction();
-  };
+  /* ============================================================
+     SAVE — COMPLETE
+     ============================================================ */
 
-  const handleSaveComplete = () => {
+  const handleSaveComplete = async () => {
     const qty = Number(form.qty) || 0;
-    if (!form.by) return setFormError("Please select Completed By.");
-    if (qty <= 0) return setFormError("Enter a Completed Quantity greater than 0.");
+    if (!form.by.trim()) return setFormError("Please enter Completed By.");
+    if (qty <= 0)
+      return setFormError("Enter a Completed Quantity greater than 0.");
     if (qty > actionRow.balanceQty) {
       return setFormError(
         `Completed Quantity cannot exceed the balance rework quantity (${actionRow.balanceQty}).`
       );
     }
-    const { id } = actionState;
-    const newCompleted = actionItem.completedQty + qty;
-    const newBalance = actionRow.requiredQty - newCompleted;
-    let nextStatus;
-    if (newBalance > 0) {
-      nextStatus = STATUS.PARTIAL;
-    } else if (isRjw) {
-      nextStatus = STATUS.AVAILABLE_STOCK;
-    } else {
-      nextStatus = actionItem.qcRequired ? STATUS.QC_PENDING : STATUS.READY_NEXT;
-    }
-    updateItem(id, (it) => ({
-      ...it,
-      completedQty: newCompleted,
-      status: nextStatus,
-      completions: [
-        ...it.completions,
+
+    setSaving(true);
+    setFormError("");
+    try {
+      await api.post(
+        `${API_BASE}/rework/${actionRow.id}/complete/`,
         {
-          by: form.by,
-          date: form.date,
-          time: form.time,
           qty,
+          by: form.by.trim(),
           remarks: form.remarks.trim(),
         },
-      ],
-    }));
-    pushHistory(
-      id,
-      `${newCompleted} of ${actionRow.requiredQty} completed by ${form.by}${
-        newBalance > 0
-          ? ` — ${newBalance} remaining.`
-          : " — Rework Completed."
-      }`
-    );
-    if (newBalance === 0) {
-      if (isRjw) {
-        pushHistory(
-          id,
-          `Material made Available in Material Stock (Rework ID ${id}).`
-        );
-      } else if (actionItem.qcRequired) {
-        pushHistory(id, "Sent for QC verification.");
-      } else {
-        pushHistory(id, "Quantity released to the next production process.");
-      }
+        { headers: authHeaders() }
+      );
+      closeAction();
+      await fetchAll({ silent: true });
+    } catch (err) {
+      setFormError(getApiError(err, "Failed to save completion."));
+    } finally {
+      setSaving(false);
     }
-    closeAction();
   };
 
-  const handleSaveQc = () => {
-    if (!form.verifiedBy) return setFormError("Please select QC Verified By.");
-    const { id } = actionState;
-    const approved = form.result === "Approved";
-    updateItem(id, (it) => ({
-      ...it,
-      status: approved ? STATUS.READY_NEXT : STATUS.REQUIRED,
-      completedQty: approved ? it.completedQty : 0,
-      qc: {
-        verifiedBy: form.verifiedBy,
-        result: form.result,
-        date: form.date,
-        time: form.time,
-        remarks: form.remarks.trim(),
-      },
-    }));
-    pushHistory(
-      id,
-      approved
-        ? `QC Approved by ${form.verifiedBy} — Ready for Next Process.`
-        : `QC Rejected by ${form.verifiedBy} — Rework Required again.`
-    );
-    closeAction();
+  /* ============================================================
+     SAVE — QC
+     ============================================================ */
+
+  const handleSaveQc = async () => {
+    if (!form.verifiedBy.trim())
+      return setFormError("Please enter QC Verified By.");
+
+    setSaving(true);
+    setFormError("");
+    try {
+      await api.post(
+        `${API_BASE}/rework/${actionRow.id}/qc/`,
+        {
+          verifiedBy: form.verifiedBy.trim(),
+          result: form.result,
+          remarks: form.remarks.trim(),
+        },
+        { headers: authHeaders() }
+      );
+      closeAction();
+      await fetchAll({ silent: true });
+    } catch (err) {
+      setFormError(getApiError(err, "Failed to save QC result."));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  // ---------------- Back Handler ----------------
+  /* ============================================================
+     REFRESH / BACK
+     ============================================================ */
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchAll({ silent: true });
+    setRefreshing(false);
+  };
+
   function handleBack() {
     navigate("/inventory/material");
   }
 
-  // ---------------- Render ----------------
+  /* ============================================================
+     RENDER
+     ============================================================ */
+
   return (
     <>
       <Header />
       <div className="material-page">
         <div className="material-content">
-          {/* Page Header with Back Button */}
+          {/* HEADER */}
           <div className="page-header-wrap">
             <div className="page-header-left">
               <button className="back-button" onClick={handleBack}>
@@ -845,106 +598,136 @@ export default function Rework() {
                 </p>
               </div>
             </div>
-          </div>
 
-          {/* ===================== TABS ===================== */}
-          <div className="tabs">
-            <button
-              type="button"
-              className={`tab ${isRjw ? "tab-active" : ""}`}
-              onClick={() => switchTab("rjw")}
-            >
-              Receive From Job Work
-              <span className="tab-count">
-                {
-                  rjwItems.filter((r) => ACTIVE_STATUSES.includes(r.status))
-                    .length
-                }
-              </span>
-            </button>
-            <button
-              type="button"
-              className={`tab ${!isRjw ? "tab-active" : ""}`}
-              onClick={() => switchTab("po")}
-            >
-              Production Operation
-              <span className="tab-count">
-                {
-                  poItems.filter((r) => ACTIVE_STATUSES.includes(r.status))
-                    .length
-                }
-              </span>
-            </button>
-          </div>
-
-          {/* ===================== VIEW MODE ===================== */}
-          <div className="viewmode-row">
-            <div className="viewmode-toggle">
+            <div className="page-header-actions">
               <button
-                type="button"
-                className={`viewmode-btn ${
-                  viewMode === "active" ? "viewmode-btn-active" : ""
-                }`}
-                onClick={() => switchViewMode("active")}
+                className="btn btn-secondary btn-sm"
+                onClick={handleRefresh}
+                disabled={refreshing || isLoading}
               >
-                Active Rework
-              </button>
-              <button
-                type="button"
-                className={`viewmode-btn ${
-                  viewMode === "history" ? "viewmode-btn-active" : ""
-                }`}
-                onClick={() => switchViewMode("history")}
-              >
-                <History size={14} />
-                History
+                <RefreshCw size={14} className={refreshing ? "spin" : ""} />
+                {refreshing ? "Refreshing..." : "Refresh"}
               </button>
             </div>
-            <p className="viewmode-hint">
-              {viewMode === "active"
-                ? "Showing rework that still needs action."
-                : "Showing every rework transaction, completed and in progress."}
-            </p>
           </div>
 
-          {/* ===================== TABLE ===================== */}
-          <div className="panel">
-            <FilterPanel
-              search={search}
-              onSearchChange={setSearch}
-              filters={filters}
-              onFilterChange={handleFilterChange}
-              fields={effectiveFilterFields}
-              options={filterOptions}
-              onClear={clearFilters}
-              open={filtersOpen}
-              onToggleOpen={() => setFiltersOpen((o) => !o)}
-              resultCount={filteredRows.length}
-              placeholder={
-                isRjw
-                  ? "Search Rework ID, PO Number, PO Description, Project, DWG, Material, Piece Number..."
-                  : "Search Rework ID, Project, DWG, Assembly ID, Material, Process..."
-              }
-            />
-
-            <div className="table-scroll-wrapper">
-              {isRjw ? (
-                <RjwTable
-                  rows={filteredRows}
-                  onView={openView}
-                  onOpen={openAction}
-                />
-              ) : (
-                <PoTable
-                  rows={filteredRows}
-                  onView={openView}
-                  onOpen={openAction}
-                />
-              )}
+          {/* LOADING / ERROR */}
+          {isLoading && (
+            <div className="grn-state-block">
+              <Loading />
             </div>
-          </div>
+          )}
 
-          {/* ===================== EYE VIEW MODAL ===================== */}
+          {!isLoading && error && (
+            <div className="grn-state-block">
+              <Error onRetry={() => fetchAll()} />
+            </div>
+          )}
+
+          {!isLoading && !error && (
+            <>
+              {/* TABS */}
+              <div className="tabs">
+                <button
+                  type="button"
+                  className={`tab ${isRjw ? "tab-active" : ""}`}
+                  onClick={() => switchTab("rjw")}
+                >
+                  Receive From Job Work
+                  <span className="tab-count">
+                    {
+                      rjwItems.filter((r) =>
+                        ACTIVE_STATUSES.includes(r.status)
+                      ).length
+                    }
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`tab ${!isRjw ? "tab-active" : ""}`}
+                  onClick={() => switchTab("po")}
+                >
+                  Production Operation
+                  <span className="tab-count">
+                    {
+                      poItems.filter((r) =>
+                        ACTIVE_STATUSES.includes(r.status)
+                      ).length
+                    }
+                  </span>
+                </button>
+              </div>
+
+              {/* VIEW MODE */}
+              <div className="viewmode-row">
+                <div className="viewmode-toggle">
+                  <button
+                    type="button"
+                    className={`viewmode-btn ${
+                      viewMode === "active" ? "viewmode-btn-active" : ""
+                    }`}
+                    onClick={() => switchViewMode("active")}
+                  >
+                    Active Rework
+                  </button>
+                  <button
+                    type="button"
+                    className={`viewmode-btn ${
+                      viewMode === "history" ? "viewmode-btn-active" : ""
+                    }`}
+                    onClick={() => switchViewMode("history")}
+                  >
+                    <History size={14} />
+                    History
+                  </button>
+                </div>
+                <p className="viewmode-hint">
+                  {viewMode === "active"
+                    ? "Showing rework that still needs action."
+                    : "Showing every rework transaction, completed and in progress."}
+                </p>
+              </div>
+
+              {/* TABLE */}
+              <div className="panel">
+                <FilterPanel
+                  search={search}
+                  onSearchChange={setSearch}
+                  filters={filters}
+                  onFilterChange={handleFilterChange}
+                  fields={effectiveFilterFields}
+                  options={filterOptions}
+                  onClear={clearFilters}
+                  open={filtersOpen}
+                  onToggleOpen={() => setFiltersOpen((o) => !o)}
+                  resultCount={filteredRows.length}
+                  placeholder={
+                    isRjw
+                      ? "Search Rework ID, PO Number, PO Description, Project, DWG, Material, Piece Number..."
+                      : "Search Rework ID, Project, DWG, Assembly ID, Material, Process..."
+                  }
+                />
+
+                <div className="table-scroll-wrapper">
+                  {isRjw ? (
+                    <RjwTable
+                      rows={filteredRows}
+                      onView={openView}
+                      onOpen={openAction}
+                    />
+                  ) : (
+                    <PoTable
+                      rows={filteredRows}
+                      onView={openView}
+                      onOpen={openAction}
+                    />
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* EYE VIEW MODAL */}
           {viewRow && (
             <div className="modal-overlay" onClick={closeView}>
               <div
@@ -973,7 +756,11 @@ export default function Rework() {
                 </div>
 
                 <div className="modal-body">
-                  {isRjw ? <EyeViewRjw row={viewRow} /> : <EyeViewPo row={viewRow} />}
+                  {isRjw ? (
+                    <EyeViewRjw row={viewRow} />
+                  ) : (
+                    <EyeViewPo row={viewRow} />
+                  )}
                 </div>
 
                 <div className="modal-actions">
@@ -989,8 +776,8 @@ export default function Rework() {
             </div>
           )}
 
-          {/* ===================== ACTION MODAL ===================== */}
-          {actionState && actionItem && actionRow && (
+          {/* ACTION MODAL */}
+          {actionState && actionRow && (
             <div className="modal-overlay">
               <div className="modal-box">
                 <div className="modal-head">
@@ -1011,6 +798,7 @@ export default function Rework() {
                     onClick={closeAction}
                     className="modal-close-btn"
                     aria-label="Close"
+                    disabled={saving}
                   >
                     <X size={18} />
                   </button>
@@ -1032,6 +820,7 @@ export default function Rework() {
                     type="button"
                     onClick={closeAction}
                     className="btn btn-secondary"
+                    disabled={saving}
                   >
                     Cancel
                   </button>
@@ -1045,8 +834,11 @@ export default function Rework() {
                       }[actionState.mode]
                     }
                     className="btn btn-primary"
+                    disabled={saving}
                   >
-                    {ACTION_SAVE_LABELS[actionState.mode]}
+                    {saving
+                      ? "Saving..."
+                      : ACTION_SAVE_LABELS[actionState.mode]}
                   </button>
                 </div>
               </div>
@@ -1058,9 +850,10 @@ export default function Rework() {
   );
 }
 
-// =========================================================================
-// Filter panel
-// =========================================================================
+/* ============================================================
+   FILTER PANEL
+   ============================================================ */
+
 function FilterPanel({
   search,
   onSearchChange,
@@ -1163,9 +956,10 @@ function FilterPanel({
   );
 }
 
-// =========================================================================
-// Status badge
-// =========================================================================
+/* ============================================================
+   STATUS BADGE
+   ============================================================ */
+
 function StatusBadge({ status }) {
   const map = {
     [STATUS.REQUIRED]: { cls: "status-badge-danger", icon: "⚠" },
@@ -1183,9 +977,10 @@ function StatusBadge({ status }) {
   );
 }
 
-// =========================================================================
-// Action buttons
-// =========================================================================
+/* ============================================================
+   ACTION BUTTONS
+   ============================================================ */
+
 function ActionButtons({ row, onOpen }) {
   if (
     row.status === STATUS.READY_NEXT ||
@@ -1229,9 +1024,10 @@ function ActionButtons({ row, onOpen }) {
   return null;
 }
 
-// =========================================================================
-// Tables
-// =========================================================================
+/* ============================================================
+   TABLES
+   ============================================================ */
+
 function RjwTable({ rows, onView, onOpen }) {
   return (
     <table className="data-table">
@@ -1282,9 +1078,11 @@ function RjwTable({ rows, onView, onOpen }) {
             <td>{row.pieceNo || "-"}</td>
             <td>{row.unit || "-"}</td>
             <td className="cell-num">
-              {row.completedQty}/{row.requiredQty}
+              {fmt(row.completedQty)}/{fmt(row.requiredQty)}
               {row.balanceQty > 0 && (
-                <span className="balance-pill">bal {row.balanceQty}</span>
+                <span className="balance-pill">
+                  bal {fmt(row.balanceQty)}
+                </span>
               )}
             </td>
             <td>
@@ -1350,12 +1148,12 @@ function PoTable({ rows, onView, onOpen }) {
             <td>{row.material || "-"}</td>
             <td>{row.description || "-"}</td>
             <td>{row.process || "-"}</td>
-            <td className="cell-num">{row.totalQty}</td>
-            <td className="cell-num">{row.rejectedQty}</td>
-            <td className="cell-num">{row.completedQty}</td>
+            <td className="cell-num">{fmt(row.totalQty)}</td>
+            <td className="cell-num">{fmt(row.rejectedQty)}</td>
+            <td className="cell-num">{fmt(row.completedQty)}</td>
             <td className="cell-num">
               {row.balanceQty > 0 ? (
-                <span className="balance-pill">{row.balanceQty}</span>
+                <span className="balance-pill">{fmt(row.balanceQty)}</span>
               ) : (
                 0
               )}
@@ -1397,9 +1195,10 @@ function EmptyState() {
   );
 }
 
-// =========================================================================
-// Action modal body
-// =========================================================================
+/* ============================================================
+   ACTION MODAL BODY
+   ============================================================ */
+
 function ActionModalBody({ row, isRjw, mode, form, setForm }) {
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -1422,10 +1221,10 @@ function ActionModalBody({ row, isRjw, mode, form, setForm }) {
               <ReadonlyField label="Material" value={row.material} />
               <ReadonlyField label="Piece" value={row.pieceNo} />
               <ReadonlyField label="Thickness" value={row.thickness} />
-              <ReadonlyField label="Size" value={`${row.size} mm`} />
+              <ReadonlyField label="Size" value={row.size} />
               <ReadonlyField
                 label="Quantity"
-                value={`${row.requiredQty} ${row.unit}`}
+                value={`${fmt(row.requiredQty)} ${row.unit}`}
               />
             </>
           ) : (
@@ -1434,15 +1233,18 @@ function ActionModalBody({ row, isRjw, mode, form, setForm }) {
               <ReadonlyField label="Assembly" value={row.assemblyId} />
               <ReadonlyField label="DWG" value={row.dwg} />
               <ReadonlyField label="Process" value={row.process} />
-              <ReadonlyField label="Total" value={row.totalQty} />
-              <ReadonlyField label="QC Accepted" value={row.qcAcceptedQty} />
-              <ReadonlyField label="QC Rejected" value={row.rejectedQty} />
-              <ReadonlyField label="Rework Quantity" value={row.requiredQty} />
+              <ReadonlyField label="Total" value={fmt(row.totalQty)} />
+              <ReadonlyField label="QC Accepted" value={fmt(row.qcAcceptedQty)} />
+              <ReadonlyField label="QC Rejected" value={fmt(row.rejectedQty)} />
+              <ReadonlyField
+                label="Rework Quantity"
+                value={fmt(row.requiredQty)}
+              />
             </>
           )}
           <ReadonlyField
             label="Balance To Rework"
-            value={row.balanceQty}
+            value={fmt(row.balanceQty)}
             emphasize
           />
         </div>
@@ -1454,46 +1256,20 @@ function ActionModalBody({ row, isRjw, mode, form, setForm }) {
           <div className="modal-form-grid">
             <div className="modal-form-field">
               <label>Rework Done By</label>
-              <select
+              <input
+                type="text"
+                placeholder="Enter name"
                 value={form.by || ""}
                 onChange={(e) => update("by", e.target.value)}
-              >
-                <option value="">Select Employee</option>
-                {employees.map((e) => (
-                  <option key={e} value={e}>
-                    {e}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="modal-form-field">
-              <label>Supervisor</label>
-              <select
-                value={form.supervisor || ""}
-                onChange={(e) => update("supervisor", e.target.value)}
-              >
-                <option value="">Select Employee</option>
-                {employees.map((e) => (
-                  <option key={e} value={e}>
-                    {e}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="modal-form-field">
-              <label>Start Date</label>
-              <input
-                type="date"
-                value={form.date || ""}
-                onChange={(e) => update("date", e.target.value)}
               />
             </div>
             <div className="modal-form-field">
-              <label>Start Time</label>
+              <label>Supervisor</label>
               <input
-                type="time"
-                value={form.time || ""}
-                onChange={(e) => update("time", e.target.value)}
+                type="text"
+                placeholder="Enter name"
+                value={form.supervisor || ""}
+                onChange={(e) => update("supervisor", e.target.value)}
               />
             </div>
             <div className="modal-form-field modal-form-field-wide">
@@ -1513,8 +1289,8 @@ function ActionModalBody({ row, isRjw, mode, form, setForm }) {
         <div className="modal-card">
           <h3 className="modal-card-title">Complete Rework</h3>
           <p className="modal-card-subtitle">
-            Balance rework quantity: <strong>{row.balanceQty}</strong>. Enter
-            less than the balance to record a partial completion — the
+            Balance rework quantity: <strong>{fmt(row.balanceQty)}</strong>.
+            Enter less than the balance to record a partial completion — the
             remainder stays in this list.
           </p>
           <div className="modal-form-grid">
@@ -1530,32 +1306,11 @@ function ActionModalBody({ row, isRjw, mode, form, setForm }) {
             </div>
             <div className="modal-form-field">
               <label>Completed By</label>
-              <select
+              <input
+                type="text"
+                placeholder="Enter name"
                 value={form.by || ""}
                 onChange={(e) => update("by", e.target.value)}
-              >
-                <option value="">Select Employee</option>
-                {employees.map((e) => (
-                  <option key={e} value={e}>
-                    {e}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="modal-form-field">
-              <label>Completion Date</label>
-              <input
-                type="date"
-                value={form.date || ""}
-                onChange={(e) => update("date", e.target.value)}
-              />
-            </div>
-            <div className="modal-form-field">
-              <label>Completion Time</label>
-              <input
-                type="time"
-                value={form.time || ""}
-                onChange={(e) => update("time", e.target.value)}
               />
             </div>
             <div className="modal-form-field modal-form-field-wide">
@@ -1577,17 +1332,12 @@ function ActionModalBody({ row, isRjw, mode, form, setForm }) {
           <div className="modal-form-grid">
             <div className="modal-form-field">
               <label>QC Verified By</label>
-              <select
+              <input
+                type="text"
+                placeholder="Enter name"
                 value={form.verifiedBy || ""}
                 onChange={(e) => update("verifiedBy", e.target.value)}
-              >
-                <option value="">Select Employee</option>
-                {employees.map((e) => (
-                  <option key={e} value={e}>
-                    {e}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div className="modal-form-field">
               <label>Result</label>
@@ -1612,22 +1362,6 @@ function ActionModalBody({ row, isRjw, mode, form, setForm }) {
                 </label>
               </div>
             </div>
-            <div className="modal-form-field">
-              <label>QC Date</label>
-              <input
-                type="date"
-                value={form.date || ""}
-                onChange={(e) => update("date", e.target.value)}
-              />
-            </div>
-            <div className="modal-form-field">
-              <label>QC Time</label>
-              <input
-                type="time"
-                value={form.time || ""}
-                onChange={(e) => update("time", e.target.value)}
-              />
-            </div>
             <div className="modal-form-field modal-form-field-wide">
               <label>QC Remarks</label>
               <textarea
@@ -1650,9 +1384,10 @@ function ActionModalBody({ row, isRjw, mode, form, setForm }) {
   );
 }
 
-// =========================================================================
-// Eye view — Receive From Job Work
-// =========================================================================
+/* ============================================================
+   EYE VIEW — RECEIVE FROM JOB WORK
+   ============================================================ */
+
 function EyeViewRjw({ row }) {
   return (
     <>
@@ -1663,15 +1398,21 @@ function EyeViewRjw({ row }) {
           <ReadonlyField label="Source" value="Receive From Job Work" />
           <ReadonlyField label="Status" value={row.status} />
           <ReadonlyField label="Created Date" value={row.createdDate} />
+          {row.durationLabel && row.durationLabel !== "—" && (
+            <ReadonlyField
+              label="Duration"
+              value={row.durationLabel}
+              emphasize
+            />
+          )}
         </div>
       </div>
 
       <div className="modal-card">
         <h3 className="modal-card-title">2. Original PO Information</h3>
         <div className="readonly-grid">
-          <ReadonlyField label="PO Number" value={row.poId} />
+          <ReadonlyField label="PO Number" value={row.poNumber} />
           <ReadonlyField label="PO Description" value={row.poDescription} />
-          <ReadonlyField label="Supplier" value={row.supplier} />
           <ReadonlyField label="Project" value={row.project} />
           <ReadonlyField label="DWG" value={row.dwg} />
           <ReadonlyField label="DWG Description" value={row.dwgDescription} />
@@ -1690,15 +1431,16 @@ function EyeViewRjw({ row }) {
           />
           <ReadonlyField label="Piece Number" value={row.pieceNo} />
           <ReadonlyField label="Thickness" value={row.thickness} />
-          <ReadonlyField label="Length" value={`${row.length} mm`} />
-          <ReadonlyField
-            label="Width"
-            value={row.width === "—" ? "—" : `${row.width} mm`}
-          />
+          <ReadonlyField label="Length" value={row.length} />
+          <ReadonlyField label="Width" value={row.width} />
           <ReadonlyField label="Size" value={row.size} />
-          <ReadonlyField label="Required Qty" value={row.requiredQty} />
-          <ReadonlyField label="Completed Qty" value={row.completedQty} />
-          <ReadonlyField label="Balance Qty" value={row.balanceQty} emphasize />
+          <ReadonlyField label="Required Qty" value={fmt(row.requiredQty)} />
+          <ReadonlyField label="Completed Qty" value={fmt(row.completedQty)} />
+          <ReadonlyField
+            label="Balance Qty"
+            value={fmt(row.balanceQty)}
+            emphasize
+          />
           <ReadonlyField label="Unit" value={row.unit} />
         </div>
       </div>
@@ -1707,7 +1449,7 @@ function EyeViewRjw({ row }) {
         <h3 className="modal-card-title">4. Original Flow</h3>
         <FlowDiagram
           steps={[
-            row.poId,
+            row.poNumber,
             row.poDescription,
             "GRN",
             "Material Stock",
@@ -1744,7 +1486,7 @@ function EyeViewRjw({ row }) {
               <ReadonlyField label="Completed By" value={c.by} />
               <ReadonlyField label="Completed Date" value={c.date} />
               <ReadonlyField label="Completed Time" value={c.time} />
-              <ReadonlyField label="Completed Qty" value={c.qty} />
+              <ReadonlyField label="Completed Qty" value={fmt(c.qty)} />
               <ReadonlyField label="Remarks" value={c.remarks || "—"} />
             </div>
           ))
@@ -1757,8 +1499,7 @@ function EyeViewRjw({ row }) {
           <p className="modal-card-subtitle">
             Piece <strong>{row.pieceNo}</strong> is now Available in Material
             Stock. The original PO / GRN / Job Work linkage is preserved, and
-            Rework ID <strong>{row.reworkId}</strong> is kept for traceability
-            — no duplicate stock entry was created.
+            Rework ID <strong>{row.reworkId}</strong> is kept for traceability.
           </p>
         </div>
       )}
@@ -1771,9 +1512,10 @@ function EyeViewRjw({ row }) {
   );
 }
 
-// =========================================================================
-// Eye view — Production Operation
-// =========================================================================
+/* ============================================================
+   EYE VIEW — PRODUCTION OPERATION
+   ============================================================ */
+
 function EyeViewPo({ row }) {
   return (
     <>
@@ -1784,15 +1526,18 @@ function EyeViewPo({ row }) {
           <ReadonlyField label="Source" value="Production Operation" />
           <ReadonlyField label="Status" value={row.status} />
           <ReadonlyField label="Created Date" value={row.createdDate} />
+          {row.durationLabel && row.durationLabel !== "—" && (
+            <ReadonlyField
+              label="Duration"
+              value={row.durationLabel}
+              emphasize
+            />
+          )}
         </div>
       </div>
 
       <div className="modal-card">
         <h3 className="modal-card-title">2. Assembly Information</h3>
-        <p className="modal-card-subtitle">
-          Original Assembly Integration information — this Assembly is not
-          re-created here.
-        </p>
         <div className="readonly-grid">
           <ReadonlyField label="Assembly" value={row.assemblyId} />
           <ReadonlyField label="Project" value={row.project} />
@@ -1809,13 +1554,11 @@ function EyeViewPo({ row }) {
         <div className="readonly-grid">
           <ReadonlyField label="Process" value={row.process} />
           <ReadonlyField label="Process ID" value={row.processId} />
-          <ReadonlyField label="Total Quantity" value={row.totalQty} />
-          <ReadonlyField label="QC Accepted" value={row.qcAcceptedQty} />
-          <ReadonlyField label="QC Rejected" value={row.rejectedQty} />
-          <ReadonlyField label="Rework Completed" value={row.completedQty} />
+          <ReadonlyField label="Rework Quantity" value={fmt(row.requiredQty)} />
+          <ReadonlyField label="Rework Completed" value={fmt(row.completedQty)} />
           <ReadonlyField
             label="Balance Rework"
-            value={row.balanceQty}
+            value={fmt(row.balanceQty)}
             emphasize
           />
           <ReadonlyField label="Unit" value={row.unit} />
@@ -1867,7 +1610,7 @@ function EyeViewPo({ row }) {
               <ReadonlyField label="Completed By" value={c.by} />
               <ReadonlyField label="Completed Date" value={c.date} />
               <ReadonlyField label="Completed Time" value={c.time} />
-              <ReadonlyField label="Completed Qty" value={c.qty} />
+              <ReadonlyField label="Completed Qty" value={fmt(c.qty)} />
               <ReadonlyField label="Remarks" value={c.remarks || "—"} />
             </div>
           ))
@@ -1899,7 +1642,7 @@ function EyeViewPo({ row }) {
           <p className="modal-card-subtitle">
             The reworked quantity has been released back into the{" "}
             <strong>{row.assemblyId}</strong> process chain. The next process
-            can now receive it — this does not auto-complete the next step.
+            can now receive it.
           </p>
         </div>
       )}
@@ -1912,9 +1655,10 @@ function EyeViewPo({ row }) {
   );
 }
 
-// =========================================================================
-// Small shared bits
-// =========================================================================
+/* ============================================================
+   SMALL SHARED BITS
+   ============================================================ */
+
 function FlowDiagram({ steps }) {
   return (
     <div className="flow">

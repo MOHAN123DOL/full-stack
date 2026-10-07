@@ -1103,3 +1103,26 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Disabled Issue button keeps the native tooltip working.
+   `pointer-events` stays on so the browser fires mouseenter,
+   which is what surfaces the title attribute. */
+.data-table .btn.btn-primary.btn-sm[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(30%);
+}
+
+/* Rework warning card inside the issue modal */
+.integration-block.integration-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.integration-block.integration-warning .integration-block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}

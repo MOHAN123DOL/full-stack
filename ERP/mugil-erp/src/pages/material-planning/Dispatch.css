@@ -499,16 +499,45 @@
   color: var(--dsp-green);
 }
 
-/* --------------------------------- Overlay / modal --------------------------------- */
+.dsp-status-muted {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+}
+
+/* --------------------------------- DC reference --------------------------------- */
+.dc-ref {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.dc-ref-empty {
+  color: #9ca3af;
+}
+
+/* --------------------------------- Overlay / modal ---------------------------------
+   z-index is deliberately above any header / chrome.
+   Padding-top pushes the modal below the top bar so it is not
+   hidden behind it. max-height keeps it fully scrollable on any
+   viewport.
+   -------------------------------------------------------------------------------- */
 .dsp-overlay {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.5);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  z-index: 60;
-  padding: 24px;
+  z-index: 9999;
+  padding: 88px 24px 32px;
+  overflow-y: auto;
 }
 
 .dsp-modal {
@@ -516,10 +545,12 @@
   border-radius: var(--dsp-radius-lg);
   width: 100%;
   max-width: 620px;
-  max-height: 88vh;
+  max-height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
+  z-index: 10000;
 }
 
 .dsp-modal-wide {
@@ -532,6 +563,8 @@
   justify-content: space-between;
   padding: 18px 22px;
   border-bottom: 1px solid var(--dsp-border);
+  flex-shrink: 0;
+  background: var(--dsp-surface);
 }
 
 .dsp-modal-title {
@@ -567,6 +600,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex: 1 1 auto;
 }
 
 .dsp-modal-footer {
@@ -575,6 +609,8 @@
   gap: 10px;
   padding: 14px 22px;
   border-top: 1px solid var(--dsp-border);
+  flex-shrink: 0;
+  background: var(--dsp-surface);
 }
 
 /* --------------------------------- Cards --------------------------------- */
@@ -751,7 +787,12 @@
   color: var(--dsp-text-faint);
 }
 
-/* --------------------------------- Timeline --------------------------------- */
+/* --------------------------------- Timeline ---------------------------------
+   A vertical list of events. Each step is a flex row: a fixed-size
+   dot on the left, and a stacked body on the right. The `flex: 0 0
+   20px` on the dot is critical — without it the dot shrinks and the
+   body overlaps it, hiding the first letters of every label.
+   --------------------------------------------------------------------------- */
 .dsp-timeline {
   list-style: none;
   margin: 0 0 4px;
@@ -762,9 +803,9 @@
 .dsp-timeline-step {
   position: relative;
   display: flex;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 14px;
   padding-bottom: 18px;
-  padding-left: 4px;
 }
 
 .dsp-timeline-step:last-child {
@@ -775,10 +816,11 @@
   content: "";
   position: absolute;
   left: 9px;
-  top: 16px;
+  top: 24px;
   bottom: -2px;
   width: 2px;
-  background: var(--dsp-border-strong);
+  background: var(--dsp-border-strong, #cbd3e0);
+  z-index: 0;
 }
 
 .dsp-timeline-step:last-child::before {
@@ -786,42 +828,108 @@
 }
 
 .dsp-timeline-dot {
-  flex-shrink: 0;
+  flex: 0 0 20px;
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--dsp-accent-soft);
-  border: 2px solid var(--dsp-accent);
+  background: var(--dsp-accent-soft, #eaf0fe);
+  border: 2px solid var(--dsp-accent, #2563eb);
   margin-top: 2px;
+  position: relative;
   z-index: 1;
 }
 
 .dsp-timeline-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 4px;
 }
 
 .dsp-timeline-label {
+  display: block;
   font-size: 13.5px;
   font-weight: 700;
-  color: var(--dsp-text);
+  color: var(--dsp-text, #1f2733);
+  line-height: 1.3;
 }
 
 .dsp-timeline-date {
+  display: block;
   font-size: 12px;
-  color: var(--dsp-text-muted);
+  color: var(--dsp-text-muted, #667085);
+  line-height: 1.3;
 }
 
 .dsp-timeline-note {
+  display: block;
   font-size: 12px;
-  color: var(--dsp-text-muted);
+  color: var(--dsp-text-muted, #667085);
+  line-height: 1.4;
 }
 
 .dsp-timeline-diff {
+  display: block;
   font-size: 12px;
   font-weight: 600;
+  color: var(--dsp-accent-dark, #1d4ed8);
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+/* --------------------------------- Tabs --------------------------------- */
+.dsp-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--dsp-border);
+  margin-bottom: 16px;
+}
+
+.dsp-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--dsp-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.dsp-tab:hover {
+  color: var(--dsp-accent);
+}
+
+.dsp-tab-active {
+  color: var(--dsp-accent);
+  border-bottom-color: var(--dsp-accent);
+}
+
+.dsp-tab-count {
+  background: var(--dsp-accent-soft);
   color: var(--dsp-accent-dark);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+
+/* --------------------------------- Project chip --------------------------------- */
+.project-chip-sm {
+  display: inline-block;
+  padding: 2px 10px;
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* --------------------------------- Responsive --------------------------------- */
@@ -834,7 +942,647 @@
     grid-template-columns: 1fr;
   }
 
+  .dsp-overlay {
+    padding: 70px 12px 20px;
+  }
+
   .dsp-modal {
-    max-height: 92vh;
+    max-height: calc(100vh - 90px);
+  }
+}
+
+/* =========================================================================
+   Dispatch History tab — all rules scoped to dsp-history-*
+   ========================================================================= */
+
+
+.dsp-history-root,
+.dsp-history-overlay {
+  --dh-bg: #f4f6f9;
+  --dh-surface: #ffffff;
+  --dh-border: #e2e6ed;
+  --dh-text: #1f2733;
+  --dh-muted: #667085;
+  --dh-faint: #98a2b3;
+  --dh-accent: #2563eb;
+  --dh-accent-soft: #eaf0fe;
+  --dh-green: #15803d;
+  --dh-green-soft: #e8f7ee;
+  --dh-red: #b91c1c;
+  --dh-red-soft: #fdecec;
+  --dh-hover: #f6f7f9;
+  --dh-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --dh-head-h: 40px; /* sticky header height; group sub-header sticks below it */
+
+}
+
+.dsp-history-root {
+  color: var(--dh-text);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.dsp-history-root *,
+.dsp-history-root *::before,
+.dsp-history-root *::after,
+.dsp-history-overlay *,
+.dsp-history-overlay *::before,
+.dsp-history-overlay *::after {
+  box-sizing: border-box;
+}
+
+.dsp-history-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ------------------------------ Toolbar ------------------------------ */
+.dsp-history-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.dsp-history-search {
+  flex: 1 1 320px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--dh-surface);
+  border: 1px solid var(--dh-border);
+  border-radius: 8px;
+  color: var(--dh-faint);
+}
+
+.dsp-history-search:focus-within {
+  border-color: var(--dh-accent);
+  box-shadow: 0 0 0 3px var(--dh-accent-soft);
+}
+
+.dsp-history-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--dh-text);
+}
+
+.dsp-history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  background: var(--dh-surface);
+  border: 1px solid var(--dh-border);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 500;
+  color: var(--dh-text);
+  cursor: pointer;
+}
+
+.dsp-history-btn:hover:not(:disabled) {
+  background: var(--dh-hover);
+}
+
+.dsp-history-btn.is-active {
+  border-color: var(--dh-accent);
+  color: var(--dh-accent);
+  background: var(--dh-accent-soft);
+}
+
+.dsp-history-btn:disabled {
+  color: var(--dh-faint);
+  cursor: not-allowed;
+}
+
+.dsp-history-btn-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--dh-muted);
+}
+
+.dsp-history-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--dh-accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dsp-history-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 38px;
+  padding: 0 4px 0 10px;
+  background: var(--dh-surface);
+  border: 1px solid var(--dh-border);
+  border-radius: 8px;
+  color: var(--dh-faint);
+}
+
+.dsp-history-seg button {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: var(--dh-muted);
+  cursor: pointer;
+}
+
+.dsp-history-seg button.is-on {
+  background: var(--dh-accent-soft);
+  color: var(--dh-accent);
+  font-weight: 600;
+}
+
+/* ------------------------------ Filters ------------------------------ */
+.dsp-history-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px 14px;
+  margin-bottom: 12px;
+  padding: 14px;
+  background: var(--dh-surface);
+  border: 1px solid var(--dh-border);
+  border-radius: 10px;
+}
+
+.dsp-history-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dsp-history-field > span,
+.dsp-history-field > legend {
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dh-muted);
+}
+
+.dsp-history-field input,
+.dsp-history-field select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--dh-border);
+  border-radius: 6px;
+  background: var(--dh-surface);
+  font: inherit;
+  color: var(--dh-text);
+  min-width: 0;
+}
+
+.dsp-history-field input:focus,
+.dsp-history-field select:focus {
+  outline: 0;
+  border-color: var(--dh-accent);
+  box-shadow: 0 0 0 3px var(--dh-accent-soft);
+}
+
+.dsp-history-range {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 4px 8px;
+  grid-column: span 2;
+}
+
+.dsp-history-range legend {
+  grid-column: 1 / -1;
+}
+
+.dsp-history-range > span {
+  font-size: 12px;
+  color: var(--dh-faint);
+}
+
+/* ------------------------------ Summary ------------------------------ */
+.dsp-history-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.dsp-history-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  background: var(--dh-surface);
+  border: 1px solid var(--dh-border);
+  border-radius: 10px;
+}
+
+.dsp-history-metric strong {
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.dsp-history-metric span {
+  font-size: 12px;
+  color: var(--dh-muted);
+}
+
+/* ------------------------------- Error ------------------------------- */
+.dsp-history-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--dh-red-soft);
+  border: 1px solid #f5c2c2;
+  border-radius: 8px;
+  color: var(--dh-red);
+}
+
+.dsp-history-error span {
+  flex: 1;
+}
+
+.dsp-history-error button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--dh-red);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--dh-red);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dsp-history-error button:hover {
+  background: var(--dh-red);
+  color: #fff;
+}
+
+/* ------------------------------- Table ------------------------------- */
+/* The scroll container owns both axes so sticky header + sticky group
+   sub-headers have a single scrolling ancestor to stick to. */
+.dsp-history-scroll {
+  position: relative;
+  max-height: calc(100vh - 340px);
+  min-height: 260px;
+  overflow: auto;
+  background: var(--dh-surface);
+  border: 1px solid var(--dh-border);
+  border-radius: 10px;
+}
+
+.dsp-history-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: separate; /* collapse breaks sticky borders */
+  border-spacing: 0;
+}
+
+.dsp-history-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: var(--dh-head-h);
+  padding: 0 14px;
+  background: #fafbfc;
+  border-bottom: 1px solid var(--dh-border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dh-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dsp-history-table .is-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.dsp-history-table .is-act {
+  width: 56px;
+  text-align: center;
+}
+
+/* Month / assembly sub-header. Sticks directly beneath the column header. */
+.dsp-history-group th {
+  position: sticky;
+  top: var(--dh-head-h);
+  z-index: 2;
+  padding: 8px 14px;
+  background: var(--dh-bg);
+  border-top: 1px solid var(--dh-border);
+  border-bottom: 1px solid var(--dh-border);
+  text-align: left;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--dh-text);
+}
+
+.dsp-history-group th span {
+  margin-left: 10px;
+  font-weight: 400;
+  color: var(--dh-muted);
+}
+
+/* The first group needs no divider against the header. */
+.dsp-history-table tbody:first-of-type .dsp-history-group th {
+  border-top: 0;
+}
+
+.dsp-history-row {
+  height: 64px;
+  cursor: pointer;
+}
+
+.dsp-history-row td {
+  padding: 8px 14px;
+  border-bottom: 1px solid #eef0f4;
+  vertical-align: middle;
+}
+
+.dsp-history-row:hover td {
+  background: var(--dh-hover);
+}
+
+.dsp-history-row:focus-visible {
+  outline: 2px solid var(--dh-accent);
+  outline-offset: -2px;
+}
+
+.dsp-history-id {
+  font-family: var(--dh-mono);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.dsp-history-strong {
+  font-weight: 600;
+}
+
+.dsp-history-muted {
+  font-size: 12.5px;
+  color: var(--dh-muted);
+}
+
+.dsp-history-chip {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 8px;
+  border: 1px solid var(--dh-border);
+  border-radius: 999px;
+  background: #f8f9fb;
+  font-size: 11.5px;
+  color: var(--dh-muted);
+}
+
+.dsp-history-dc {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--dh-green-soft);
+  color: var(--dh-green);
+  font-family: var(--dh-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dsp-history-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dh-muted);
+  cursor: pointer;
+}
+
+.dsp-history-icon-btn:hover {
+  background: var(--dh-accent-soft);
+  color: var(--dh-accent);
+}
+
+.dsp-history-icon-btn:focus-visible,
+.dsp-history-btn:focus-visible,
+.dsp-history-seg button:focus-visible,
+.dsp-history-link-btn:focus-visible,
+.dsp-history-error button:focus-visible {
+  outline: 2px solid var(--dh-accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------ Skeleton ------------------------------ */
+.dsp-history-skel td {
+  height: 64px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eef0f4;
+}
+
+.dsp-history-bar {
+  display: block;
+  width: 80%;
+  height: 11px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eceff3 25%, #f6f7f9 50%, #eceff3 75%);
+  background-size: 200% 100%;
+  animation: dsp-history-shimmer 1.3s linear infinite;
+}
+
+.dsp-history-bar.is-short {
+  width: 50%;
+  margin-top: 7px;
+}
+
+@keyframes dsp-history-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* -------------------------------- Empty -------------------------------- */
+.dsp-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--dh-faint);
+}
+
+.dsp-history-empty h3 {
+  margin: 8px 0 0;
+  font-size: 16px;
+  color: var(--dh-text);
+}
+
+.dsp-history-empty p {
+  max-width: 380px;
+  margin: 0;
+  color: var(--dh-muted);
+}
+
+/* ---------------------------- Detail drawer ---------------------------- */
+/* Must clear the app's top header: fixed overlay, 90px top padding,
+   very high z-index. */
+.dsp-history-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 90px;
+  background: rgba(16, 24, 40, 0.4);
+  color: #1f2733;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.dsp-history-drawer {
+  display: flex;
+  flex-direction: column;
+  width: min(480px, 100%);
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid var(--dh-border);
+  box-shadow: -8px 0 24px rgba(16, 24, 40, 0.12);
+  animation: dsp-history-slide 0.18s ease-out;
+}
+
+@keyframes dsp-history-slide {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+.dsp-history-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--dh-border);
+}
+
+.dsp-history-drawer-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.dsp-history-drawer-head p {
+  margin: 2px 0 0;
+}
+
+.dsp-history-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 20px 24px;
+}
+
+.dsp-history-drawer-body section {
+  padding: 16px 0;
+  border-bottom: 1px solid #eef0f4;
+}
+
+.dsp-history-drawer-body section:last-child {
+  border-bottom: 0;
+}
+
+.dsp-history-drawer-body h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.dsp-history-drawer-body dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin: 0;
+}
+
+.dsp-history-item {
+  min-width: 0;
+}
+
+.dsp-history-item.is-wide {
+  grid-column: 1 / -1;
+}
+
+.dsp-history-item dt {
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: var(--dh-muted);
+}
+
+.dsp-history-item dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+
+.dsp-history-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--dh-accent);
+  border-radius: 6px;
+  background: var(--dh-accent-soft);
+  color: var(--dh-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dsp-history-link-btn:hover {
+  background: var(--dh-accent);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .dsp-history-range {
+    grid-column: auto;
+  }
+  .dsp-history-drawer-body dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsp-history-bar,
+  .dsp-history-drawer {
+    animation: none;
   }
 }
