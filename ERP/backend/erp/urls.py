@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, 
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
@@ -21,6 +21,17 @@ from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsRepo
     DispatchByDCAPIView,
     DispatchDetailAPIView,
     DispatchCreateAPIView,
+     ReportsKpiAPIView,
+    ReportsListAPIView,
+    ReportsFilterOptionsAPIView,
+    MovementProjectsAPIView,
+    MovementPOsAPIView,
+    MovementGroupsAPIView,
+    MovementTimelineAPIView,
+    ScrapPOItemListAPIView,
+    ScrapListCreateAPIView,
+    ScrapDetailAPIView,
+    ScrapDashboardAPIView,
     
     )
 
@@ -691,6 +702,87 @@ path(
     DispatchDetailAPIView.as_view(),
     name="material-dispatch-detail",
 ),
+
+
+  # ---- KPI cards ----
+    path(
+        "reports/kpis/",
+        ReportsKpiAPIView.as_view(),
+        name="reports-kpis",
+    ),
+
+    # ---- Material Movement (BEFORE the generic <report_key>) ----
+    path(
+        "reports/material-movement/projects/",
+        MovementProjectsAPIView.as_view(),
+        name="reports-mm-projects",
+    ),
+    path(
+        "reports/material-movement/pos/",
+        MovementPOsAPIView.as_view(),
+        name="reports-mm-pos",
+    ),
+    path(
+        "reports/material-movement/groups/",
+        MovementGroupsAPIView.as_view(),
+        name="reports-mm-groups",
+    ),
+    path(
+        "reports/material-movement/timeline/",
+        MovementTimelineAPIView.as_view(),
+        name="reports-mm-timeline",
+    ),
+
+    # ---- Generic report endpoints ----
+    path(
+        "reports/<str:report_key>/filter-options/",
+        ReportsFilterOptionsAPIView.as_view(),
+        name="reports-filter-options",
+    ),
+    path(
+        "reports/<str:report_key>/",
+        ReportsListAPIView.as_view(),
+        name="reports-list",
+    ),
+     # =====================================================
+    # SCRAP
+    # =====================================================
+
+    # Get confirmed PO items for Scrap
+    path(
+        "material/scrap/po-items/",
+        ScrapPOItemListAPIView.as_view(),
+        name="scrap-po-items",
+    ),
+
+    # List Scrap + Create Scrap
+    path(
+        "material/scrap/",
+        ScrapListCreateAPIView.as_view(),
+        name="scrap-list-create",
+    ),
+
+    # Get / Update / Delete Scrap
+    path(
+        "material/scrap/<int:pk>/",
+        ScrapDetailAPIView.as_view(),
+        name="scrap-detail",
+    ),
+
+    # Scrap Dashboard / KPIs
+    path(
+        "material/scrap/dashboard/",
+        ScrapDashboardAPIView.as_view(),
+        name="scrap-dashboard",
+    ),
+
+
+
+
+    path("contact/", ContactUsAPIView.as_view(), name="contact-us"),
+
+
+    
 
 
    

@@ -15990,3 +15990,1806 @@ class DispatchHistoryAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+
+
+
+
+
+
+"""
+Material Reports — API.
+
+Endpoints:
+    GET /erp/reports/kpis/
+    GET /erp/reports/<report_key>/
+    GET /erp/reports/<report_key>/filter-options/
+    GET /erp/reports/material-movement/projects/
+    GET /erp/reports/material-movement/pos/
+    GET /erp/reports/material-movement/groups/
+    GET /erp/reports/material-movement/timeline/
+
+report_key values — must match REPORT_ORDER in Reports.jsx:
+    poIntegration / grn / materialStock / issueToJobWork /
+    receiveFromJobWork / cutting / issueToProduction /
+    assemblyIntegration / productionOperation / rework /
+    dispatch / movementHistory
+"""
+from . import services as svc
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .permissions import IsMaterialPlanning
+
+
+DASH = "—"
+
+
+# =====================================================================
+# REGISTRY — report_key → builder + search keys + filter keys
+# =====================================================================
+
+REPORT_REGISTRY = {
+    "poIntegration": {
+        "builder": svc.build_po_integration_rows,
+        "search": ["poNumber", "description", "material", "materialCode",
+                   "project", "dwgNumber"],
+        "filters": ["project", "poNumber", "material", "thickness",
+                    "size", "unit", "integrationStatus", "poType"],
+    },
+    "grn": {
+        "builder": svc.build_grn_rows,
+        "search": ["poNumber", "description", "material",
+                   "materialCode", "grnNumber"],
+        "filters": ["material", "thickness", "size", "poType",
+                    "inspectionStatus", "grnStatus"],
+    },
+    "materialStock": {
+        "builder": svc.build_material_stock_rows,
+        "search": ["material", "materialCode", "poNumber", "description",
+                   "plateNumber", "thickness", "size", "project"],
+        "filters": ["unit", "material", "thickness", "size",
+                    "sourceType", "stockStatus", "reworkRequired"],
+    },
+    "issueToJobWork": {
+        "builder": svc.build_issue_to_job_work_rows,
+        "search": ["id", "poNumber", "description", "project",
+                   "dwg", "material", "process"],
+        "filters": ["project", "material", "process",
+                    "jobWorkType", "status"],
+    },
+    "receiveFromJobWork": {
+        "builder": svc.build_receive_from_job_work_rows,
+        "search": ["id", "poNumber", "poDescription", "project",
+                   "dwg", "material", "process"],
+        "filters": ["project", "material", "process",
+                    "jobWorkType", "status"],
+    },
+    "cutting": {
+        "builder": svc.build_cutting_rows,
+        "search": ["id", "poNumber", "project", "material",
+                   "materialCode", "pieceNo"],
+        "filters": ["project", "material", "thickness",
+                    "rowType", "reworked", "status"],
+    },
+    "issueToProduction": {
+        "builder": svc.build_issue_to_production_rows,
+        "search": ["issueId", "poNumber", "poDescription",
+                   "project", "dwg", "material", "materialCode"],
+        "filters": ["project", "dwg", "material",
+                    "jobWorkType", "status"],
+    },
+    "assemblyIntegration": {
+        "builder": svc.build_assembly_integration_rows,
+        "search": ["assemblyId", "project", "dwgText",
+                   "materialText", "poText"],
+        "filters": ["project", "status"],
+    },
+    "productionOperation": {
+        "builder": svc.build_production_operation_rows,
+        "search": ["assemblyId", "project", "process",
+                   "processId", "dwg"],
+        "filters": ["project", "dwg", "assemblyId",
+                    "process", "qcStatus", "processStatus"],
+    },
+    "rework": {
+        "builder": svc.build_rework_rows,
+        "search": ["reworkId", "project", "dwg", "poNumber",
+                   "assembly", "material", "pieceNo"],
+        "filters": ["project", "dwg", "assembly",
+                    "process", "source", "status"],
+    },
+    "dispatch": {
+        "builder": svc.build_dispatch_rows,
+        "search": ["dispatchId", "assemblyId", "project",
+                   "dwgText", "location"],
+        "filters": ["project", "assemblyId",
+                    "dwgText", "dispatchStatus"],
+    },
+    # movementHistory is special — its own endpoints below
+}
+
+
+# =====================================================================
+# KPI CARDS
+# =====================================================================
+
+class ReportsKpiAPIView(APIView):
+    """GET /erp/reports/kpis/"""
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        return Response(
+            {"success": True, "data": svc.compute_kpis()},
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# GENERIC LIST
+# =====================================================================
+
+class ReportsListAPIView(APIView):
+    """
+    GET /erp/reports/<report_key>/
+
+    Query params:
+        search         free text across registry search keys
+        dateFrom       ISO date (matched against row["date"])
+        dateTo         ISO date
+        <filter_key>   exact match on any registry filter key
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request, report_key):
+        cfg = REPORT_REGISTRY.get(report_key)
+        if not cfg:
+            return Response(
+                {"success": False,
+                 "message": f"Unknown report: {report_key}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        rows = cfg["builder"]()
+        rows = self._search(rows, cfg["search"], request)
+        rows = self._filter(rows, cfg["filters"], request)
+        rows = self._dates(rows, request)
+
+        return Response(
+            {"success": True, "report": report_key,
+             "count": len(rows), "data": rows},
+            status=status.HTTP_200_OK,
+        )
+
+    @staticmethod
+    def _search(rows, keys, request):
+        q = (request.query_params.get("search") or "").strip().lower()
+        if not q or not keys:
+            return rows
+
+        def hit(row):
+            blob = " ".join(str(row.get(k, "")) for k in keys).lower()
+            return q in blob
+        return [r for r in rows if hit(r)]
+
+    @staticmethod
+    def _filter(rows, keys, request):
+        active = {
+            k: request.query_params.get(k)
+            for k in keys if request.query_params.get(k)
+        }
+        if not active:
+            return rows
+
+        def hit(row):
+            for k, v in active.items():
+                if str(row.get(k, "")) != str(v):
+                    return False
+            return True
+        return [r for r in rows if hit(r)]
+
+    @staticmethod
+    def _dates(rows, request):
+        df = request.query_params.get("dateFrom")
+        dt = request.query_params.get("dateTo")
+        if not df and not dt:
+            return rows
+
+        def hit(row):
+            d = (row.get("date") or row.get("issueDate")
+                 or row.get("createdDate"))
+            if not d or d == DASH:
+                return False
+            if df and d < df:
+                return False
+            if dt and d > dt:
+                return False
+            return True
+        return [r for r in rows if hit(r)]
+
+
+# =====================================================================
+# FILTER OPTIONS
+# =====================================================================
+
+class ReportsFilterOptionsAPIView(APIView):
+    """
+    GET /erp/reports/<report_key>/filter-options/
+
+    Returns { "fieldKey": [distinct values...] } for every filter
+    key in the registry.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request, report_key):
+        cfg = REPORT_REGISTRY.get(report_key)
+        if not cfg:
+            return Response(
+                {"success": False, "message": "Unknown report."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        rows = cfg["builder"]()
+        payload = {}
+        for key in cfg["filters"]:
+            vals = {
+                str(r.get(key)).strip()
+                for r in rows
+                if r.get(key) not in (None, "", DASH)
+            }
+            if vals:
+                payload[key] = sorted(vals)
+
+        return Response(
+            {"success": True, "report": report_key, "data": payload},
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# MATERIAL MOVEMENT — PROJECT PICKER
+# =====================================================================
+
+class MovementProjectsAPIView(APIView):
+    """
+    GET /erp/reports/material-movement/projects/?search=bhel
+
+    Searchable project index. Only projects with any movement
+    activity are included.
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        search = (request.query_params.get("search") or "").strip()
+        data = svc.search_project_index(search)
+        return Response(
+            {"success": True, "count": len(data), "data": data},
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# MATERIAL MOVEMENT — PO PICKER
+# =====================================================================
+
+class MovementPOsAPIView(APIView):
+    """
+    GET /erp/reports/material-movement/pos/?search=PO-001&projectId=3
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        search = (request.query_params.get("search") or "").strip()
+        pid_raw = request.query_params.get("projectId")
+        project_id = None
+        if pid_raw:
+            try:
+                project_id = int(pid_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {"success": False,
+                     "message": "projectId must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        data = svc.search_po_index(search, project_id)
+        return Response(
+            {"success": True, "count": len(data), "data": data},
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# MATERIAL MOVEMENT — GROUPS
+# =====================================================================
+
+class MovementGroupsAPIView(APIView):
+    """
+    GET /erp/reports/material-movement/groups/
+
+    Scope (pick one, or both for drilling down to a single PO):
+        ?projectId=<int>    every PO belonging to that project
+        ?poNumber=<str>     just that PO
+
+    Optional filters:
+        search
+        movementType
+        material, thickness, size, unit, status, process
+        dateFrom, dateTo
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    FILTER_KEYS = [
+        "material", "thickness", "size", "unit",
+        "status", "process",
+    ]
+
+    def get(self, request):
+        pid_raw = request.query_params.get("projectId")
+        po_number = (request.query_params.get("poNumber") or "").strip()
+
+        project_id = None
+        if pid_raw:
+            try:
+                project_id = int(pid_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {"success": False,
+                     "message": "projectId must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if not project_id and not po_number:
+            return Response(
+                {"success": False,
+                 "message": ("Provide projectId or poNumber to scope "
+                             "the movement history.")},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        events = svc.build_movement_events(
+            project_id=project_id,
+            po_number=po_number or None,
+        )
+        groups = svc.build_movement_groups(events)
+
+        groups = self._filters(groups, request)
+        groups = self._search(groups, request)
+        groups = self._dates(groups, request)
+
+        return Response(
+            {
+                "success": True,
+                "scope": {"projectId": project_id,
+                          "poNumber": po_number or None},
+                "count": len(groups),
+                "data": groups,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def _filters(self, groups, request):
+        active = {
+            k: request.query_params.get(k)
+            for k in self.FILTER_KEYS if request.query_params.get(k)
+        }
+        movement_type = request.query_params.get("movementType")
+
+        if not active and not movement_type:
+            return groups
+
+        def hit(g):
+            for k, v in active.items():
+                if str(g.get(k, "")) == str(v):
+                    continue
+                if any(str(e.get(k, "")) == str(v)
+                       for e in g.get("events", [])):
+                    continue
+                return False
+            if movement_type:
+                if not any(e.get("movementType") == movement_type
+                           for e in g.get("events", [])):
+                    return False
+            return True
+        return [g for g in groups if hit(g)]
+
+    def _search(self, groups, request):
+        q = (request.query_params.get("search") or "").strip().lower()
+        if not q:
+            return groups
+
+        def hit(g):
+            parts = [
+                g.get("projectCode"), g.get("projectName"),
+                g.get("poNumber"), g.get("poDescription"),
+                g.get("dwg"), g.get("material"),
+                g.get("pieceLabel"), g.get("currentStatus"),
+                g.get("currentLocation"), g.get("process"),
+            ]
+            for e in g.get("events", []):
+                parts.extend([
+                    e.get("source"), e.get("destination"),
+                    e.get("status"), e.get("movementType"),
+                    e.get("pieceNumber"), e.get("referenceId"),
+                ])
+            blob = " ".join(str(p or "") for p in parts).lower()
+            return q in blob
+        return [g for g in groups if hit(g)]
+
+    def _dates(self, groups, request):
+        df = request.query_params.get("dateFrom")
+        dt = request.query_params.get("dateTo")
+        if not df and not dt:
+            return groups
+
+        def hit(g):
+            d = g.get("lastMovementDate")
+            if not d or d == DASH:
+                return False
+            if df and d < df:
+                return False
+            if dt and d > dt:
+                return False
+            return True
+        return [g for g in groups if hit(g)]
+
+
+# =====================================================================
+# MATERIAL MOVEMENT — TIMELINE (Eye modal)
+# =====================================================================
+
+class MovementTimelineAPIView(APIView):
+    """
+    GET /erp/reports/material-movement/timeline/?groupKey=PO::3::PO-001
+    """
+
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+
+    def get(self, request):
+        group_key = (request.query_params.get("groupKey") or "").strip()
+        if not group_key:
+            return Response(
+                {"success": False, "message": "groupKey is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        project_id = None
+        po_number = None
+
+        parts = group_key.split("::")
+        if len(parts) >= 3:
+            kind = parts[0]
+            try:
+                if parts[1] not in ("None", "", "null"):
+                    project_id = int(parts[1])
+            except (TypeError, ValueError):
+                project_id = None
+            if kind == "PO":
+                po_number = parts[2]
+
+        events = svc.build_movement_events(
+            project_id=project_id,
+            po_number=po_number,
+        )
+        groups = svc.build_movement_groups(events)
+
+        match = next(
+            (g for g in groups if g["groupKey"] == group_key), None
+        )
+        if not match:
+            return Response(
+                {"success": False, "message": "Group not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {"success": True, "data": match},
+            status=status.HTTP_200_OK,
+        )
+
+
+
+
+
+
+from decimal import Decimal, InvalidOperation
+
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from .models import (
+    PurchaseOrderItem,
+    PurchaseOrder,
+    Project,
+    Scrap,
+    ScrapNumberSettings,
+)
+
+
+# ============================================================
+# SCRAP NUMBER GENERATOR
+# ============================================================
+
+def generate_scrap_number():
+    """
+    Generates:
+        SCR-001
+        SCR-002
+        SCR-003
+        ...
+    
+    Uses database locking so two users cannot receive
+    the same Scrap Number at the same time.
+    """
+
+    with transaction.atomic():
+
+        settings = (
+            ScrapNumberSettings.objects
+            .select_for_update()
+            .filter(is_active=True)
+            .first()
+        )
+
+        # Create settings automatically if not available
+        if not settings:
+            settings = ScrapNumberSettings.objects.create(
+                prefix="SCR",
+                next_number=1,
+                number_padding=3,
+                is_active=True,
+            )
+
+            # Lock the newly created row
+            settings = (
+                ScrapNumberSettings.objects
+                .select_for_update()
+                .get(pk=settings.pk)
+            )
+
+        current_number = settings.next_number
+
+        scrap_number = (
+            f"{settings.prefix}-"
+            f"{current_number:0{settings.number_padding}d}"
+        )
+
+        # Increment for next Scrap
+        settings.next_number = current_number + 1
+
+        settings.save(
+            update_fields=[
+                "next_number",
+                "updated_at",
+            ]
+        )
+
+        return scrap_number
+
+
+# ============================================================
+# GET CONFIRMED PO ITEMS FOR SCRAP
+# ============================================================
+
+class ScrapPOItemListAPIView(APIView):
+
+    permission_classes = [IsAuthenticated , IsMaterialPlanning]
+
+    def get(self, request):
+
+        items = (
+            PurchaseOrderItem.objects
+            .select_related(
+                "purchase_order",
+            )
+            .filter(
+                purchase_order__status=PurchaseOrder.Status.CONFIRMED
+            )
+            .order_by(
+                "-purchase_order__created_at",
+                "id",
+            )
+        )
+
+        data = []
+
+        for item in items:
+
+            vendor = item.purchase_order.vendor or {}
+
+            if isinstance(vendor, dict):
+
+                supplier = (
+                    vendor.get("company_name")
+                    or vendor.get("name")
+                    or vendor.get("company")
+                    or ""
+                )
+
+            else:
+                supplier = str(vendor)
+
+            data.append({
+
+                "id": item.id,
+
+                "po_number": (
+                    item.po_number
+                    or item.purchase_order.po_number
+                ),
+
+                "po_date": item.purchase_order.po_date,
+
+                "supplier": supplier,
+
+                "description": item.description,
+
+                "material": item.material,
+
+                "material_code": item.material_code,
+
+                "material_spec": item.material_spec,
+
+                "quantity": item.quantity,
+
+                "unit": item.unit,
+
+                "unit_weight": item.unit_weight,
+
+                "length": item.length,
+
+                "width": item.width,
+
+                "thickness": item.thickness,
+
+            })
+
+        return Response(
+            data,
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# CREATE + LIST SCRAP
+# ============================================================
+
+class ScrapListCreateAPIView(APIView):
+
+    permission_classes = [IsAuthenticated , IsMaterialPlanning]
+
+    # --------------------------------------------------------
+    # GET - LIST SCRAP
+    # --------------------------------------------------------
+
+    def get(self, request):
+
+        scraps = (
+            Scrap.objects
+            .select_related(
+                "purchase_order_item",
+                "purchase_order_item__purchase_order",
+                "project",
+                "created_by",
+            )
+            .order_by("-created_at")
+        )
+
+        data = []
+
+        for scrap in scraps:
+
+            item = scrap.purchase_order_item
+            po = item.purchase_order if item else None
+
+            vendor = po.vendor if po else {}
+
+            if isinstance(vendor, dict):
+
+                supplier = (
+                    vendor.get("company_name")
+                    or vendor.get("name")
+                    or vendor.get("company")
+                    or ""
+                )
+
+            else:
+                supplier = str(vendor) if vendor else ""
+
+            data.append({
+
+                "id": scrap.id,
+
+                "scrap_id": scrap.scrap_id,
+
+                # ------------------------------------------
+                # PO INFORMATION
+                # ------------------------------------------
+
+                "po_item_id": (
+                    item.id
+                    if item
+                    else None
+                ),
+
+                "po_number": (
+                    item.po_number
+                    or po.po_number
+                    if item and po
+                    else ""
+                ),
+
+                "po_date": (
+                    po.po_date
+                    if po
+                    else None
+                ),
+
+                "supplier": supplier,
+
+                # ------------------------------------------
+                # PO ITEM INFORMATION
+                # ------------------------------------------
+
+                "description": (
+                    item.description
+                    if item
+                    else ""
+                ),
+
+                "material": (
+                    item.material
+                    if item
+                    else ""
+                ),
+
+                "material_code": (
+                    item.material_code
+                    if item
+                    else ""
+                ),
+
+                "material_spec": (
+                    item.material_spec
+                    if item
+                    else ""
+                ),
+
+                "unit_weight": (
+                    item.unit_weight
+                    if item
+                    else None
+                ),
+
+                "length": (
+                    item.length
+                    if item
+                    else ""
+                ),
+
+                "width": (
+                    item.width
+                    if item
+                    else ""
+                ),
+
+                "thickness": (
+                    item.thickness
+                    if item
+                    else ""
+                ),
+
+                # ------------------------------------------
+                # PROJECT
+                # ------------------------------------------
+
+                "project_id": (
+                    scrap.project.id
+                    if scrap.project
+                    else None
+                ),
+
+                "project": (
+                    scrap.project.name
+                    if scrap.project
+                    else ""
+                ),
+
+                "project_code": (
+                    scrap.project.code
+                    if scrap.project
+                    else ""
+                ),
+
+                # ------------------------------------------
+                # SCRAP
+                # ------------------------------------------
+
+                "process": scrap.process,
+
+                "scrap_type": scrap.scrap_type,
+
+                "quantity": scrap.quantity,
+
+                "quantity_unit": scrap.quantity_unit,
+
+                "weight": scrap.weight,
+
+                "weight_unit": scrap.weight_unit,
+
+                "reason": scrap.reason,
+
+                "scrap_date": scrap.scrap_date,
+
+                "location": scrap.location,
+
+                "remarks": scrap.remarks,
+
+                # ------------------------------------------
+                # AUDIT
+                # ------------------------------------------
+
+                "created_by": (
+                    scrap.created_by.username
+                    if scrap.created_by
+                    else None
+                ),
+
+                "created_at": scrap.created_at,
+
+                "updated_at": scrap.updated_at,
+
+            })
+
+        return Response(
+            data,
+            status=status.HTTP_200_OK
+        )
+
+    # --------------------------------------------------------
+    # POST - CREATE SCRAP
+    # --------------------------------------------------------
+
+    def post(self, request):
+
+        data = request.data
+
+        # ====================================================
+        # REQUIRED FIELDS
+        # ====================================================
+
+        po_item_id = data.get("po_item_id")
+        project_id = data.get("project_id")
+
+        process = data.get("process")
+        scrap_type = data.get("scrap_type")
+
+        quantity = data.get("quantity")
+        quantity_unit = data.get("quantity_unit")
+
+        weight = data.get("weight")
+        weight_unit = data.get("weight_unit")
+
+        reason = data.get("reason")
+
+        scrap_date = data.get("scrap_date")
+
+        location = data.get("location")
+
+        remarks = data.get("remarks", "")
+
+        # ====================================================
+        # BASIC VALIDATION
+        # ====================================================
+
+        if not po_item_id:
+
+            return Response(
+                {
+                    "detail": "PO item is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not project_id:
+
+            return Response(
+                {
+                    "detail": "Project is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not process:
+
+            return Response(
+                {
+                    "detail": "Process is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not scrap_type:
+
+            return Response(
+                {
+                    "detail": "Scrap type is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not reason:
+
+            return Response(
+                {
+                    "detail": "Scrap reason is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not scrap_date:
+
+            return Response(
+                {
+                    "detail": "Scrap date is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not location:
+
+            return Response(
+                {
+                    "detail": "Scrap location is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ====================================================
+        # GET PO ITEM
+        # ====================================================
+
+        po_item = get_object_or_404(
+            PurchaseOrderItem.objects.select_related(
+                "purchase_order"
+            ),
+            pk=po_item_id,
+        )
+
+        # ====================================================
+        # ONLY CONFIRMED PO
+        # ====================================================
+
+        if po_item.purchase_order.status != PurchaseOrder.Status.CONFIRMED:
+
+            return Response(
+                {
+                    "detail": (
+                        "Scrap can only be created "
+                        "for a confirmed Purchase Order."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ====================================================
+        # GET PROJECT
+        # ====================================================
+
+        project = get_object_or_404(
+            Project,
+            pk=project_id,
+        )
+
+        # ====================================================
+        # QUANTITY / WEIGHT VALIDATION
+        # ====================================================
+
+        quantity_value = None
+        weight_value = None
+
+        if quantity not in [None, ""]:
+
+            try:
+
+                quantity_value = Decimal(str(quantity))
+
+            except (InvalidOperation, ValueError):
+
+                return Response(
+                    {
+                        "detail": "Invalid quantity."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if quantity_value <= 0:
+
+                return Response(
+                    {
+                        "detail": "Quantity must be greater than zero."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        if weight not in [None, ""]:
+
+            try:
+
+                weight_value = Decimal(str(weight))
+
+            except (InvalidOperation, ValueError):
+
+                return Response(
+                    {
+                        "detail": "Invalid weight."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if weight_value <= 0:
+
+                return Response(
+                    {
+                        "detail": "Weight must be greater than zero."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # At least quantity or weight
+        if quantity_value is None and weight_value is None:
+
+            return Response(
+                {
+                    "detail": (
+                        "Either quantity or weight "
+                        "must be provided."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ====================================================
+        # UNIT VALIDATION
+        # ====================================================
+
+        if quantity_value is not None and not quantity_unit:
+
+            return Response(
+                {
+                    "detail": "Quantity unit is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if weight_value is not None and not weight_unit:
+
+            return Response(
+                {
+                    "detail": "Weight unit is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ====================================================
+        # CREATE SCRAP
+        # ====================================================
+
+        try:
+
+            with transaction.atomic():
+
+                scrap_number = generate_scrap_number()
+
+                scrap = Scrap.objects.create(
+
+                    # ----------------------------------------
+                    # AUTO NUMBER
+                    # ----------------------------------------
+
+                    scrap_id=scrap_number,
+
+                    # ----------------------------------------
+                    # RELATIONSHIPS
+                    # ----------------------------------------
+
+                    purchase_order_item=po_item,
+
+                    project=project,
+
+                    # ----------------------------------------
+                    # SCRAP DETAILS
+                    # ----------------------------------------
+
+                    process=process,
+
+                    scrap_type=scrap_type,
+
+                    quantity=quantity_value,
+
+                    quantity_unit=quantity_unit,
+
+                    weight=weight_value,
+
+                    weight_unit=weight_unit,
+
+                    reason=reason,
+
+                    scrap_date=scrap_date,
+
+                    location=location,
+
+                    remarks=remarks,
+
+                    # ----------------------------------------
+                    # AUDIT
+                    # ----------------------------------------
+
+                    created_by=request.user,
+
+                )
+
+        except Exception as e:
+
+            return Response(
+                {
+                    "detail": (
+                        "Failed to create scrap record."
+                    ),
+                    "error": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # ====================================================
+        # RESPONSE
+        # ====================================================
+
+        return Response(
+            {
+                "message": "Scrap created successfully.",
+
+                "data": {
+
+                    "id": scrap.id,
+
+                    "scrap_id": scrap.scrap_id,
+
+                    "po_item_id": (
+                        po_item.id
+                    ),
+
+                    "po_number": (
+                        po_item.po_number
+                        or po_item.purchase_order.po_number
+                    ),
+
+                    "project_id": project.id,
+
+                    "project": project.name,
+
+                    "process": scrap.process,
+
+                    "scrap_type": scrap.scrap_type,
+
+                    "quantity": scrap.quantity,
+
+                    "quantity_unit": scrap.quantity_unit,
+
+                    "weight": scrap.weight,
+
+                    "weight_unit": scrap.weight_unit,
+
+                    "reason": scrap.reason,
+
+                    "scrap_date": scrap.scrap_date,
+
+                    "location": scrap.location,
+
+                    "remarks": scrap.remarks,
+
+                    "created_by": (
+                        request.user.username
+                    ),
+
+                    "created_at": scrap.created_at,
+
+                }
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+# ============================================================
+# SCRAP DETAIL
+# GET / PUT / PATCH / DELETE
+# ============================================================
+
+class ScrapDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated ,IsMaterialPlanning]
+
+    # --------------------------------------------------------
+    # GET
+    # --------------------------------------------------------
+
+    def get(self, request, pk):
+
+        scrap = get_object_or_404(
+            Scrap.objects.select_related(
+                "purchase_order_item",
+                "purchase_order_item__purchase_order",
+                "project",
+                "created_by",
+            ),
+            pk=pk,
+        )
+
+        item = scrap.purchase_order_item
+        po = item.purchase_order if item else None
+
+        return Response({
+
+            "id": scrap.id,
+
+            "scrap_id": scrap.scrap_id,
+
+            "po_item_id": (
+                item.id
+                if item
+                else None
+            ),
+
+            "po_number": (
+                item.po_number or po.po_number
+                if item and po
+                else ""
+            ),
+
+            "description": (
+                item.description
+                if item
+                else ""
+            ),
+
+            "material": (
+                item.material
+                if item
+                else ""
+            ),
+
+            "material_code": (
+                item.material_code
+                if item
+                else ""
+            ),
+
+            "material_spec": (
+                item.material_spec
+                if item
+                else ""
+            ),
+
+            "project_id": (
+                scrap.project.id
+                if scrap.project
+                else None
+            ),
+
+            "project": (
+                scrap.project.name
+                if scrap.project
+                else ""
+            ),
+
+            "process": scrap.process,
+
+            "scrap_type": scrap.scrap_type,
+
+            "quantity": scrap.quantity,
+
+            "quantity_unit": scrap.quantity_unit,
+
+            "weight": scrap.weight,
+
+            "weight_unit": scrap.weight_unit,
+
+            "reason": scrap.reason,
+
+            "scrap_date": scrap.scrap_date,
+
+            "location": scrap.location,
+
+            "remarks": scrap.remarks,
+
+            "created_by": (
+                scrap.created_by.username
+                if scrap.created_by
+                else None
+            ),
+
+            "created_at": scrap.created_at,
+
+            "updated_at": scrap.updated_at,
+
+        })
+
+    # --------------------------------------------------------
+    # PATCH / PUT
+    # --------------------------------------------------------
+
+    def patch(self, request, pk):
+
+        scrap = get_object_or_404(
+            Scrap,
+            pk=pk,
+        )
+
+        data = request.data
+
+        # --------------------------------------------
+        # PO ITEM
+        # --------------------------------------------
+
+        if "po_item_id" in data:
+
+            po_item = get_object_or_404(
+                PurchaseOrderItem,
+                pk=data["po_item_id"],
+            )
+
+            if (
+                po_item.purchase_order.status
+                != PurchaseOrder.Status.CONFIRMED
+            ):
+
+                return Response(
+                    {
+                        "detail": (
+                            "Only confirmed Purchase Orders "
+                            "can be used."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            scrap.purchase_order_item = po_item
+
+        # --------------------------------------------
+        # PROJECT
+        # --------------------------------------------
+
+        if "project_id" in data:
+
+            project = get_object_or_404(
+                Project,
+                pk=data["project_id"],
+            )
+
+            scrap.project = project
+
+        # --------------------------------------------
+        # NORMAL FIELDS
+        # --------------------------------------------
+
+        fields = [
+            "process",
+            "scrap_type",
+            "quantity_unit",
+            "weight_unit",
+            "reason",
+            "scrap_date",
+            "location",
+            "remarks",
+        ]
+
+        for field in fields:
+
+            if field in data:
+
+                setattr(
+                    scrap,
+                    field,
+                    data[field]
+                )
+
+        # --------------------------------------------
+        # QUANTITY
+        # --------------------------------------------
+
+        if "quantity" in data:
+
+            if data["quantity"] in [None, ""]:
+
+                scrap.quantity = None
+
+            else:
+
+                try:
+
+                    value = Decimal(
+                        str(data["quantity"])
+                    )
+
+                    if value <= 0:
+                        raise ValueError
+
+                    scrap.quantity = value
+
+                except (InvalidOperation, ValueError):
+
+                    return Response(
+                        {
+                            "detail": (
+                                "Invalid quantity."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+        # --------------------------------------------
+        # WEIGHT
+        # --------------------------------------------
+
+        if "weight" in data:
+
+            if data["weight"] in [None, ""]:
+
+                scrap.weight = None
+
+            else:
+
+                try:
+
+                    value = Decimal(
+                        str(data["weight"])
+                    )
+
+                    if value <= 0:
+                        raise ValueError
+
+                    scrap.weight = value
+
+                except (InvalidOperation, ValueError):
+
+                    return Response(
+                        {
+                            "detail": (
+                                "Invalid weight."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+        # --------------------------------------------
+        # REQUIRE QUANTITY OR WEIGHT
+        # --------------------------------------------
+
+        if (
+            scrap.quantity is None
+            and scrap.weight is None
+        ):
+
+            return Response(
+                {
+                    "detail": (
+                        "Either quantity or weight "
+                        "must be provided."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --------------------------------------------
+        # SAVE
+        # --------------------------------------------
+
+        scrap.save()
+
+        return Response({
+
+            "message": (
+                "Scrap updated successfully."
+            ),
+
+            "scrap_id": scrap.scrap_id,
+
+            "id": scrap.id,
+
+        })
+
+    # --------------------------------------------------------
+    # DELETE
+    # --------------------------------------------------------
+
+    def delete(self, request, pk):
+
+        scrap = get_object_or_404(
+            Scrap,
+            pk=pk,
+        )
+
+        scrap.delete()
+
+        return Response(
+            {
+                "message": (
+                    "Scrap deleted successfully."
+                )
+            },
+            status=status.HTTP_204_NO_CONTENT
+        )
+
+
+# ============================================================
+# SCRAP DASHBOARD
+# ============================================================
+
+class ScrapDashboardAPIView(APIView):
+
+    permission_classes = [IsAuthenticated , IsMaterialPlanning]
+
+    def get(self, request):
+
+        from django.db.models import (
+            Sum,
+            Count,
+        )
+
+        from django.utils import timezone
+
+        from django.db.models.functions import (
+            TruncMonth,
+        )
+
+        scraps = Scrap.objects.all()
+
+        # ----------------------------------------------------
+        # TOTAL RECORDS
+        # ----------------------------------------------------
+
+        total_scrap = scraps.count()
+
+        # ----------------------------------------------------
+        # TOTAL WEIGHT
+        # ----------------------------------------------------
+
+        total_weight = (
+            scraps.aggregate(
+                total=Sum("weight")
+            )["total"]
+            or Decimal("0")
+        )
+
+        # ----------------------------------------------------
+        # TOTAL QUANTITY / PIECES
+        # ----------------------------------------------------
+
+        total_quantity = (
+            scraps.aggregate(
+                total=Sum("quantity")
+            )["total"]
+            or Decimal("0")
+        )
+
+        # ----------------------------------------------------
+        # CURRENT MONTH
+        # ----------------------------------------------------
+
+        today = timezone.localdate()
+
+        this_month = scraps.filter(
+            scrap_date__year=today.year,
+            scrap_date__month=today.month,
+        ).count()
+
+        # ----------------------------------------------------
+        # SCRAP BY TYPE
+        # ----------------------------------------------------
+
+        by_type = list(
+            scraps
+            .values("scrap_type")
+            .annotate(
+                count=Count("id")
+            )
+            .order_by("-count")
+        )
+
+        # ----------------------------------------------------
+        # SCRAP BY PROCESS
+        # ----------------------------------------------------
+
+        by_process = list(
+            scraps
+            .values("process")
+            .annotate(
+                count=Count("id")
+            )
+            .order_by("-count")
+        )
+
+        # ----------------------------------------------------
+        # SCRAP BY REASON
+        # ----------------------------------------------------
+
+        by_reason = list(
+            scraps
+            .values("reason")
+            .annotate(
+                count=Count("id")
+            )
+            .order_by("-count")
+        )
+
+        return Response({
+
+            "total_scrap": total_scrap,
+
+            "total_weight": total_weight,
+
+            "total_quantity": total_quantity,
+
+            "this_month": this_month,
+
+            "by_type": by_type,
+
+            "by_process": by_process,
+
+            "by_reason": by_reason,
+
+        })
+from datetime import datetime
+
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.utils import timezone
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+
+from .models import ContactRequest
+
+
+PRIORITY_RESPONSE_WINDOW = {
+    "HIGH":   "Within 24 hours",
+    "MEDIUM": "Within 72 hours",
+    "LOW":    "Within 1 week",
+}
+
+
+class ContactUsAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        employee_id  = (request.data.get("employeeId") or "").strip()
+        subject      = (request.data.get("subject")    or "").strip()
+        message      = (request.data.get("message")    or "").strip()
+        priority     = (request.data.get("priority")   or "MEDIUM").strip().upper()
+        inform_admin = bool(request.data.get("informAdmin", False))
+
+        # -------- validation --------
+        errors = {}
+        if not employee_id:
+            errors["employeeId"] = ["Employee ID is required."]
+        if not subject:
+            errors["subject"] = ["Subject is required."]
+        if not message:
+            errors["message"] = ["Message is required."]
+        if priority not in PRIORITY_RESPONSE_WINDOW:
+            errors["priority"] = ["Invalid priority."]
+
+        if errors:
+            return Response(
+                {"success": False, "message": "Validation failed.", "errors": errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -------- save the request --------
+        contact = ContactRequest.objects.create(
+            employee_id=employee_id,
+            subject=subject,
+            message=message,
+            priority=priority,
+            inform_admin=inform_admin,
+            status="PENDING",
+        )
+
+        # -------- recipients (from env) --------
+        support_email = getattr(settings, "CONTACT_SUPPORT_EMAIL", None)
+        admin_email   = getattr(settings, "CONTACT_ADMIN_EMAIL", None)
+
+        if not support_email:
+            contact.status = "EMAIL_FAILED"
+            contact.email_error = "CONTACT_SUPPORT_EMAIL is not configured."
+            contact.save(update_fields=["status", "email_error", "updated_at"])
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Support email is not configured on the server.",
+                    "requestId": contact.id,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # dedupe while preserving order
+        recipients = []
+        for addr in (support_email, admin_email if inform_admin else None):
+            if addr and addr not in recipients:
+                recipients.append(addr)
+
+        # -------- build email body --------
+        context = {
+            "company_name":    getattr(settings, "COMPANY_NAME", "ERP"),
+            "year":            datetime.now().year,
+            "request_id":      contact.id,
+            "submitted_at":    contact.created_at.strftime("%d %b %Y, %I:%M %p"),
+            "employee_id":     employee_id,
+            "subject":         subject,
+            "message":         message,
+            "priority":        priority,
+            "response_window": PRIORITY_RESPONSE_WINDOW[priority],
+            "inform_admin":    inform_admin,
+        }
+
+        html_body = render_to_string("emails/contact_request.html", context)
+        text_body = render_to_string("emails/contact_request.txt",  context)
+
+        email_subject = f"[Contact Us] [{priority}] {subject}"
+
+        # -------- send --------
+        try:
+            email = EmailMultiAlternatives(
+                subject=email_subject,
+                body=text_body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=recipients,
+            )
+            email.attach_alternative(html_body, "text/html")
+            email.send(fail_silently=False)
+
+            contact.status = "EMAIL_SENT"
+            contact.email_sent_at = timezone.now()
+            contact.save(update_fields=["status", "email_sent_at", "updated_at"])
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Request submitted successfully.",
+                    "requestId": contact.id,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except Exception as exc:
+            contact.status = "EMAIL_FAILED"
+            contact.email_error = str(exc)
+            contact.save(update_fields=["status", "email_error", "updated_at"])
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Your request was saved but the notification email could not be sent.",
+                    "requestId": contact.id,
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

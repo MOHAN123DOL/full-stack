@@ -4394,3 +4394,138 @@ class DispatchReadyAssemblySerializer(serializers.Serializer):
 
     dcReferences = serializers.ListField(child=serializers.CharField())
     dispatches = serializers.ListField()
+
+
+
+"""
+Serializers for the Material Reports module.
+
+Every report row is a plain dict built by reports_services.py.
+These serializers exist for shape documentation, OpenAPI
+introspection, and to give the row-list endpoints a consistent
+`many=True` render path.
+"""
+
+from rest_framework import serializers
+
+
+# =====================================================================
+# KPI CARD
+# =====================================================================
+
+class KpiCardSerializer(serializers.Serializer):
+    label = serializers.CharField()
+    value = serializers.IntegerField()
+    cls   = serializers.CharField()
+
+
+# =====================================================================
+# GENERIC REPORT ROW
+# ---------------------------------------------------------------------
+# Free-form. Every report has its own column set, and the frontend's
+# `fmt()` renders whatever's here. Using DictField lets the row
+# builder stay the single source of truth.
+# =====================================================================
+
+class ReportRowSerializer(serializers.DictField):
+    """
+    Any JSON-safe dict. Used with many=True to serialize a whole
+    list of rows in one call.
+    """
+    child = serializers.JSONField()
+
+
+# =====================================================================
+# MOVEMENT EVENT
+# =====================================================================
+
+class MovementEventSerializer(serializers.Serializer):
+    movementId    = serializers.CharField()
+    date          = serializers.CharField()
+    time          = serializers.CharField()
+    movementType  = serializers.CharField()
+    source        = serializers.CharField()
+    destination   = serializers.CharField()
+
+    projectId     = serializers.IntegerField(allow_null=True, required=False)
+    projectCode   = serializers.CharField()
+    projectName   = serializers.CharField()
+
+    po            = serializers.CharField()
+    poDescription = serializers.CharField()
+    poItemCode    = serializers.CharField()
+
+    dwg           = serializers.CharField()
+    assembly      = serializers.CharField()
+
+    material      = serializers.CharField()
+    thickness     = serializers.CharField()
+    size          = serializers.CharField()
+    pieceNumber   = serializers.CharField()
+
+    quantity      = serializers.CharField()
+    unit          = serializers.CharField()
+    referenceId   = serializers.CharField()
+    status        = serializers.CharField()
+    process       = serializers.CharField()
+
+
+# =====================================================================
+# MOVEMENT GROUP
+# =====================================================================
+
+class MovementGroupSerializer(serializers.Serializer):
+    groupKey         = serializers.CharField()
+
+    projectId        = serializers.IntegerField(allow_null=True, required=False)
+    projectCode      = serializers.CharField()
+    projectName      = serializers.CharField()
+
+    poNumber         = serializers.CharField()
+    poDescription    = serializers.CharField()
+    poItemCodes      = serializers.ListField(child=serializers.CharField())
+
+    dwg              = serializers.CharField()
+    assembly         = serializers.CharField()
+
+    material         = serializers.CharField()
+    thickness        = serializers.CharField()
+    size             = serializers.CharField()
+    unit             = serializers.CharField()
+    process          = serializers.CharField()
+
+    pieceLabel       = serializers.CharField()
+    qtyLabel         = serializers.CharField()
+
+    currentStage     = serializers.CharField()
+    currentStatus    = serializers.CharField()
+    currentLocation  = serializers.CharField()
+    lastMovementDate = serializers.CharField()
+    eventCount       = serializers.IntegerField()
+    events           = MovementEventSerializer(many=True)
+
+
+# =====================================================================
+# PROJECT INDEX (for the picker)
+# =====================================================================
+
+class MovementProjectEntrySerializer(serializers.Serializer):
+    projectId        = serializers.IntegerField()
+    code             = serializers.CharField()
+    name             = serializers.CharField()
+    poCount          = serializers.IntegerField()
+    movementCount    = serializers.IntegerField()
+    lastMovementDate = serializers.CharField()
+
+
+# =====================================================================
+# PO INDEX (for the picker)
+# =====================================================================
+
+class MovementPOEntrySerializer(serializers.Serializer):
+    poNumber   = serializers.CharField()
+    poType     = serializers.CharField()
+    supplier   = serializers.CharField()
+    projectIds = serializers.ListField(child=serializers.IntegerField())
+
+

@@ -400,3 +400,28 @@ if DEBUG:
 else:
 
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+
+
+
+
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+
+CONTACT_SUPPORT_EMAIL = os.getenv(
+    "CONTACT_SUPPORT_EMAIL"
+)
+
+CONTACT_ADMIN_EMAIL = os.getenv(
+    "CONTACT_ADMIN_EMAIL"
+)
+
+
+
+COMPANY_NAME       = os.getenv("COMPANY_NAME", "ERP")

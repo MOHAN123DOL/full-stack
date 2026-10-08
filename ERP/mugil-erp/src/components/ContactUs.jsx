@@ -1,11 +1,11 @@
-// ContactUs.jsx
-// Frontend-only Contact Us / Support page.
-// No backend calls, no Gmail sending, no credentials of any kind live here.
-// Payload is shaped to be dropped straight into: POST /api/contact/
 import { useState, useRef } from "react";
 import "./ContactUs.css";
 
-/* ---------- inline icons (kept dependency-free, matches Profile.jsx style) ------------ */
+import api from "../api/axios";
+
+
+/* ---------- inline icons ---------- */
+
 const IconSend = () => (
   <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path
@@ -82,6 +82,7 @@ const IconBell = () => (
 );
 
 /* ---------- static config ---------- */
+
 const PRIORITY_OPTIONS = [
   {
     value: "HIGH",
@@ -109,8 +110,15 @@ function getPriorityMeta(value) {
   return PRIORITY_OPTIONS.find((p) => p.value === value);
 }
 
-/* ---------- payload builder (kept separate from UI logic) ---------- */
-function buildContactPayload({ employeeId, subject, message, priority, informAdmin }) {
+/* ---------- payload builder ---------- */
+
+function buildContactPayload({
+  employeeId,
+  subject,
+  message,
+  priority,
+  informAdmin,
+}) {
   return {
     employeeId: employeeId.trim(),
     subject: subject.trim(),
@@ -120,15 +128,7 @@ function buildContactPayload({ employeeId, subject, message, priority, informAdm
   };
 }
 
-/* Simulated submit — replace this function body later with a real call to
-   POST /api/contact/ ; nothing else in the component needs to change. */
-function simulateSubmitRequest(payload) {
-  return new Promise((resolve) => {
-    window.setTimeout(() => {
-      resolve({ success: true, payload });
-    }, 900);
-  });
-}
+/* ---------- initial form ---------- */
 
 const INITIAL_FORM = {
   employeeId: "",
@@ -140,37 +140,77 @@ const INITIAL_FORM = {
 
 export default function ContactUs() {
   const [form, setForm] = useState(INITIAL_FORM);
+
   const [errors, setErrors] = useState({});
+
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(null); // holds payload on success
+
+  const [submitted, setSubmitted] = useState(null);
 
   const submittingRef = useRef(false);
 
   const selectedPriority = getPriorityMeta(form.priority);
 
+  /* ============================================================
+     CLEAR FIELD ERROR
+     ============================================================ */
+
   const clearFieldError = (field) => {
     setErrors((prev) => {
-      if (!prev[field]) return prev;
+      if (!prev[field]) {
+        return prev;
+      }
+
       const next = { ...prev };
+
       delete next[field];
+
       return next;
     });
   };
 
+  /* ============================================================
+     HANDLE INPUT
+     ============================================================ */
+
   const handleChange = (field) => (event) => {
     const value = event.target.value;
-    setForm((prev) => ({ ...prev, [field]: value }));
+
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+
     clearFieldError(field);
   };
 
+  /* ============================================================
+     PRIORITY
+     ============================================================ */
+
   const handlePriorityChange = (value) => {
-    setForm((prev) => ({ ...prev, priority: value }));
+    setForm((prev) => ({
+      ...prev,
+      priority: value,
+    }));
+
     clearFieldError("priority");
   };
 
+  /* ============================================================
+     ADMIN TOGGLE
+     ============================================================ */
+
   const handleInformAdminToggle = () => {
-    setForm((prev) => ({ ...prev, informAdmin: !prev.informAdmin }));
+    setForm((prev) => ({
+      ...prev,
+      informAdmin: !prev.informAdmin,
+    }));
   };
+
+  /* ============================================================
+     VALIDATION
+     ============================================================ */
 
   const validate = () => {
     const nextErrors = {};
@@ -178,59 +218,247 @@ export default function ContactUs() {
     if (!form.employeeId.trim()) {
       nextErrors.employeeId = "Employee ID is required.";
     }
+
     if (!form.subject.trim()) {
       nextErrors.subject = "Subject is required.";
     }
+
     if (!form.message.trim()) {
       nextErrors.message = "Please describe your issue or request.";
     }
+
     if (!form.priority) {
       nextErrors.priority = "Please select a priority.";
     }
 
     setErrors(nextErrors);
+
     return Object.keys(nextErrors).length === 0;
   };
+
+  /* ============================================================
+     SUBMIT
+     ============================================================ */
 
   const handleSubmit = async (event) => {
     event.preventDefault();
 
+    /*
+     * Prevent double submission.
+     */
     if (submittingRef.current) {
-      return; // guard against duplicate submissions
+      return;
     }
 
+    /*
+     * Frontend validation.
+     */
     if (!validate()) {
       return;
     }
 
     submittingRef.current = true;
+
     setSubmitting(true);
+
+    setErrors({});
 
     const payload = buildContactPayload(form);
 
     try {
-      const result = await simulateSubmitRequest(payload);
+      /*
+       * Backend endpoint (baseURL is /api):
+       *
+       *   POST /api/contact/
+       *
+       * Payload:
+       * {
+       *   employeeId,
+       *   subject,
+       *   message,
+       *   priority,
+       *   informAdmin
+       * }
+       */
 
-      if (result?.success) {
-        setSubmitted(payload);
-      } else {
-        setErrors({ form: "Something went wrong. Please try again." });
+      const response = await api.post("/erp/contact/", payload);
+
+      const responseData = response?.data;
+
+      /*
+       * Backend success.
+       */
+
+      if (responseData?.success) {
+        setSubmitted({
+          ...payload,
+
+          /*
+           * Keep request ID if backend returns it.
+           */
+          requestId:
+            responseData?.requestId || responseData?.id || null,
+        });
+
+        return;
       }
-    } catch {
-      setErrors({ form: "Something went wrong. Please try again." });
+
+      /*
+       * Unexpected API response.
+       */
+
+      setErrors({
+        form:
+          responseData?.message ||
+          "Something went wrong. Please try again.",
+      });
+    } catch (err) {
+      console.error("Contact Us submission failed:", err);
+
+      /*
+       * Axios error response.
+       */
+
+      const response = err?.response;
+
+      const responseData = response?.data;
+
+      /*
+       * -----------------------------------------
+       * 400 - Validation error
+       * -----------------------------------------
+       */
+
+      if (response?.status === 400) {
+        const backendErrors = responseData?.errors;
+
+        if (backendErrors && typeof backendErrors === "object") {
+          setErrors(backendErrors);
+        } else {
+          setErrors({
+            form:
+              responseData?.message ||
+              "Please check the information you entered.",
+          });
+        }
+
+        return;
+      }
+
+      /*
+       * -----------------------------------------
+       * 401 - Unauthorized
+       * -----------------------------------------
+       */
+
+      if (response?.status === 401) {
+        setErrors({
+          form:
+            responseData?.message ||
+            "Your session has expired. Please login again.",
+        });
+
+        return;
+      }
+
+      /*
+       * -----------------------------------------
+       * 403 - Forbidden
+       * -----------------------------------------
+       */
+
+      if (response?.status === 403) {
+        setErrors({
+          form:
+            responseData?.message ||
+            "You do not have permission to submit this request.",
+        });
+
+        return;
+      }
+
+      /*
+       * -----------------------------------------
+       * 404 - Endpoint not found
+       * -----------------------------------------
+       */
+
+      if (response?.status === 404) {
+        setErrors({
+          form: "Contact service is currently unavailable.",
+        });
+
+        return;
+      }
+
+      /*
+       * -----------------------------------------
+       * 500 - Backend / Email failure
+       * -----------------------------------------
+       *
+       * The backend may have already saved the
+       * ContactRequest but failed to send email.
+       */
+
+      if (response?.status >= 500) {
+        setErrors({
+          form:
+            responseData?.message ||
+            "Your request could not be processed right now. Please try again later.",
+        });
+
+        return;
+      }
+
+      /*
+       * -----------------------------------------
+       * Network error
+       * -----------------------------------------
+       */
+
+      if (!response) {
+        setErrors({
+          form:
+            "Unable to connect to the server. Please check your internet connection and try again.",
+        });
+
+        return;
+      }
+
+      /*
+       * -----------------------------------------
+       * Generic API error
+       * -----------------------------------------
+       */
+
+      setErrors({
+        form:
+          responseData?.message ||
+          "Something went wrong. Please try again.",
+      });
     } finally {
       submittingRef.current = false;
+
       setSubmitting(false);
     }
   };
 
+  /* ============================================================
+     RESET
+     ============================================================ */
+
   const handleReset = () => {
     setForm(INITIAL_FORM);
+
     setErrors({});
+
     setSubmitted(null);
   };
 
-  /* ---------------- SUCCESS STATE ---------------- */
+  /* ============================================================
+     SUCCESS STATE
+     ============================================================ */
+
   if (submitted) {
     const meta = getPriorityMeta(submitted.priority);
 
@@ -242,29 +470,50 @@ export default function ContactUs() {
               <IconCheckCircle />
             </div>
 
-            <h2 className="contact-success-title">Request Submitted Successfully</h2>
+            <h2 className="contact-success-title">
+              Request Submitted Successfully
+            </h2>
+
             <p className="contact-success-subtitle">
               Your request has been submitted to the support team.
             </p>
 
+            {submitted.requestId && (
+              <div className="contact-success-row">
+                <span className="contact-success-label">Request ID</span>
+
+                <span className="contact-success-value">
+                  #{submitted.requestId}
+                </span>
+              </div>
+            )}
+
             <div className="contact-success-details">
               <div className="contact-success-row">
                 <span className="contact-success-label">Priority</span>
+
                 <span
                   className={`contact-success-priority priority-${meta.value.toLowerCase()}`}
                 >
                   {meta.label}
                 </span>
               </div>
+
               <div className="contact-success-row">
-                <span className="contact-success-label">Expected Response</span>
-                <span className="contact-success-value">{meta.response}</span>
+                <span className="contact-success-label">
+                  Expected Response
+                </span>
+
+                <span className="contact-success-value">
+                  {meta.response}
+                </span>
               </div>
             </div>
 
             {submitted.informAdmin && (
               <div className="contact-admin-note">
                 <IconBell />
+
                 <span>The administrator has also been notified.</span>
               </div>
             )}
@@ -282,32 +531,45 @@ export default function ContactUs() {
     );
   }
 
-  /* ---------------- FORM STATE ---------------- */
+  /* ============================================================
+     FORM STATE
+     ============================================================ */
+
   return (
     <div className="contact-page">
       <div className="contact-page-inner">
         <div className="contact-header">
           <h1 className="contact-title">Contact Us</h1>
+
           <p className="contact-subtitle">
-            Submit your request to our support team and we&rsquo;ll get back to
-            you.
+            Submit your request to our support team and we&rsquo;ll get back
+            to you.
           </p>
         </div>
 
         <form className="contact-card" onSubmit={handleSubmit} noValidate>
+          {/* =====================================================
+              API ERROR
+          ====================================================== */}
+
           {errors.form && (
             <div className="contact-form-alert" role="alert">
               <IconAlert />
+
               <span>{errors.form}</span>
             </div>
           )}
 
-          {/* Employee ID + Subject — two columns on desktop, stacked on mobile */}
+          {/* =====================================================
+              EMPLOYEE ID + SUBJECT
+          ====================================================== */}
+
           <div className="contact-form-row">
             <div className="contact-form-group">
               <label htmlFor="employeeId">
                 Employee ID <span className="contact-required">*</span>
               </label>
+
               <input
                 id="employeeId"
                 name="employeeId"
@@ -322,6 +584,7 @@ export default function ContactUs() {
                   errors.employeeId ? "employeeId-error" : undefined
                 }
               />
+
               {errors.employeeId && (
                 <p className="contact-field-error" id="employeeId-error">
                   {errors.employeeId}
@@ -333,6 +596,7 @@ export default function ContactUs() {
               <label htmlFor="subject">
                 Subject <span className="contact-required">*</span>
               </label>
+
               <input
                 id="subject"
                 name="subject"
@@ -343,8 +607,11 @@ export default function ContactUs() {
                 onChange={handleChange("subject")}
                 disabled={submitting}
                 aria-invalid={Boolean(errors.subject)}
-                aria-describedby={errors.subject ? "subject-error" : undefined}
+                aria-describedby={
+                  errors.subject ? "subject-error" : undefined
+                }
               />
+
               {errors.subject && (
                 <p className="contact-field-error" id="subject-error">
                   {errors.subject}
@@ -353,11 +620,15 @@ export default function ContactUs() {
             </div>
           </div>
 
-          {/* Message */}
+          {/* =====================================================
+              MESSAGE
+          ====================================================== */}
+
           <div className="contact-form-group">
             <label htmlFor="message">
               Message <span className="contact-required">*</span>
             </label>
+
             <textarea
               id="message"
               name="message"
@@ -370,6 +641,7 @@ export default function ContactUs() {
               aria-invalid={Boolean(errors.message)}
               aria-describedby={errors.message ? "message-error" : undefined}
             />
+
             {errors.message && (
               <p className="contact-field-error" id="message-error">
                 {errors.message}
@@ -377,9 +649,11 @@ export default function ContactUs() {
             )}
           </div>
 
-          {/* Priority */}
+          {/* =====================================================
+              PRIORITY
+          ====================================================== */}
+
           <div className="contact-form-group">
-            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
             <label id="priority-label">
               Priority <span className="contact-required">*</span>
             </label>
@@ -391,6 +665,7 @@ export default function ContactUs() {
             >
               {PRIORITY_OPTIONS.map((option) => {
                 const isSelected = form.priority === option.value;
+
                 return (
                   <button
                     type="button"
@@ -408,15 +683,18 @@ export default function ContactUs() {
                         className="contact-priority-radio"
                         aria-hidden="true"
                       />
+
                       <span className="contact-priority-text">
                         <span className="contact-priority-name">
                           {option.label}
                         </span>
+
                         <span className="contact-priority-hint">
                           {option.hint}
                         </span>
                       </span>
                     </span>
+
                     <span className="contact-priority-response">
                       {option.response}
                     </span>
@@ -436,6 +714,7 @@ export default function ContactUs() {
                 <span className="contact-response-banner-label">
                   Priority: {selectedPriority.label}
                 </span>
+
                 <span className="contact-response-banner-value">
                   Expected response: {selectedPriority.response}
                 </span>
@@ -443,11 +722,16 @@ export default function ContactUs() {
             )}
           </div>
 
-          {/* Inform Admin */}
+          {/* =====================================================
+              INFORM ADMIN
+          ====================================================== */}
+
           <div className="contact-form-group">
             <button
               type="button"
-              className={`contact-toggle-row ${form.informAdmin ? "checked" : ""}`}
+              className={`contact-toggle-row ${
+                form.informAdmin ? "checked" : ""
+              }`}
               onClick={handleInformAdminToggle}
               disabled={submitting}
               role="checkbox"
@@ -466,6 +750,7 @@ export default function ContactUs() {
                   </svg>
                 )}
               </span>
+
               <span className="contact-toggle-label">
                 Send this request to Admin
               </span>
@@ -478,6 +763,10 @@ export default function ContactUs() {
               </p>
             )}
           </div>
+
+          {/* =====================================================
+              SUBMIT
+          ====================================================== */}
 
           <div className="contact-form-actions">
             <button
@@ -493,7 +782,10 @@ export default function ContactUs() {
               ) : (
                 <>
                   <IconSend />
-                  {form.informAdmin ? "Submit & Inform Admin" : "Submit Request"}
+
+                  {form.informAdmin
+                    ? "Submit & Inform Admin"
+                    : "Submit Request"}
                 </>
               )}
             </button>

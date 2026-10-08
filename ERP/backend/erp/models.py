@@ -357,13 +357,31 @@ class PurchaseOrder(models.Model):
                 PurchaseOrderItem.objects.update_or_create(
                     purchase_order=self,
                     item_code=f"DESC-{index:03d}",
-                    defaults={
+                                        defaults={
                         "po_number": self.po_number,
 
                         "description": (
                             item.get("description")
                             or item.get("poDescription")
                             or item.get("itemDescription")
+                            or ""
+                        ),
+
+                        "material": (
+                            item.get("material")
+                            or item.get("materialType")
+                            or ""
+                        ),
+
+                        "material_code": (
+                            item.get("materialCode")
+                            or item.get("material_code")
+                            or ""
+                        ),
+
+                        "material_spec": (
+                            item.get("materialSpec")
+                            or item.get("material_spec")
                             or ""
                         ),
 
@@ -380,13 +398,17 @@ class PurchaseOrder(models.Model):
                             or ""
                         ),
 
-                        # === NEW: dimensions from JSON ===
-                        "length":    _dim("length"),
-                        "width":     _dim("width"),
+                        "unit_weight": (
+                            item.get("unitWeight")
+                            or item.get("unit_weight")
+                            or None
+                        ),
+
+                        "length": _dim("length"),
+                        "width": _dim("width"),
                         "thickness": _dim("thickness"),
                     },
-                )
-
+                                    )
 
 
 class DummyPurchaseOrder(models.Model):
@@ -2504,6 +2526,24 @@ class PurchaseOrderItem(models.Model):
         default="",
     )
 
+    material = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    material_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    material_spec = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+    )
+
     quantity = models.DecimalField(
         max_digits=15,
         decimal_places=3,
@@ -2516,9 +2556,12 @@ class PurchaseOrderItem(models.Model):
         default="",
     )
 
-    # =========================
-    # NEW DIMENSION FIELDS
-    # =========================
+    unit_weight = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        null=True,
+        blank=True,
+    )
 
     length = models.CharField(
         max_length=50,
@@ -2543,6 +2586,7 @@ class PurchaseOrderItem(models.Model):
 
     class Meta:
         ordering = ["id"]
+
         constraints = [
             models.UniqueConstraint(
                 fields=["purchase_order", "item_code"],
@@ -2551,7 +2595,7 @@ class PurchaseOrderItem(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.po_number} - {self.item_code}"
+        return f"{self.po_number} - {self.description}"
 
 
 class ConsumableGRN(models.Model):
@@ -5331,3 +5375,288 @@ class DispatchTransaction(models.Model):
             f"{self.dispatch_number} — "
             f"{self.assembly_code} — {self.quantity}"
         )
+
+
+    
+
+class Scrap(models.Model):
+
+    class QuantityUnit(models.TextChoices):
+        NOS = "Nos", "Nos"
+        KG = "Kg", "Kg"
+        TON = "Ton", "Ton"
+        METER = "Meter", "Meter"
+        PIECE = "Piece", "Piece"
+
+    class WeightUnit(models.TextChoices):
+        KG = "Kg", "Kg"
+        TON = "Ton", "Ton"
+
+    # =========================================================
+    # SCRAP ID
+    # =========================================================
+
+    scrap_id = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+    )
+
+    # =========================================================
+    # SOURCE PO ITEM
+    # =========================================================
+
+    purchase_order_item = models.ForeignKey(
+        PurchaseOrderItem,
+        on_delete=models.PROTECT,
+        related_name="scrap_records",
+    )
+
+    # =========================================================
+    # PROJECT
+    # =========================================================
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.PROTECT,
+        related_name="scrap_records",
+    )
+
+    # =========================================================
+    # PROCESS
+    # =========================================================
+
+    process = models.CharField(
+        max_length=100,
+    )
+
+    # =========================================================
+    # SCRAP DETAILS
+    # =========================================================
+
+    scrap_type = models.CharField(
+        max_length=100,
+    )
+
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        null=True,
+        blank=True,
+    )
+
+    quantity_unit = models.CharField(
+        max_length=20,
+        choices=QuantityUnit.choices,
+        blank=True,
+        default="",
+    )
+
+    weight = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        null=True,
+        blank=True,
+    )
+
+    weight_unit = models.CharField(
+        max_length=20,
+        choices=WeightUnit.choices,
+        blank=True,
+        default="",
+    )
+
+    # =========================================================
+    # REASON
+    # =========================================================
+
+    reason = models.CharField(
+        max_length=150,
+    )
+
+    # =========================================================
+    # SCRAP DATE / LOCATION
+    # =========================================================
+
+    scrap_date = models.DateField()
+
+    location = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    # =========================================================
+    # AUDIT
+    # =========================================================
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scrap_created",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+        indexes = [
+            models.Index(fields=["scrap_id"]),
+            models.Index(fields=["purchase_order_item"]),
+            models.Index(fields=["project"]),
+            models.Index(fields=["scrap_date"]),
+            models.Index(fields=["scrap_type"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.scrap_id} - "
+            f"{self.purchase_order_item.po_number} - "
+            f"{self.purchase_order_item.description}"
+        )
+    
+
+
+class ScrapNumberSettings(models.Model):
+    prefix = models.CharField(
+        max_length=20,
+        default="SCR",
+    )
+
+    next_number = models.PositiveBigIntegerField(
+        default=1,
+    )
+
+    number_padding = models.PositiveIntegerField(
+        default=3,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return f"{self.prefix}-{self.next_number:0{self.number_padding}d}"
+
+from django.db import models
+
+
+class ContactRequest(models.Model):
+
+    PRIORITY_CHOICES = [
+        ("HIGH", "High"),
+        ("MEDIUM", "Medium"),
+        ("LOW", "Low"),
+    ]
+
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("EMAIL_SENT", "Email Sent"),
+        ("EMAIL_FAILED", "Email Failed"),
+    ]
+
+    employee_id = models.CharField(max_length=100)
+    subject = models.CharField(max_length=255)
+    message = models.TextField()
+
+    priority = models.CharField(
+        max_length=10,
+        choices=PRIORITY_CHOICES,
+        default="MEDIUM"
+    )
+
+    inform_admin = models.BooleanField(default=False)
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING"
+    )
+
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+    email_error = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "contact_requests"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.employee_id} - {self.subject}"
+
+from django.db import models
+
+
+class EmailLog(models.Model):
+
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("SENT", "Sent"),
+        ("FAILED", "Failed"),
+    ]
+
+    email_type = models.CharField(
+        max_length=50,
+        default="CONTACT_US"
+    )
+
+    contact_request = models.ForeignKey(
+        "ContactRequest",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="email_logs"
+    )
+
+    recipient = models.EmailField()
+
+    subject = models.CharField(
+        max_length=255
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING"
+    )
+
+    error_message = models.TextField(
+        null=True,
+        blank=True
+    )
+
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        db_table = "email_logs"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.recipient} - {self.status}"

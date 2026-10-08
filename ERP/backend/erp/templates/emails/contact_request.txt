@@ -1,0 +1,22 @@
+New Contact Us Request
+======================
+
+Request ID:        #{{ request_id }}
+Submitted:         {{ submitted_at }}
+Employee ID:       {{ employee_id }}
+Priority:          {{ priority }}
+Expected Response: {{ response_window }}
+
+Subject
+-------
+{{ subject }}
+
+Message
+-------
+{{ message }}
+
+{% if inform_admin %}Admin notified: yes
+{% endif %}
+—
+This is an automated notification from the {{ company_name }} Contact Us form.
+Replies to this email are not monitored.
