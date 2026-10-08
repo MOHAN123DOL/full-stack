@@ -33,6 +33,22 @@ class IsHR(BasePermission):
         )
 
 
+class IsHROrMaterialPlanning(BasePermission):
+    """Allows the two departments that use the shared employee lookup."""
+
+    message = "HR or Material Planning access required."
+
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and request.user.user_type in {
+                User.UserType.HR,
+                User.UserType.MATERIAL_PLANNING,
+            }
+        )
+
+
 class IsMaterialPlanning(BasePermission):
     message = "Material Planning access required."
 

@@ -1315,14 +1315,24 @@ class StatusUpdateSerializer(serializers.Serializer):
         return attrs
 
 #for expense
-
-from .models import JournalEntry
+from rest_framework import serializers
+from .models import JournalEntry, PurchaseOrder
 
 
 class JournalEntrySerializer(serializers.ModelSerializer):
     """
     One row on the Journal / Expense & Profit page.
     """
+
+    purchase_order_id = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
+    purchase_order_display = serializers.SerializerMethodField(
+        read_only=True,
+    )
 
     class Meta:
         model = JournalEntry
@@ -1340,17 +1350,103 @@ class JournalEntrySerializer(serializers.ModelSerializer):
             "notes",
             "source_type",
             "source_id",
+
+            # ----- NEW -----
+            "purchase_order",
+            "purchase_order_id",
+            "purchase_order_display",
+            "po_number",
+
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
             "record_number",
+            "purchase_order",
+            "purchase_order_display",
+            "po_number",
             "created_at",
             "updated_at",
         ]
 
+    def get_purchase_order_display(self, obj):
+        if not obj.purchase_order:
+            return None
+        return {
+            "id": obj.purchase_order.id,
+            "po_number": obj.purchase_order.po_number,
+            "po_date": obj.purchase_order.po_date,
+            "grand_total": str(obj.purchase_order.grand_total or 0),
+            "vendor": obj.purchase_order.vendor or {},
+        }
 
+    def create(self, validated_data):
+        po_id = validated_data.pop("purchase_order_id", None)
+        po = None
+        if po_id:
+            try:
+                po = PurchaseOrder.objects.get(id=po_id)
+            except PurchaseOrder.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"purchase_order_id": "Purchase Order not found."}
+                )
+
+        validated_data["purchase_order"] = po
+        validated_data["po_number"] = po.po_number if po else ""
+
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        po_id = validated_data.pop("purchase_order_id", None)
+
+        if po_id is not None:
+            if po_id == 0:
+                # Explicit "clear the link" call
+                instance.purchase_order = None
+                instance.po_number = ""
+            else:
+                try:
+                    po = PurchaseOrder.objects.get(id=po_id)
+                except PurchaseOrder.DoesNotExist:
+                    raise serializers.ValidationError(
+                        {"purchase_order_id": "Purchase Order not found."}
+                    )
+                instance.purchase_order = po
+                instance.po_number = po.po_number
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+        return instance
+
+
+class JournalPOOptionSerializer(serializers.ModelSerializer):
+    """
+    Compact PO rows for the "Related PO" search dropdown on the
+    Add Transaction modal.
+    """
+
+    vendor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PurchaseOrder
+        fields = [
+            "id",
+            "po_number",
+            "po_date",
+            "grand_total",
+            "payment_status",
+            "delivery_status",
+            "vendor_name",
+        ]
+
+    def get_vendor_name(self, obj):
+        vendor = obj.vendor or {}
+        if isinstance(vendor, dict):
+            return vendor.get("companyName") or ""
+        return str(vendor)
 
 #hr module
 # hr/serializers.py

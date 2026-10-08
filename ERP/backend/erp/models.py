@@ -1692,7 +1692,6 @@ class ProformaInvoice(models.Model):
     def __str__(self):
         return self.proforma_no
 
-
 class JournalEntry(models.Model):
 
     class EntryType(models.TextChoices):
@@ -1721,14 +1720,9 @@ class JournalEntry(models.Model):
     # IDENTITY
     # =========================
 
-    record_number = models.CharField(
-        max_length=50,
-        unique=True,
-    )
-
-    date = models.DateField()
-
-    type = models.CharField(
+    record_number = models.CharField(max_length=50, unique=True)
+    date          = models.DateField()
+    type          = models.CharField(
         max_length=20,
         choices=EntryType.choices,
         default=EntryType.EXPENSE,
@@ -1738,24 +1732,14 @@ class JournalEntry(models.Model):
     # DETAILS
     # =========================
 
-    category = models.CharField(
+    category      = models.CharField(
         max_length=50,
         choices=Category.choices,
         default=Category.OTHER,
     )
-
-    description = models.TextField(
-        blank=True,
-        default="",
-    )
-
-    amount = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
-        default=0,
-    )
-
-    payment_mode = models.CharField(
+    description   = models.TextField(blank=True, default="")
+    amount        = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    payment_mode  = models.CharField(
         max_length=30,
         choices=PaymentMode.choices,
         default=PaymentMode.CASH,
@@ -1765,60 +1749,64 @@ class JournalEntry(models.Model):
     # DOCUMENT / REFERENCE
     # =========================
 
-    document_number = models.CharField(
-        max_length=100,
-        blank=True,
-        default="",
-    )
-
-    document = models.CharField(
-        max_length=100,
-        blank=True,
-        default="",
-    )
-
-    notes = models.TextField(
-        blank=True,
-        default="",
-    )
+    document_number = models.CharField(max_length=100, blank=True, default="")
+    document        = models.CharField(max_length=100, blank=True, default="")
+    notes           = models.TextField(blank=True, default="")
 
     # =========================
     # OPTIONAL LINK TO SOURCE DOC
     # =========================
 
-    source_type = models.CharField(
-        max_length=30,
-        blank=True,
-        default="",
-    )
+    source_type = models.CharField(max_length=30, blank=True, default="")
+    source_id   = models.PositiveIntegerField(null=True, blank=True)
 
-    source_id = models.PositiveIntegerField(
+    # =========================
+    # OPTIONAL PURCHASE ORDER LINK   ← NEW
+    # =========================
+    # When set, this entry is tied to a real Purchase Order.
+    # SET_NULL so deleting a PO doesn't cascade-delete financial history.
+
+    purchase_order = models.ForeignKey(
+        "PurchaseOrder",
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        related_name="journal_entries",
+    )
+
+    # Snapshot of the PO number at save time so historical rows
+    # still read correctly even if the PO is later renamed.
+    po_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
     )
 
     # =========================
     # TIMESTAMPS
     # =========================
 
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-date", "-created_at"]
         verbose_name = "Journal Entry"
         verbose_name_plural = "Journal Entries"
+        indexes = [
+            models.Index(fields=["purchase_order"]),
+            models.Index(fields=["po_number"]),
+        ]
 
     def __str__(self):
         return f"{self.record_number} — {self.type} — {self.amount}"
 
-
-
+    def save(self, *args, **kwargs):
+        # Keep the snapshot in sync automatically.
+        if self.purchase_order_id and not self.po_number:
+            self.po_number = self.purchase_order.po_number
+        super().save(*args, **kwargs)
 #hr 
 # hr/models.py
 
@@ -2997,7 +2985,7 @@ class BOMPOIntegration(models.Model):
         constraints = [
             # Exactly one of the two item FKs must be set
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(purchase_order_item__isnull=False,
                              dummy_purchase_order_item__isnull=True)
                     | models.Q(purchase_order_item__isnull=True,
@@ -3129,7 +3117,7 @@ class MaterialGRN(models.Model):
         constraints = [
             # Exactly one of the two item FKs must be set
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(
                         purchase_order_item__isnull=False,
                         dummy_purchase_order_item__isnull=True,
@@ -4630,7 +4618,7 @@ class AssemblyInput(models.Model):
         ordering = ["id"]
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(
                         source_type="material",
                         job_work_piece__isnull=False,

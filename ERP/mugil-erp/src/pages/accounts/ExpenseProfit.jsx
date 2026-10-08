@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -8,6 +8,8 @@ import {
   Search,
   X,
   Eye,
+  FileText,
+  Loader2,
 } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
@@ -17,6 +19,7 @@ import { useAuth } from "../../context/AuthContext";
 import "./ExpenseProfit.css";
 
 const JOURNAL_ENDPOINT = "/erp/journal/";
+const PO_OPTIONS_ENDPOINT = "/erp/journal/po-options/";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 /* ---------- option lists ---------- */
@@ -33,6 +36,20 @@ const CATEGORY_OPTIONS = [
 ];
 
 const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
+
+const EMPTY_FORM = {
+  date: new Date().toISOString().split("T")[0],
+  type: "Expense",
+  category: "Transport",
+  description: "",
+  amount: "",
+  paymentMode: "Cash",
+  documentNumber: "",
+  document: "",
+  notes: "",
+  relatedPO: false,
+  selectedPO: null, // { id, po_number, vendor_name, grand_total, po_date }
+};
 
 /* ============================================================
    COMPONENT
@@ -59,27 +76,17 @@ export default function ExpenseProfit() {
   /* Add form */
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  const [expenseForm, setExpenseForm] = useState({
-    date: new Date().toISOString().split("T")[0],
-    type: "Expense",
-    category: "Transport",
-    description: "",
-    amount: "",
-    paymentMode: "Cash",
-    documentNumber: "",
-    document: "",
-    notes: "",
-  });
+  const [expenseForm, setExpenseForm] = useState(EMPTY_FORM);
 
   /* View modal */
   const [viewingRecord, setViewingRecord] = useState(null);
 
   /* ============================================================
-     LOAD
+     LOAD LIST
      ============================================================ */
   const loadRecords = useCallback(async () => {
     if (!accessToken) return;
+
     try {
       setLoading(true);
       setLoadError("");
@@ -127,18 +134,39 @@ export default function ExpenseProfit() {
         String(r.category || "").toLowerCase().includes(q) ||
         String(r.document_number || "").toLowerCase().includes(q) ||
         String(r.record_number || "").toLowerCase().includes(q) ||
-        String(r.payment_mode || "").toLowerCase().includes(q)
+        String(r.payment_mode || "").toLowerCase().includes(q) ||
+        String(r.po_number || "").toLowerCase().includes(q)
       );
     });
   }, [records, search, typeFilter]);
 
   /* ============================================================
-     FORM
+     FORM HELPERS
      ============================================================ */
   const handleExpenseChange = (field, value) => {
     setExpenseForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleRelatedPOToggle = () => {
+    setExpenseForm((prev) => ({
+      ...prev,
+      relatedPO: !prev.relatedPO,
+      // Clear the selected PO when toggling off
+      selectedPO: prev.relatedPO ? null : prev.selectedPO,
+    }));
+  };
+
+  const handleSelectPO = (po) => {
+    setExpenseForm((prev) => ({ ...prev, selectedPO: po }));
+  };
+
+  const handleClearPO = () => {
+    setExpenseForm((prev) => ({ ...prev, selectedPO: null }));
+  };
+
+  /* ============================================================
+     SAVE
+     ============================================================ */
   const handleSaveExpense = async (e) => {
     e.preventDefault();
     setSubmitError("");
@@ -153,6 +181,11 @@ export default function ExpenseProfit() {
       return;
     }
 
+    if (expenseForm.relatedPO && !expenseForm.selectedPO) {
+      setSubmitError("Please select a Purchase Order or turn off 'Related PO'.");
+      return;
+    }
+
     if (!accessToken) {
       setSubmitError("Session expired. Please login again.");
       return;
@@ -161,36 +194,33 @@ export default function ExpenseProfit() {
     try {
       setSubmitting(true);
 
-      const response = await api.post(
-        JOURNAL_ENDPOINT,
-        {
-          date: expenseForm.date,
-          type: expenseForm.type,
-          category: expenseForm.category,
-          description: expenseForm.description.trim(),
-          amount: expenseForm.amount,
-          payment_mode: expenseForm.paymentMode,
-          document_number: expenseForm.documentNumber.trim(),
-          document: expenseForm.document.trim(),
-          notes: expenseForm.notes.trim(),
-        },
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      );
+      const payload = {
+        date: expenseForm.date,
+        type: expenseForm.type,
+        category: expenseForm.category,
+        description: expenseForm.description.trim(),
+        amount: expenseForm.amount,
+        payment_mode: expenseForm.paymentMode,
+        document_number: expenseForm.documentNumber.trim(),
+        document: expenseForm.document.trim(),
+        notes: expenseForm.notes.trim(),
+      };
+
+      if (expenseForm.relatedPO && expenseForm.selectedPO) {
+        payload.purchase_order_id = expenseForm.selectedPO.id;
+      }
+
+      const response = await api.post(JOURNAL_ENDPOINT, payload, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
 
       if (!response.data?.success) throw new Error("bad response");
 
       await loadRecords();
 
       setExpenseForm({
+        ...EMPTY_FORM,
         date: new Date().toISOString().split("T")[0],
-        type: "Expense",
-        category: "Transport",
-        description: "",
-        amount: "",
-        paymentMode: "Cash",
-        documentNumber: "",
-        document: "",
-        notes: "",
       });
       setShowExpenseForm(false);
     } catch (error) {
@@ -336,7 +366,7 @@ export default function ExpenseProfit() {
                 <Search size={16} className="journal-search__icon" />
                 <input
                   type="text"
-                  placeholder="Search description, category, document…"
+                  placeholder="Search description, category, PO, document…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -385,16 +415,15 @@ export default function ExpenseProfit() {
                   <thead>
                     <tr>
                       <th style={{ width: 56 }}>S.No</th>
-                      <th style={{ width: 110 }}>Date</th>
-                      <th style={{ width: 110 }}>Type</th>
-                      <th style={{ width: 130 }}>Category</th>
+                      <th style={{ width: 100 }}>Date</th>
+                      <th style={{ width: 100 }}>Type</th>
+                      <th style={{ width: 120 }}>Category</th>
                       <th>Description</th>
-                      <th style={{ width: 130, textAlign: "right" }}>
+                      <th style={{ width: 140 }}>Related PO</th>
+                      <th style={{ width: 120, textAlign: "right" }}>
                         Amount
                       </th>
-                      <th style={{ width: 130 }}>Payment</th>
-                      <th style={{ width: 140 }}>Document No</th>
-                      <th style={{ width: 130 }}>Doc Type</th>
+                      <th style={{ width: 120 }}>Payment</th>
                       <th style={{ width: 70, textAlign: "center" }}>
                         View
                       </th>
@@ -426,6 +455,18 @@ export default function ExpenseProfit() {
                           <td className="journal-table__desc">
                             {record.description}
                           </td>
+                          <td>
+                            {record.po_number ? (
+                              <span className="journal-po-chip">
+                                <FileText size={12} />
+                                {record.po_number}
+                              </span>
+                            ) : (
+                              <span className="journal-po-chip journal-po-chip--none">
+                                —
+                              </span>
+                            )}
+                          </td>
                           <td
                             className={`journal-table__amount ${
                               record.type === "Income"
@@ -436,10 +477,6 @@ export default function ExpenseProfit() {
                             {formatAmount(record.amount)}
                           </td>
                           <td>{record.payment_mode}</td>
-                          <td className="journal-table__mono">
-                            {record.document_number || "—"}
-                          </td>
-                          <td>{record.document || "—"}</td>
                           <td style={{ textAlign: "center" }}>
                             <button
                               type="button"
@@ -454,7 +491,7 @@ export default function ExpenseProfit() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="10" className="journal-empty">
+                        <td colSpan="9" className="journal-empty">
                           {records.length === 0
                             ? "No transactions yet. Add one to get started."
                             : "No transactions match the current filters."}
@@ -570,6 +607,43 @@ export default function ExpenseProfit() {
                     placeholder="Enter a short description"
                   />
                 </label>
+
+                {/* ============================================
+                    RELATED PO TOGGLE + SEARCH
+                ============================================ */}
+                <div className="journal-field journal-field--wide">
+                  <div className="journal-po-toggle-row">
+                    <button
+                      type="button"
+                      className={`journal-toggle ${expenseForm.relatedPO ? "journal-toggle--on" : ""}`}
+                      onClick={handleRelatedPOToggle}
+                      role="switch"
+                      aria-checked={expenseForm.relatedPO}
+                    >
+                      <span className="journal-toggle__track">
+                        <span className="journal-toggle__thumb" />
+                      </span>
+                      <span className="journal-toggle__label">
+                        Related PO?
+                      </span>
+                    </button>
+
+                    {expenseForm.relatedPO && !expenseForm.selectedPO && (
+                      <span className="journal-po-hint">
+                        Search and select a Purchase Order
+                      </span>
+                    )}
+                  </div>
+
+                  {expenseForm.relatedPO && (
+                    <POSearchPicker
+                      accessToken={accessToken}
+                      selectedPO={expenseForm.selectedPO}
+                      onSelect={handleSelectPO}
+                      onClear={handleClearPO}
+                    />
+                  )}
+                </div>
 
                 <label className="journal-field">
                   <span>Payment Mode</span>
@@ -723,6 +797,21 @@ export default function ExpenseProfit() {
                   </span>
                 </div>
 
+                {viewingRecord.purchase_order_display && (
+                  <div className="journal-view__row journal-view__row--wide">
+                    <span className="journal-view__label">Related PO</span>
+                    <span className="journal-view__value journal-po-chip">
+                      <FileText size={12} />
+                      {viewingRecord.purchase_order_display.po_number}
+                      {viewingRecord.purchase_order_display.vendor?.companyName && (
+                        <span className="journal-po-vendor">
+                          · {viewingRecord.purchase_order_display.vendor.companyName}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+
                 <div className="journal-view__row">
                   <span className="journal-view__label">Document Number</span>
                   <span className="journal-view__value journal-view__value--mono">
@@ -769,5 +858,166 @@ export default function ExpenseProfit() {
         </div>
       )}
     </>
+  );
+}
+
+/* ============================================================
+   PO SEARCH PICKER  (child component)
+   ============================================================ */
+
+function POSearchPicker({ accessToken, selectedPO, onSelect, onClear }) {
+  const [query, setQuery] = useState("");
+  const [options, setOptions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const wrapperRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  /* ---------- click outside closes the dropdown ---------- */
+  useEffect(() => {
+    const onClick = (e) => {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  /* ---------- debounced fetch ---------- */
+  useEffect(() => {
+    if (selectedPO) return; // don't fetch while a PO is selected
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      if (!accessToken) return;
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await api.get(PO_OPTIONS_ENDPOINT, {
+          params: { search: query, limit: 50 },
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (!response.data?.success) throw new Error("bad response");
+
+        setOptions(Array.isArray(response.data.data) ? response.data.data : []);
+      } catch (err) {
+        console.error("Failed to load PO options:", err);
+        setError("Couldn't load POs. Try again.");
+        setOptions([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, accessToken, selectedPO]);
+
+  /* ---------- selected state: show the chip ---------- */
+  if (selectedPO) {
+    return (
+      <div className="journal-po-selected" ref={wrapperRef}>
+        <div className="journal-po-selected__info">
+          <FileText size={16} className="journal-po-selected__icon" />
+          <div className="journal-po-selected__text">
+            <strong>{selectedPO.po_number}</strong>
+            <span>
+              {selectedPO.vendor_name || "—"}
+              {selectedPO.grand_total
+                ? ` · ₹${Number(selectedPO.grand_total).toLocaleString(
+                    "en-IN",
+                  )}`
+                : ""}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="journal-po-selected__clear"
+          onClick={onClear}
+          aria-label="Remove linked PO"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    );
+  }
+
+  /* ---------- search state ---------- */
+  return (
+    <div className="journal-po-picker" ref={wrapperRef}>
+      <div className="journal-po-picker__input">
+        <Search size={16} className="journal-po-picker__icon" />
+        <input
+          type="text"
+          value={query}
+          placeholder="Search PO number or vendor…"
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+        />
+        {loading && (
+          <Loader2 size={16} className="journal-po-picker__spinner" />
+        )}
+      </div>
+
+      {open && (
+        <div className="journal-po-picker__dropdown">
+          {error && (
+            <div className="journal-po-picker__empty">{error}</div>
+          )}
+
+          {!error && !loading && options.length === 0 && (
+            <div className="journal-po-picker__empty">
+              {query
+                ? "No Purchase Orders match your search."
+                : "Start typing to search Purchase Orders."}
+            </div>
+          )}
+
+          {!error &&
+            options.map((po) => (
+              <button
+                key={po.id}
+                type="button"
+                className="journal-po-picker__option"
+                onClick={() => {
+                  onSelect(po);
+                  setOpen(false);
+                  setQuery("");
+                }}
+              >
+                <div className="journal-po-picker__option-main">
+                  <strong>{po.po_number}</strong>
+                  <span>{po.vendor_name || "—"}</span>
+                </div>
+                <div className="journal-po-picker__option-meta">
+                  <span>
+                    ₹{Number(po.grand_total || 0).toLocaleString("en-IN")}
+                  </span>
+                  {po.po_date && (
+                    <span className="journal-po-picker__option-date">
+                      {po.po_date}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
   );
 }

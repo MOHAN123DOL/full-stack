@@ -667,3 +667,293 @@
     border-right: none;
   }
 }
+
+/* ============================================================
+   RELATED PO — toggle + picker
+   ============================================================ */
+
+.journal-po-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.journal-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.journal-toggle__track {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 0.18s ease;
+  flex-shrink: 0;
+}
+
+.journal-toggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  transition: transform 0.18s ease;
+}
+
+.journal-toggle--on .journal-toggle__track {
+  background: #4f46e5;
+}
+
+.journal-toggle--on .journal-toggle__thumb {
+  transform: translateX(18px);
+}
+
+.journal-toggle__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.journal-po-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* ---------- Search picker ---------- */
+
+.journal-po-picker {
+  position: relative;
+  margin-top: 6px;
+}
+
+.journal-po-picker__input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.journal-po-picker__icon {
+  position: absolute;
+  left: 12px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.journal-po-picker__spinner {
+  position: absolute;
+  right: 12px;
+  color: #6366f1;
+  animation: journal-spin 0.9s linear infinite;
+}
+
+@keyframes journal-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.journal-po-picker__input input {
+  width: 100%;
+  padding: 10px 40px 10px 36px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.journal-po-picker__input input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.journal-po-picker__dropdown {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  padding: 4px;
+}
+
+.journal-po-picker__empty {
+  padding: 14px 12px;
+  font-size: 13px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.journal-po-picker__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.12s ease;
+}
+
+.journal-po-picker__option:hover {
+  background: #f1f5f9;
+}
+
+.journal-po-picker__option-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.journal-po-picker__option-main strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4f46e5;
+}
+
+.journal-po-picker__option-main span {
+  font-size: 12px;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.journal-po-picker__option-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 12px;
+  color: #334155;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.journal-po-picker__option-date {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+/* ---------- Selected PO chip ---------- */
+
+.journal-po-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 12px 14px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+}
+
+.journal-po-selected__info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.journal-po-selected__icon {
+  color: #4f46e5;
+  flex-shrink: 0;
+}
+
+.journal-po-selected__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.journal-po-selected__text strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #3730a3;
+}
+
+.journal-po-selected__text span {
+  font-size: 12px;
+  color: #4f46e5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.journal-po-selected__clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #3730a3;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.journal-po-selected__clear:hover {
+  background: #c7d2fe;
+}
+
+/* ---------- PO chip in the table ---------- */
+
+.journal-po-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.journal-po-chip--none {
+  background: transparent;
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+.journal-po-vendor {
+  font-weight: 500;
+  color: #6366f1;
+  margin-left: 2px;
+}

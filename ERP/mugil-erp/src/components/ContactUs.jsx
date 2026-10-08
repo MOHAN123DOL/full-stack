@@ -228,7 +228,7 @@ export default function ContactUs() {
     const payload = buildContactPayload(form);
 
     try {
-      const response = await api.post("/contact/", payload);
+      const response = await api.post("/erp/contact/", payload);
       const responseData = response?.data;
 
       if (responseData?.success) {

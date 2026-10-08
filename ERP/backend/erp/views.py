@@ -99,7 +99,7 @@ from .models import (
 from .serializers import PurchaseOrderSerializer
 from .permissions import IsAccounts
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -287,13 +287,13 @@ class UserProfileListCreateAPIView(generics.ListCreateAPIView):
    
     queryset = UserProfile.objects.select_related("user").all()
     serializer_class = UserProfileSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsERPAdmin]
 
 
 class UserProfileDetailAPIView(generics.RetrieveUpdateAPIView):
     queryset = UserProfile.objects.select_related("user").all()
     serializer_class = UserProfileSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsERPAdmin]
 
     lookup_field = "id"
    
@@ -1148,7 +1148,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
 class NextPurchaseOrderNumberAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAccounts]
 
     def get(self, request):
         settings_obj = (
@@ -1417,10 +1417,52 @@ class CustomerAPIView(APIView):
 
 #FOR PO STATUS CHANGE AND PO NUMBER ALSO CHANGE 
 from django.core.files.base import ContentFile
+from PIL import Image, UnidentifiedImageError
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.views.decorators.csrf import csrf_protect
 from django.utils.decorators import method_decorator
 from rest_framework.permissions import AllowAny
+
+
+MAX_PDF_UPLOAD_SIZE = 10 * 1024 * 1024
+MAX_IMAGE_UPLOAD_SIZE = 5 * 1024 * 1024
+ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP", "GIF"}
+
+
+def validate_pdf_upload(upload):
+    """Return a client-safe validation error, or ``None`` for a PDF upload."""
+    if upload.size > MAX_PDF_UPLOAD_SIZE:
+        return "PDF files must be 10 MB or smaller."
+
+    try:
+        header = upload.read(1024)
+        upload.seek(0)
+    except (AttributeError, OSError):
+        return "The uploaded PDF could not be read."
+
+    if b"%PDF-" not in header:
+        return "Only valid PDF files are allowed."
+
+    return None
+
+
+def validate_image_upload(upload):
+    """Return a client-safe validation error, or ``None`` for an image."""
+    if upload.size > MAX_IMAGE_UPLOAD_SIZE:
+        return "Image must be 5 MB or smaller."
+
+    try:
+        image = Image.open(upload)
+        image.verify()
+        image_format = image.format
+        upload.seek(0)
+    except (OSError, UnidentifiedImageError):
+        return "Only valid image files are allowed."
+
+    if image_format not in ALLOWED_IMAGE_FORMATS:
+        return "Only JPEG, PNG, WebP, and GIF images are allowed."
+
+    return None
 
 
 
@@ -1518,6 +1560,13 @@ class PurchaseOrderConfirmAPIView(APIView):
                         "success": False,
                         "message": "No PDF file was uploaded.",
                     },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            pdf_error = validate_pdf_upload(pdf_file)
+            if pdf_error:
+                return Response(
+                    {"success": False, "message": pdf_error},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -2181,6 +2230,13 @@ class QuotationConfirmAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            pdf_error = validate_pdf_upload(pdf_file)
+            if pdf_error:
+                return Response(
+                    {"success": False, "message": pdf_error},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             # ============================================================
             # 5. Save PDF under MEDIA/quotations/
             # ============================================================
@@ -2733,7 +2789,7 @@ class DeliveryChallanCreateAPIView(APIView):
 @method_decorator(csrf_protect, name="dispatch")
 class DeliveryChallanConfirmAPIView(APIView):
 
-    permission_classes = [IsAccountsOrMaterialPlanning,IsAuthenticated]
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, dc_number):
@@ -2784,14 +2840,7 @@ class DeliveryChallanConfirmAPIView(APIView):
             # 2. Accounts-department check (same rule as IsAccounts)
             # ============================================================
 
-            if user.user_type != User.UserType.ACCOUNTS:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Accounts access required.",
-                    },
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+            
 
             # ============================================================
             # 3. Locate the Delivery Challan (locked)
@@ -2824,6 +2873,13 @@ class DeliveryChallanConfirmAPIView(APIView):
                         "success": False,
                         "message": "No PDF file was uploaded.",
                     },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            pdf_error = validate_pdf_upload(pdf_file)
+            if pdf_error:
+                return Response(
+                    {"success": False, "message": pdf_error},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -3436,6 +3492,13 @@ class TaxInvoiceConfirmAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            pdf_error = validate_pdf_upload(pdf_file)
+            if pdf_error:
+                return Response(
+                    {"success": False, "message": pdf_error},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             # ============================================================
             # 5. Save PDF under MEDIA/tax_invoices/pdf/
             # ============================================================
@@ -4008,6 +4071,13 @@ class ProformaInvoiceConfirmAPIView(APIView):
                         "success": False,
                         "message": "No PDF file was uploaded.",
                     },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            pdf_error = validate_pdf_upload(pdf_file)
+            if pdf_error:
+                return Response(
+                    {"success": False, "message": pdf_error},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -4735,14 +4805,145 @@ class JournalAPIView(APIView):
 # ------------------------------------------------------------
 # DELETE /erp/journal/<id>/
 # ============================================================
-
 @method_decorator(csrf_protect, name="dispatch")
 class JournalDetailAPIView(APIView):
+    """
+    PATCH  /erp/journal/<pk>/   → edit an existing entry
+    DELETE /erp/journal/<pk>/   → delete an entry
+    """
+
+    permission_classes = [AllowAny]
+
+    # ========================================================
+    # AUTH HELPER — same pattern as JournalAPIView
+    # ========================================================
+    def _get_user(self, request):
+        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+
+        if not refresh_token:
+            return None, Response(
+                {"success": False, "message": "Session not found. Please login again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            user_id = token.get("user_id")
+        except Exception:
+            return None, Response(
+                {"success": False, "message": "Session is invalid or expired."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return None, Response(
+                {"success": False, "message": "Session user no longer exists."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if user.user_type != User.UserType.ACCOUNTS:
+            return None, Response(
+                {"success": False, "message": "Accounts access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return user, None
+
+    # ========================================================
+    # PATCH — edit an existing entry
+    # ========================================================
+    def patch(self, request, pk):
+        user, err = self._get_user(request)
+        if err:
+            return err
+
+        try:
+            entry = JournalEntry.objects.get(pk=pk)
+        except JournalEntry.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Journal entry not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = JournalEntrySerializer(
+            entry,
+            data=request.data,
+            partial=True,
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid journal entry.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer.save()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Journal entry updated.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # ========================================================
+    # DELETE — remove an entry
+    # ========================================================
+    def delete(self, request, pk):
+        user, err = self._get_user(request)
+        if err:
+            return err
+
+        try:
+            entry = JournalEntry.objects.get(pk=pk)
+        except JournalEntry.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Journal entry not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        entry.delete()
+
+        return Response(
+            {"success": True, "message": "Journal entry deleted."},
+            status=status.HTTP_200_OK,
+        )
+
+# ============================================================
+# JOURNAL — PURCHASE ORDER SEARCH (for the "Related PO" dropdown)
+# ------------------------------------------------------------
+# GET /erp/journal/po-options/?search=<text>&limit=50
+# ============================================================
+
+from django.db.models import Q
+from .models import PurchaseOrder
+from .serializers import JournalPOOptionSerializer
+
+
+class JournalPOOptionsAPIView(APIView):
+    """
+    Returns a compact list of confirmed Purchase Orders for the
+    'Related PO' search dropdown on the Add Transaction modal.
+
+    Query params:
+        search  — matches po_number or vendor.companyName (contains)
+        limit   — max rows (default 50, hard cap 200)
+
+    Only confirmed POs are returned — draft/previewed/cancelled
+    POs should not be selectable for financial linkage.
+    """
+
     permission_classes = [AllowAny]
 
     def _get_user(self, request):
-        # same helper as JournalAPIView — copy it inline or
-        # extract to a mixin if you prefer.
         refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
         if not refresh_token:
             return None, Response(
@@ -4775,26 +4976,43 @@ class JournalDetailAPIView(APIView):
 
         return user, None
 
-    # --------------------------------------------------------
-    # DELETE
-    # --------------------------------------------------------
-    def delete(self, request, pk):
+    def get(self, request):
         user, err = self._get_user(request)
         if err:
             return err
 
+        search = (request.query_params.get("search") or "").strip()
+
         try:
-            entry = JournalEntry.objects.get(pk=pk)
-        except JournalEntry.DoesNotExist:
-            return Response(
-                {"success": False, "message": "Journal entry not found."},
-                status=status.HTTP_404_NOT_FOUND,
+            limit = int(request.query_params.get("limit", 50))
+        except (TypeError, ValueError):
+            limit = 50
+        limit = max(1, min(limit, 200))
+
+        qs = (
+            PurchaseOrder.objects
+            .filter(status=PurchaseOrder.Status.CONFIRMED)
+            .order_by("-created_at")
+        )
+
+        if search:
+            # po_number OR vendor.companyName (vendor is a JSONField,
+            # so we filter on the stringified representation).
+            qs = qs.filter(
+                Q(po_number__icontains=search)
+                | Q(vendor__icontains=search)
             )
 
-        entry.delete()
+        qs = qs[:limit]
+
+        serializer = JournalPOOptionSerializer(qs, many=True)
 
         return Response(
-            {"success": True, "message": "Journal entry deleted."},
+            {
+                "success": True,
+                "count": len(serializer.data),
+                "data": serializer.data,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -4810,7 +5028,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Employee
-from .permissions import IsHR
+from .permissions import IsHR, IsHROrMaterialPlanning
 from .serializers import (
     EmployeeArchiveSerializer,
     EmployeeSerializer,
@@ -5284,26 +5502,28 @@ def filter_employees(request):
 
 class SalaryEmployeeListAPIView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHROrMaterialPlanning]
 
     def get(self, request):
 
         employees = filter_employees(request)
 
-        page = max(
-            int(request.query_params.get("page", 1)),
-            1
-        )
+        try:
+            page = int(request.query_params.get("page", 1))
+            page_size = int(request.query_params.get("page_size", 25))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "page and page_size must be whole numbers."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        page_size = min(
-            int(
-                request.query_params.get(
-                    "page_size",
-                    25
-                )
-            ),
-            100
-        )
+        if page < 1 or page_size < 1:
+            return Response(
+                {"detail": "page and page_size must be greater than zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        page_size = min(page_size, 100)
 
         total = employees.count()
 
@@ -5334,7 +5554,7 @@ class SalaryEmployeeListAPIView(APIView):
 
 class SalaryPaymentListCreateAPIView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get(self, request):
 
@@ -5502,7 +5722,7 @@ class SalaryPaymentListCreateAPIView(APIView):
 
 class SalaryPaymentDetailAPIView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get_object(self, pk):
         return get_object_or_404(
@@ -5593,7 +5813,7 @@ class SalaryPaymentDetailAPIView(APIView):
 
 class AdvanceListCreateAPIView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get(self, request):
 
@@ -5691,7 +5911,7 @@ class AdvanceListCreateAPIView(APIView):
 
 class AdvanceDetailAPIView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get_object(self, pk):
 
@@ -5808,6 +6028,8 @@ class AttendancePagination(PageNumberPagination):
 
 class AttendanceEmployeeView(APIView):
 
+    permission_classes = [IsAuthenticated, IsHR]
+
     def get(self, request):
 
         queryset = Employee.objects.filter(
@@ -5916,6 +6138,7 @@ class AttendanceEmployeeView(APIView):
 class WageConfigViewSet(ModelViewSet):
 
     serializer_class = WageConfigSerializer
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get_queryset(self):
 
@@ -6088,6 +6311,7 @@ class WageConfigViewSet(ModelViewSet):
 class AttendanceViewSet(ModelViewSet):
 
     serializer_class = AttendanceSerializer
+    permission_classes = [IsAuthenticated, IsHR]
 
     pagination_class = AttendancePagination
 
@@ -7395,7 +7619,7 @@ class ConsumableDashboardView(APIView):
     Consumable module dashboard.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     def get(self, request):
 
@@ -7452,7 +7676,7 @@ class ConsumableGRNPOItemListAPIView(APIView):
       via the Material GRN page, it must not appear here.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     def get(self, request):
 
@@ -7599,7 +7823,7 @@ def clean_supplier(raw):
 
 class ConsumableGRNReceiveAPIView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     @transaction.atomic
     def post(self, request, item_id):
@@ -7790,7 +8014,7 @@ class ConsumableGRNReceiveAPIView(APIView):
 
 class ConsumableGRNDirectCreateAPIView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     @transaction.atomic
     def post(self, request):
@@ -8034,7 +8258,7 @@ def generate_issue_number():
 # ---------------------------------------------------------------------
 
 class ConsumableStockAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     def get(self, request):
         grns = (
@@ -8091,7 +8315,7 @@ class ConsumableStockAPIView(APIView):
 # ---------------------------------------------------------------------
 
 class ConsumableIssueStockAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     def get(self, request):
         grns = (
@@ -8132,7 +8356,7 @@ class ConsumableIssueStockAPIView(APIView):
 # ---------------------------------------------------------------------
 
 class ConsumableIssueCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     @transaction.atomic
     def post(self, request, grn_id):
@@ -8245,7 +8469,7 @@ def generate_return_number():
     return f"CRET-{next_number:05d}"
 
 class ConsumableReturnableIssueListAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     def get(self, request):
         issues = (
@@ -8305,7 +8529,7 @@ class ConsumableReturnableIssueListAPIView(APIView):
         return Response(data)
 
 class ConsumableReturnCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     @transaction.atomic
     def post(self, request, issue_id):
@@ -8423,7 +8647,7 @@ class ConsumableReturnCreateAPIView(APIView):
 # =====================================================================
 
 class ConsumableMovementGroupListAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     def get(self, request):
         grns = (
@@ -8541,7 +8765,7 @@ class ConsumableMovementDetailAPIView(APIView):
     GET /erp/consumable-grn/movements/detail/
         ?po_number=PO-2026-001&description=Mild Steel Plate
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     def get(self, request):
         po_number = request.query_params.get("po_number", "").strip()
@@ -13117,20 +13341,15 @@ def _assembly_used_in_other_assemblies(assembly_id, exclude_assembly_id=None):
         qs = qs.exclude(assembly_id=exclude_assembly_id)
     return qs.aggregate(total=Sum("use_qty"))["total"] or Decimal("0")
 
-
 def _material_availability(piece_id, exclude_assembly_id=None):
+    
     received = _piece_received_qty(piece_id)
+
     used_in_asm = _material_used_in_other_assemblies(
         piece_id, exclude_assembly_id
     )
-    issued = (
-        ProductionIssue.objects
-        .filter(job_work_piece_id=piece_id)
-        .aggregate(total=Sum("issued_qty"))["total"]
-        or Decimal("0")
-    )
-    return max(received - used_in_asm - issued, Decimal("0"))
 
+    return max(received - used_in_asm, Decimal("0"))
 
 def _assembly_availability(assembly_id, exclude_assembly_id=None):
     used = _assembly_used_in_other_assemblies(
@@ -13864,7 +14083,6 @@ class AssemblySourcesListAPIView(APIView):
 #
 # GET /erp/material/assembly/projects/?search=bhel
 # =====================================================================
-
 class AssemblyProjectListAPIView(APIView):
     """
     Searchable list of projects that have issued production material.
@@ -13872,6 +14090,26 @@ class AssemblyProjectListAPIView(APIView):
     Query params:
         ?search=<text>   optional — matches project code or name
                          (case-insensitive, contains).
+
+    Availability model
+    ------------------
+    A project's material pool is:
+
+        received              → sum of JobWorkReceivePiece.qty for
+                                every piece belonging to the project
+        used_in_assemblies    → sum of AssemblyInput.use_qty for
+                                every material input in any assembly
+                                already created from those pieces
+        available             → received − used_in_assemblies
+
+    Note: `ProductionIssue` rows are NOT subtracted. Issuing a
+    received piece to production is the handoff that puts the piece
+    where the assembly step can pick it up — it's not a consumption.
+    Subtracting it here would double-count the same physical piece
+    (once as "issued", once as "used in assembly") and zero out the
+    pool for projects that follow the pipeline:
+
+        Job Work Receive → Issue to Production → Assembly
 
     Response:
         {
@@ -13883,6 +14121,7 @@ class AssemblyProjectListAPIView(APIView):
               "name": "BHEL Unit 32",
               "receivedQty": 30.0,
               "usedInAssembliesQty": 19.0,
+              "issuedToProductionQty": 0.0,
               "availableQty": 11.0
             },
             ...
@@ -13917,8 +14156,7 @@ class AssemblyProjectListAPIView(APIView):
         #
         # We do this in bulk to avoid N+1 queries: for each project
         # we want the ids of all its received pieces, then a single
-        # aggregate over those pieces for "received", "used", and
-        # "issued".
+        # aggregate over those pieces for "received" and "used".
         # ---------------------------------------------------------
 
         data = []
@@ -13939,6 +14177,7 @@ class AssemblyProjectListAPIView(APIView):
                     "name": project.name,
                     "receivedQty": 0.0,
                     "usedInAssembliesQty": 0.0,
+                    "issuedToProductionQty": 0.0,
                     "availableQty": 0.0,
                 })
                 continue
@@ -13962,23 +14201,10 @@ class AssemblyProjectListAPIView(APIView):
             )
             used_in_assemblies = used_agg["total"] or Decimal("0")
 
-            # ---- How much has been issued to production directly
-            #      (outside the assembly pipeline). This subtracts
-            #      from the pool so the project doesn't advertise
-            #      qty it no longer has.
-            issued_agg = (
-                ProductionIssue.objects
-                .filter(job_work_piece_id__in=piece_ids)
-                .aggregate(total=Sum("issued_qty"))
-            )
-            issued_to_production = issued_agg["total"] or Decimal("0")
-
-            # ---- Available = received − used − issued ----
-            available = (
-                received
-                - used_in_assemblies
-                - issued_to_production
-            )
+            # ---- Available = received − used in assemblies ----
+            # ProductionIssue is intentionally NOT subtracted here.
+            # See the docstring for why.
+            available = received - used_in_assemblies
 
             if available < 0:
                 available = Decimal("0")
@@ -13989,7 +14215,7 @@ class AssemblyProjectListAPIView(APIView):
                 "name": project.name,
                 "receivedQty": float(received),
                 "usedInAssembliesQty": float(used_in_assemblies),
-                "issuedToProductionQty": float(issued_to_production),
+                "issuedToProductionQty": 0.0,
                 "availableQty": float(available),
             })
 
@@ -17696,6 +17922,15 @@ class ContactUsAPIView(APIView):
         if priority not in PRIORITY_RESPONSE_WINDOW:
             errors["priority"] = ["Invalid priority."]
 
+        # SQLite does not enforce VARCHAR lengths. Validate limits here so
+        # overlong values cannot cause database or email-delivery failures.
+        if len(employee_id) > 100:
+            errors["employeeId"] = ["Employee ID must be 100 characters or fewer."]
+        if len(subject) > 255:
+            errors["subject"] = ["Subject must be 255 characters or fewer."]
+        if len(message) > 10000:
+            errors["message"] = ["Message must be 10,000 characters or fewer."]
+
         if errors:
             return Response(
                 {"success": False, "message": "Validation failed.", "errors": errors},
@@ -17789,7 +18024,6 @@ class ContactUsAPIView(APIView):
                     "success": False,
                     "message": "Your request was saved but the notification email could not be sent.",
                     "requestId": contact.id,
-                    "error": str(exc),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
