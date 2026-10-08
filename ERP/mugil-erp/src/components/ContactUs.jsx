@@ -1,8 +1,10 @@
 import { useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+
 import "./ContactUs.css";
 
 import api from "../api/axios";
-
 
 /* ---------- inline icons ---------- */
 
@@ -110,8 +112,6 @@ function getPriorityMeta(value) {
   return PRIORITY_OPTIONS.find((p) => p.value === value);
 }
 
-/* ---------- payload builder ---------- */
-
 function buildContactPayload({
   employeeId,
   subject,
@@ -128,8 +128,6 @@ function buildContactPayload({
   };
 }
 
-/* ---------- initial form ---------- */
-
 const INITIAL_FORM = {
   employeeId: "",
   subject: "",
@@ -139,17 +137,23 @@ const INITIAL_FORM = {
 };
 
 export default function ContactUs() {
+  const navigate = useNavigate();
+
   const [form, setForm] = useState(INITIAL_FORM);
-
   const [errors, setErrors] = useState({});
-
   const [submitting, setSubmitting] = useState(false);
-
   const [submitted, setSubmitted] = useState(null);
-
   const submittingRef = useRef(false);
 
   const selectedPriority = getPriorityMeta(form.priority);
+
+  /* ============================================================
+     BACK
+     ============================================================ */
+
+  const handleBack = () => {
+    navigate(-1);
+  };
 
   /* ============================================================
      CLEAR FIELD ERROR
@@ -157,14 +161,9 @@ export default function ContactUs() {
 
   const clearFieldError = (field) => {
     setErrors((prev) => {
-      if (!prev[field]) {
-        return prev;
-      }
-
+      if (!prev[field]) return prev;
       const next = { ...prev };
-
       delete next[field];
-
       return next;
     });
   };
@@ -175,37 +174,17 @@ export default function ContactUs() {
 
   const handleChange = (field) => (event) => {
     const value = event.target.value;
-
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-
+    setForm((prev) => ({ ...prev, [field]: value }));
     clearFieldError(field);
   };
 
-  /* ============================================================
-     PRIORITY
-     ============================================================ */
-
   const handlePriorityChange = (value) => {
-    setForm((prev) => ({
-      ...prev,
-      priority: value,
-    }));
-
+    setForm((prev) => ({ ...prev, priority: value }));
     clearFieldError("priority");
   };
 
-  /* ============================================================
-     ADMIN TOGGLE
-     ============================================================ */
-
   const handleInformAdminToggle = () => {
-    setForm((prev) => ({
-      ...prev,
-      informAdmin: !prev.informAdmin,
-    }));
+    setForm((prev) => ({ ...prev, informAdmin: !prev.informAdmin }));
   };
 
   /* ============================================================
@@ -218,21 +197,17 @@ export default function ContactUs() {
     if (!form.employeeId.trim()) {
       nextErrors.employeeId = "Employee ID is required.";
     }
-
     if (!form.subject.trim()) {
       nextErrors.subject = "Subject is required.";
     }
-
     if (!form.message.trim()) {
       nextErrors.message = "Please describe your issue or request.";
     }
-
     if (!form.priority) {
       nextErrors.priority = "Please select a priority.";
     }
 
     setErrors(nextErrors);
-
     return Object.keys(nextErrors).length === 0;
   };
 
@@ -243,69 +218,27 @@ export default function ContactUs() {
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    /*
-     * Prevent double submission.
-     */
-    if (submittingRef.current) {
-      return;
-    }
-
-    /*
-     * Frontend validation.
-     */
-    if (!validate()) {
-      return;
-    }
+    if (submittingRef.current) return;
+    if (!validate()) return;
 
     submittingRef.current = true;
-
     setSubmitting(true);
-
     setErrors({});
 
     const payload = buildContactPayload(form);
 
     try {
-      /*
-       * Backend endpoint (baseURL is /api):
-       *
-       *   POST /api/contact/
-       *
-       * Payload:
-       * {
-       *   employeeId,
-       *   subject,
-       *   message,
-       *   priority,
-       *   informAdmin
-       * }
-       */
-
-      const response = await api.post("/erp/contact/", payload);
-
+      const response = await api.post("/contact/", payload);
       const responseData = response?.data;
-
-      /*
-       * Backend success.
-       */
 
       if (responseData?.success) {
         setSubmitted({
           ...payload,
-
-          /*
-           * Keep request ID if backend returns it.
-           */
           requestId:
             responseData?.requestId || responseData?.id || null,
         });
-
         return;
       }
-
-      /*
-       * Unexpected API response.
-       */
 
       setErrors({
         form:
@@ -315,23 +248,11 @@ export default function ContactUs() {
     } catch (err) {
       console.error("Contact Us submission failed:", err);
 
-      /*
-       * Axios error response.
-       */
-
       const response = err?.response;
-
       const responseData = response?.data;
-
-      /*
-       * -----------------------------------------
-       * 400 - Validation error
-       * -----------------------------------------
-       */
 
       if (response?.status === 400) {
         const backendErrors = responseData?.errors;
-
         if (backendErrors && typeof backendErrors === "object") {
           setErrors(backendErrors);
         } else {
@@ -341,15 +262,8 @@ export default function ContactUs() {
               "Please check the information you entered.",
           });
         }
-
         return;
       }
-
-      /*
-       * -----------------------------------------
-       * 401 - Unauthorized
-       * -----------------------------------------
-       */
 
       if (response?.status === 401) {
         setErrors({
@@ -357,15 +271,8 @@ export default function ContactUs() {
             responseData?.message ||
             "Your session has expired. Please login again.",
         });
-
         return;
       }
-
-      /*
-       * -----------------------------------------
-       * 403 - Forbidden
-       * -----------------------------------------
-       */
 
       if (response?.status === 403) {
         setErrors({
@@ -373,32 +280,13 @@ export default function ContactUs() {
             responseData?.message ||
             "You do not have permission to submit this request.",
         });
-
         return;
       }
-
-      /*
-       * -----------------------------------------
-       * 404 - Endpoint not found
-       * -----------------------------------------
-       */
 
       if (response?.status === 404) {
-        setErrors({
-          form: "Contact service is currently unavailable.",
-        });
-
+        setErrors({ form: "Contact service is currently unavailable." });
         return;
       }
-
-      /*
-       * -----------------------------------------
-       * 500 - Backend / Email failure
-       * -----------------------------------------
-       *
-       * The backend may have already saved the
-       * ContactRequest but failed to send email.
-       */
 
       if (response?.status >= 500) {
         setErrors({
@@ -406,30 +294,16 @@ export default function ContactUs() {
             responseData?.message ||
             "Your request could not be processed right now. Please try again later.",
         });
-
         return;
       }
-
-      /*
-       * -----------------------------------------
-       * Network error
-       * -----------------------------------------
-       */
 
       if (!response) {
         setErrors({
           form:
             "Unable to connect to the server. Please check your internet connection and try again.",
         });
-
         return;
       }
-
-      /*
-       * -----------------------------------------
-       * Generic API error
-       * -----------------------------------------
-       */
 
       setErrors({
         form:
@@ -438,7 +312,6 @@ export default function ContactUs() {
       });
     } finally {
       submittingRef.current = false;
-
       setSubmitting(false);
     }
   };
@@ -449,9 +322,7 @@ export default function ContactUs() {
 
   const handleReset = () => {
     setForm(INITIAL_FORM);
-
     setErrors({});
-
     setSubmitted(null);
   };
 
@@ -465,6 +336,16 @@ export default function ContactUs() {
     return (
       <div className="contact-page">
         <div className="contact-page-inner">
+
+          <button
+            type="button"
+            className="contact-back-btn"
+            onClick={handleBack}
+          >
+            <ArrowLeft size={16} strokeWidth={2} />
+            Back
+          </button>
+
           <div className="contact-success-card" role="status">
             <div className="contact-success-icon">
               <IconCheckCircle />
@@ -481,7 +362,6 @@ export default function ContactUs() {
             {submitted.requestId && (
               <div className="contact-success-row">
                 <span className="contact-success-label">Request ID</span>
-
                 <span className="contact-success-value">
                   #{submitted.requestId}
                 </span>
@@ -491,7 +371,6 @@ export default function ContactUs() {
             <div className="contact-success-details">
               <div className="contact-success-row">
                 <span className="contact-success-label">Priority</span>
-
                 <span
                   className={`contact-success-priority priority-${meta.value.toLowerCase()}`}
                 >
@@ -503,7 +382,6 @@ export default function ContactUs() {
                 <span className="contact-success-label">
                   Expected Response
                 </span>
-
                 <span className="contact-success-value">
                   {meta.response}
                 </span>
@@ -513,7 +391,6 @@ export default function ContactUs() {
             {submitted.informAdmin && (
               <div className="contact-admin-note">
                 <IconBell />
-
                 <span>The administrator has also been notified.</span>
               </div>
             )}
@@ -538,9 +415,18 @@ export default function ContactUs() {
   return (
     <div className="contact-page">
       <div className="contact-page-inner">
+
+        <button
+          type="button"
+          className="contact-back-btn"
+          onClick={handleBack}
+        >
+          <ArrowLeft size={16} strokeWidth={2} />
+          Back
+        </button>
+
         <div className="contact-header">
           <h1 className="contact-title">Contact Us</h1>
-
           <p className="contact-subtitle">
             Submit your request to our support team and we&rsquo;ll get back
             to you.
@@ -548,21 +434,12 @@ export default function ContactUs() {
         </div>
 
         <form className="contact-card" onSubmit={handleSubmit} noValidate>
-          {/* =====================================================
-              API ERROR
-          ====================================================== */}
-
           {errors.form && (
             <div className="contact-form-alert" role="alert">
               <IconAlert />
-
               <span>{errors.form}</span>
             </div>
           )}
-
-          {/* =====================================================
-              EMPLOYEE ID + SUBJECT
-          ====================================================== */}
 
           <div className="contact-form-row">
             <div className="contact-form-group">
@@ -620,10 +497,6 @@ export default function ContactUs() {
             </div>
           </div>
 
-          {/* =====================================================
-              MESSAGE
-          ====================================================== */}
-
           <div className="contact-form-group">
             <label htmlFor="message">
               Message <span className="contact-required">*</span>
@@ -639,7 +512,9 @@ export default function ContactUs() {
               onChange={handleChange("message")}
               disabled={submitting}
               aria-invalid={Boolean(errors.message)}
-              aria-describedby={errors.message ? "message-error" : undefined}
+              aria-describedby={
+                errors.message ? "message-error" : undefined
+              }
             />
 
             {errors.message && (
@@ -648,10 +523,6 @@ export default function ContactUs() {
               </p>
             )}
           </div>
-
-          {/* =====================================================
-              PRIORITY
-          ====================================================== */}
 
           <div className="contact-form-group">
             <label id="priority-label">
@@ -683,12 +554,10 @@ export default function ContactUs() {
                         className="contact-priority-radio"
                         aria-hidden="true"
                       />
-
                       <span className="contact-priority-text">
                         <span className="contact-priority-name">
                           {option.label}
                         </span>
-
                         <span className="contact-priority-hint">
                           {option.hint}
                         </span>
@@ -714,17 +583,12 @@ export default function ContactUs() {
                 <span className="contact-response-banner-label">
                   Priority: {selectedPriority.label}
                 </span>
-
                 <span className="contact-response-banner-value">
                   Expected response: {selectedPriority.response}
                 </span>
               </div>
             )}
           </div>
-
-          {/* =====================================================
-              INFORM ADMIN
-          ====================================================== */}
 
           <div className="contact-form-group">
             <button
@@ -764,10 +628,6 @@ export default function ContactUs() {
             )}
           </div>
 
-          {/* =====================================================
-              SUBMIT
-          ====================================================== */}
-
           <div className="contact-form-actions">
             <button
               type="submit"
@@ -782,7 +642,6 @@ export default function ContactUs() {
               ) : (
                 <>
                   <IconSend />
-
                   {form.informAdmin
                     ? "Submit & Inform Admin"
                     : "Submit Request"}
