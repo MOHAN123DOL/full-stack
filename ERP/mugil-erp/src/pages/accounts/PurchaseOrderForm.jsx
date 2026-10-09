@@ -49,7 +49,7 @@ const toCamelId = (label) => {
     .map((word, i) =>
       i === 0
         ? word.charAt(0).toLowerCase() + word.slice(1)
-        : word.charAt(0).toUpperCase() + word.slice(1)
+        : word.charAt(0).toUpperCase() + word.slice(1),
     )
     .join("");
 };
@@ -64,6 +64,136 @@ const makeUniqueColumnId = (label, existingColumns) => {
   while (ids.has(`${base}${n}`)) n += 1;
 
   return `${base}${n}`;
+};
+
+// ============================================================
+// PURCHASE ORDER ITEM PRICING (kept in this file)
+// Amount = Quantity × Rate Per Unit
+// ============================================================
+
+const toFiniteNumber = (value) => {
+  if (value === "" || value === null || value === undefined) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const calculateItemAmount = (item) =>
+  toFiniteNumber(item?.qty ?? item?.quantity) *
+  toFiniteNumber(item?.rate ?? item?.rate_per_unit ?? item?.ratePerUnit);
+
+const normalizePOItems = (items = [], { migrateLegacyAmount = true } = {}) =>
+  (Array.isArray(items) ? items : []).map((item = {}) => {
+    const next = { ...item };
+
+    // Older Purchase Orders stored the unit rate in `amount`.
+    // Move that value to `rate` once when loading legacy data.
+    let rate = next.rate;
+    if (rate === undefined || rate === null) rate = next.rate_per_unit;
+    if (rate === undefined || rate === null) rate = next.ratePerUnit;
+    if ((rate === undefined || rate === null) && migrateLegacyAmount) {
+      rate = next.amount ?? "";
+    }
+
+    next.description = next.description ?? "";
+    next.specification = next.specification ?? "";
+    next.unit = next.unit ?? next.uom ?? "";
+    next.qty = next.qty ?? next.quantity ?? "";
+    next.rate = rate ?? "";
+    next.thickness = next.thickness ?? next.Thickness ?? "";
+    next.length = next.length ?? next.Length ?? "";
+    next.width = next.width ?? next.Width ?? "";
+    next.amount = calculateItemAmount(next);
+
+    return next;
+  });
+
+const PO_SYSTEM_COLUMN_DEFINITIONS = [
+  { id: "description", label: "Description", type: "text" },
+  { id: "specification", label: "Specification", type: "text" },
+  { id: "thickness", label: "Thickness", type: "number" },
+  { id: "length", label: "Length", type: "number" },
+  { id: "width", label: "Width", type: "number" },
+  { id: "qty", label: "Qty", type: "number" },
+  {
+    id: "unit",
+    label: "Unit",
+    type: "dropdown",
+    options: ["No", "Nos", "Pcs", "Kg", "Gm", "Mtr", "Mm", "Ltr", "Set", "Box"],
+  },
+  { id: "rate", label: "Rate Per Unit", type: "number" },
+  { id: "amount", label: "Amount", type: "number" },
+];
+
+const PO_COLUMN_ALIASES = {
+  description: ["description", "item", "itemDescription"],
+  specification: ["specification", "spec", "details"],
+  thickness: ["thickness"],
+  length: ["length"],
+  width: ["width"],
+  qty: ["qty", "quantity"],
+  unit: ["unit", "uom"],
+  rate: ["rate", "ratePerUnit", "rate_per_unit"],
+  amount: ["amount", "lineAmount", "totalAmount"],
+};
+
+const normalizePOColumns = (columns = []) => {
+  const source = Array.isArray(columns) ? columns : [];
+  const consumed = new Set();
+
+  const systemColumns = PO_SYSTEM_COLUMN_DEFINITIONS.map((definition) => {
+    const aliases = PO_COLUMN_ALIASES[definition.id] || [definition.id];
+    let index = source.findIndex((column) => aliases.includes(column?.id));
+
+    // A legacy amount column may have been labelled "Rate Per Unit".
+    // It still represents the line amount field and must remain `amount`.
+    if (index < 0) {
+      index = source.findIndex((column) => {
+        if (!column || consumed.has(column)) return false;
+        const label = String(column.label || "")
+          .trim()
+          .toLowerCase();
+        if (definition.id === "rate" && column.id === "amount") return false;
+        if (definition.id === "amount" && column.id === "rate") return false;
+        return label === definition.label.toLowerCase();
+      });
+    }
+
+    const existing = index >= 0 ? source[index] : null;
+    if (existing) consumed.add(existing);
+
+    return {
+      ...(existing || {}),
+      ...definition,
+      visible: existing?.visible !== false,
+      system: true,
+      custom: false,
+      removable: false,
+      hideable: existing?.hideable ?? true,
+      movable: existing?.movable ?? true,
+    };
+  });
+
+  const systemIds = new Set(Object.values(PO_COLUMN_ALIASES).flat());
+  const systemLabels = new Set(
+    PO_SYSTEM_COLUMN_DEFINITIONS.map((column) => column.label.toLowerCase()),
+  );
+
+  const customColumns = source.filter((column) => {
+    if (!column || consumed.has(column)) return false;
+    if (systemIds.has(column.id)) return false;
+    if (
+      systemLabels.has(
+        String(column.label || "")
+          .trim()
+          .toLowerCase(),
+      )
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  return [...systemColumns, ...customColumns];
 };
 
 /* Format whatever the backend sent into a single readable string,
@@ -170,6 +300,7 @@ const buildFreshData = () => {
 
   return {
     ...fresh,
+    items: normalizePOItems(fresh?.items || []),
     vendor: normalizeVendor(fresh?.vendor),
     signatures: {
       preparedBy: fresh?.signatures?.preparedBy ?? "",
@@ -208,7 +339,7 @@ function loadPurchaseOrderPrintEngine() {
 
   purchaseOrderPrintEnginePromise = new Promise((resolve, reject) => {
     const existing = document.querySelector(
-      `script[data-purchase-order-print-engine="true"]`
+      `script[data-purchase-order-print-engine="true"]`,
     );
 
     if (existing) {
@@ -224,8 +355,8 @@ function loadPurchaseOrderPrintEngine() {
           purchaseOrderPrintEnginePromise = null;
           reject(
             new Error(
-              "PurchaseOrderPrint.js loaded but did not register generatePurchaseOrderPrint"
-            )
+              "PurchaseOrderPrint.js loaded but did not register generatePurchaseOrderPrint",
+            ),
           );
         }
       };
@@ -254,8 +385,8 @@ function loadPurchaseOrderPrintEngine() {
         purchaseOrderPrintEnginePromise = null;
         reject(
           new Error(
-            "PurchaseOrderPrint.js loaded but did not register generatePurchaseOrderPrint"
-          )
+            "PurchaseOrderPrint.js loaded but did not register generatePurchaseOrderPrint",
+          ),
         );
       }
     };
@@ -284,14 +415,14 @@ export default function PurchaseOrderForm() {
   // REPORT VIEW MODE
   // ==========================================================
 
-  const reportMode = location.state?.mode;              // "view" | undefined
-  const reportNumber = location.state?.documentNumber;  // e.g. "PO1001"
+  const reportMode = location.state?.mode; // "view" | undefined
+  const reportNumber = location.state?.documentNumber; // e.g. "PO1001"
 
   // null   → not decided yet (banner shows)
   // "existing" → user chose to keep the existing number
   // "new"      → user chose a fresh number from the sequence
   const [numberChoice, setNumberChoice] = useState(
-    reportMode === "view" && reportNumber ? null : "auto"
+    reportMode === "view" && reportNumber ? null : "auto",
   );
 
   // ==========================================================
@@ -328,7 +459,7 @@ export default function PurchaseOrderForm() {
   // ==========================================================
 
   const [columns, setColumns] = useState(() =>
-    createDefaultColumns("po")
+    normalizePOColumns(createDefaultColumns("po")),
   );
 
   const [showColumnModal, setShowColumnModal] = useState(false);
@@ -356,19 +487,16 @@ export default function PurchaseOrderForm() {
     try {
       const parsed = JSON.parse(raw);
 
-      if (
-        parsed &&
-        parsed.__version === DRAFT_VERSION &&
-        parsed.data
-      ) {
+      if (parsed && parsed.__version === DRAFT_VERSION && parsed.data) {
         setData((prev) => ({
           ...prev,
           ...parsed.data,
+          items: normalizePOItems(parsed.data.items || []),
           vendor: normalizeVendor(parsed.data.vendor),
         }));
 
         if (parsed.columns && parsed.columns.length) {
-          setColumns(parsed.columns);
+          setColumns(normalizePOColumns(parsed.columns));
         }
 
         if (typeof parsed.includeAmountDetails === "boolean") {
@@ -378,6 +506,7 @@ export default function PurchaseOrderForm() {
         setData((prev) => ({
           ...prev,
           ...parsed,
+          items: normalizePOItems(parsed.items || []),
           vendor: normalizeVendor(parsed.vendor),
         }));
       }
@@ -399,6 +528,7 @@ export default function PurchaseOrderForm() {
     setData((prev) => ({
       ...prev,
       ...reportRecord.documentData,
+      items: normalizePOItems(reportRecord.documentData.items || []),
       vendor: normalizeVendor(reportRecord.documentData.vendor),
     }));
     setErrors({});
@@ -471,26 +601,24 @@ export default function PurchaseOrderForm() {
     (vendor) => {
       if (!vendor || !customers.length) return;
 
-      const companyName =
-        vendor.companyName || vendor.company_name || "";
+      const companyName = vendor.companyName || vendor.company_name || "";
 
       if (!companyName) return;
 
       const customer = customers.find(
         (item) =>
-          String(item.company_name || "").trim().toLowerCase() ===
-          String(companyName).trim().toLowerCase()
+          String(item.company_name || "")
+            .trim()
+            .toLowerCase() === String(companyName).trim().toLowerCase(),
       );
 
       if (customer) {
         setSelectedCustomerId(String(customer.id));
 
-        setOriginalVendor((prev) =>
-          prev ? prev : customerToVendor(customer)
-        );
+        setOriginalVendor((prev) => (prev ? prev : customerToVendor(customer)));
       }
     },
-    [customers]
+    [customers],
   );
 
   // ==========================================================
@@ -505,21 +633,15 @@ export default function PurchaseOrderForm() {
         setPoNumberLoading(true);
         setPoNumberError("");
 
-        const response = await api.get(
-          "/erp/purchase-orders/next-number/",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const response = await api.get("/erp/purchase-orders/next-number/", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
 
         const responseData = response.data;
 
-        if (
-          !responseData?.success ||
-          !responseData?.po_number
-        ) {
+        if (!responseData?.success || !responseData?.po_number) {
           throw { response: { data: responseData } };
         }
 
@@ -545,12 +667,11 @@ export default function PurchaseOrderForm() {
             introText: serverData.intro_text ?? previous.introText,
 
             items: Array.isArray(serverData.items)
-              ? serverData.items
+              ? normalizePOItems(serverData.items)
               : previous.items,
 
             columns:
-              Array.isArray(serverData.columns) &&
-              serverData.columns.length
+              Array.isArray(serverData.columns) && serverData.columns.length
                 ? serverData.columns
                 : previous.columns,
 
@@ -581,20 +702,17 @@ export default function PurchaseOrderForm() {
               ...(serverData.signatures || {}),
             },
 
-            documentData:
-              serverData.document_data ?? previous.documentData,
+            documentData: serverData.document_data ?? previous.documentData,
           }));
 
           if (
             Array.isArray(serverData.columns) &&
             serverData.columns.length > 0
           ) {
-            setColumns(serverData.columns);
+            setColumns(normalizePOColumns(serverData.columns));
           }
 
-          if (
-            typeof serverData.include_amount_details === "boolean"
-          ) {
+          if (typeof serverData.include_amount_details === "boolean") {
             setIncludeAmountDetails(serverData.include_amount_details);
           }
 
@@ -625,12 +743,11 @@ export default function PurchaseOrderForm() {
             introText: serverData.intro_text ?? previous.introText,
 
             items: Array.isArray(serverData.items)
-              ? serverData.items
+              ? normalizePOItems(serverData.items)
               : previous.items,
 
             columns:
-              Array.isArray(serverData.columns) &&
-              serverData.columns.length
+              Array.isArray(serverData.columns) && serverData.columns.length
                 ? serverData.columns
                 : previous.columns,
 
@@ -661,20 +778,17 @@ export default function PurchaseOrderForm() {
               ...(serverData.signatures || {}),
             },
 
-            documentData:
-              serverData.document_data ?? previous.documentData,
+            documentData: serverData.document_data ?? previous.documentData,
           }));
 
           if (
             Array.isArray(serverData.columns) &&
             serverData.columns.length > 0
           ) {
-            setColumns(serverData.columns);
+            setColumns(normalizePOColumns(serverData.columns));
           }
 
-          if (
-            typeof serverData.include_amount_details === "boolean"
-          ) {
+          if (typeof serverData.include_amount_details === "boolean") {
             setIncludeAmountDetails(serverData.include_amount_details);
           }
 
@@ -703,7 +817,7 @@ export default function PurchaseOrderForm() {
         setPoNumberLoading(false);
       }
     },
-    [syncSelectedCustomer]
+    [syncSelectedCustomer],
   );
 
   // ==========================================================
@@ -751,7 +865,7 @@ export default function PurchaseOrderForm() {
       }
 
       const customer = customers.find(
-        (item) => String(item.id) === String(customerId)
+        (item) => String(item.id) === String(customerId),
       );
 
       if (!customer) return;
@@ -770,7 +884,7 @@ export default function PurchaseOrderForm() {
         return next;
       });
     },
-    [customers]
+    [customers],
   );
 
   // ==========================================================
@@ -783,7 +897,9 @@ export default function PurchaseOrderForm() {
     return (
       customers.find(
         (c) =>
-          String(c.company_name || "").trim().toLowerCase() === name
+          String(c.company_name || "")
+            .trim()
+            .toLowerCase() === name,
       ) || null
     );
   }, [customers, data.vendor?.companyName]);
@@ -819,9 +935,7 @@ export default function PurchaseOrderForm() {
 
   const handleCreateCustomer = useCallback(async () => {
     if (!accessToken) {
-      setCustomerActionError(
-        "Your session has expired. Please login again."
-      );
+      setCustomerActionError("Your session has expired. Please login again.");
       return;
     }
 
@@ -829,21 +943,20 @@ export default function PurchaseOrderForm() {
     const companyName = vendor.companyName?.trim() || "";
 
     if (!companyName) {
-      setCustomerActionError(
-        "Enter the customer/company name first."
-      );
+      setCustomerActionError("Enter the customer/company name first.");
       return;
     }
 
     const alreadyExists = customers.some(
       (c) =>
-        String(c.company_name || "").trim().toLowerCase() ===
-        companyName.toLowerCase()
+        String(c.company_name || "")
+          .trim()
+          .toLowerCase() === companyName.toLowerCase(),
     );
 
     if (alreadyExists) {
       setCustomerActionError(
-        "This customer already exists. Please select it from the dropdown."
+        "This customer already exists. Please select it from the dropdown.",
       );
       return;
     }
@@ -855,7 +968,7 @@ export default function PurchaseOrderForm() {
       const response = await api.post(
         CUSTOMERS_ENDPOINT,
         vendorToPayload(vendor),
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
 
       const responseData = response.data;
@@ -893,16 +1006,12 @@ export default function PurchaseOrderForm() {
 
   const handleUpdateCustomer = useCallback(async () => {
     if (!accessToken) {
-      setCustomerActionError(
-        "Your session has expired. Please login again."
-      );
+      setCustomerActionError("Your session has expired. Please login again.");
       return;
     }
 
     if (!selectedCustomerId) {
-      setCustomerActionError(
-        "Select a customer before updating."
-      );
+      setCustomerActionError("Select a customer before updating.");
       return;
     }
 
@@ -910,22 +1019,21 @@ export default function PurchaseOrderForm() {
     const companyName = vendor.companyName?.trim() || "";
 
     if (!companyName) {
-      setCustomerActionError(
-        "Customer company name is required."
-      );
+      setCustomerActionError("Customer company name is required.");
       return;
     }
 
     const nameClash = customers.some(
       (c) =>
         String(c.id) !== String(selectedCustomerId) &&
-        String(c.company_name || "").trim().toLowerCase() ===
-          companyName.toLowerCase()
+        String(c.company_name || "")
+          .trim()
+          .toLowerCase() === companyName.toLowerCase(),
     );
 
     if (nameClash) {
       setCustomerActionError(
-        "Another customer already uses that company name."
+        "Another customer already uses that company name.",
       );
       return;
     }
@@ -937,7 +1045,7 @@ export default function PurchaseOrderForm() {
       const response = await api.patch(
         `${CUSTOMERS_ENDPOINT}${selectedCustomerId}/`,
         vendorToPayload(vendor),
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
 
       const responseData = response.data;
@@ -950,10 +1058,8 @@ export default function PurchaseOrderForm() {
 
       setCustomers((previous) =>
         previous.map((c) =>
-          String(c.id) === String(updatedCustomer.id)
-            ? updatedCustomer
-            : c
-        )
+          String(c.id) === String(updatedCustomer.id) ? updatedCustomer : c,
+        ),
       );
 
       const vendorFromCustomer = customerToVendor(updatedCustomer);
@@ -1003,10 +1109,7 @@ export default function PurchaseOrderForm() {
   useEffect(() => {
     if (!accessToken) return;
 
-    if (
-      bootstrappedRef.current &&
-      lastTokenRef.current === accessToken
-    ) {
+    if (bootstrappedRef.current && lastTokenRef.current === accessToken) {
       return;
     }
 
@@ -1018,21 +1121,14 @@ export default function PurchaseOrderForm() {
     // If we came from Reports with an existing number,
     // DO NOT auto-fetch the next number. Wait for the user's choice
     // (banner "Use this number" vs "New number").
-    const cameFromReportWithNumber =
-      reportMode === "view" && !!reportNumber;
+    const cameFromReportWithNumber = reportMode === "view" && !!reportNumber;
 
     if (cameFromReportWithNumber) {
       setData((prev) => ({ ...prev, poNumber: reportNumber }));
     } else {
       loadPONumber(accessToken);
     }
-  }, [
-    accessToken,
-    loadCustomers,
-    loadPONumber,
-    reportMode,
-    reportNumber,
-  ]);
+  }, [accessToken, loadCustomers, loadPONumber, reportMode, reportNumber]);
 
   // ==========================================================
   // BASIC SETTERS
@@ -1055,17 +1151,22 @@ export default function PurchaseOrderForm() {
     }));
   }, []);
 
+  // The table sends edited rows here. Recalculate Amount immediately
+  // whenever Quantity or Rate Per Unit changes, and retain dimensions.
+  const handleItemsChange = useCallback((items) => {
+    setData((previous) => ({
+      ...previous,
+      items: normalizePOItems(items, { migrateLegacyAmount: false }),
+    }));
+  }, []);
+
   // ==========================================================
   // AMOUNT CALCULATIONS
   // ==========================================================
 
   const subtotal = useMemo(
-    () =>
-      data.items.reduce(
-        (sum, item) => sum + (Number(item.amount) || 0),
-        0
-      ),
-    [data.items]
+    () => data.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+    [data.items],
   );
 
   const gstPercent = useMemo(() => {
@@ -1075,13 +1176,10 @@ export default function PurchaseOrderForm() {
 
   const gstAmount = useMemo(
     () => (subtotal * gstPercent) / 100,
-    [subtotal, gstPercent]
+    [subtotal, gstPercent],
   );
 
-  const grandTotal = useMemo(
-    () => subtotal + gstAmount,
-    [subtotal, gstAmount]
-  );
+  const grandTotal = useMemo(() => subtotal + gstAmount, [subtotal, gstAmount]);
 
   const summary = useMemo(
     () => ({
@@ -1091,13 +1189,7 @@ export default function PurchaseOrderForm() {
       gstPercent,
       interState: data.interState,
     }),
-    [
-      subtotal,
-      gstAmount,
-      grandTotal,
-      gstPercent,
-      data.interState,
-    ]
+    [subtotal, gstAmount, grandTotal, gstPercent, data.interState],
   );
 
   // ==========================================================
@@ -1108,8 +1200,7 @@ export default function PurchaseOrderForm() {
     const next = {};
 
     if (!data.poNumber) {
-      next.poNumber =
-        "Purchase Order number is still loading.";
+      next.poNumber = "Purchase Order number is still loading.";
     }
 
     if (!data.poDate) {
@@ -1117,33 +1208,23 @@ export default function PurchaseOrderForm() {
     }
 
     if (!data.vendor?.companyName?.trim()) {
-      next.vendorCompany =
-        "Customer company name is required";
+      next.vendorCompany = "Customer company name is required";
     }
 
-    if (
-      data.gstPercent !== "" &&
-      data.gstPercent != null
-    ) {
+    if (data.gstPercent !== "" && data.gstPercent != null) {
       const parsedGst = Number(data.gstPercent);
 
-      if (
-        !Number.isFinite(parsedGst) ||
-        parsedGst < 0 ||
-        parsedGst > 100
-      ) {
-        next.gstPercent =
-          "GST % must be a number between 0 and 100";
+      if (!Number.isFinite(parsedGst) || parsedGst < 0 || parsedGst > 100) {
+        next.gstPercent = "GST % must be a number between 0 and 100";
       }
     }
 
     const hasItem = data.items.some(
-      (it) => it.description?.trim() && Number(it.qty) > 0
+      (it) => it.description?.trim() && Number(it.qty) > 0,
     );
 
     if (!hasItem) {
-      next.items =
-        "Add at least one item with a description and quantity";
+      next.items = "Add at least one item with a description and quantity";
     }
 
     setErrors(next);
@@ -1163,7 +1244,7 @@ export default function PurchaseOrderForm() {
         data,
         columns,
         includeAmountDetails,
-      })
+      }),
     );
 
     setSavedAt(new Date());
@@ -1174,18 +1255,14 @@ export default function PurchaseOrderForm() {
   // ==========================================================
 
   const clearForm = useCallback(async () => {
-    if (
-      !window.confirm(
-        "Clear all fields and start a new Purchase Order?"
-      )
-    ) {
+    if (!window.confirm("Clear all fields and start a new Purchase Order?")) {
       return;
     }
 
     localStorage.removeItem(DRAFT_KEY);
 
     setData(buildFreshData());
-    setColumns(createDefaultColumns("po"));
+    setColumns(normalizePOColumns(createDefaultColumns("po")));
     setErrors({});
     setSavedAt(null);
     setSelectedCustomerId("");
@@ -1212,18 +1289,14 @@ export default function PurchaseOrderForm() {
     if (!validate()) return;
 
     if (!accessToken) {
-      setSubmitError(
-        "Your session has expired. Please login again."
-      );
+      setSubmitError("Your session has expired. Please login again.");
       return;
     }
 
     const poNumber = data.poNumber;
 
     if (!poNumber) {
-      setSubmitError(
-        "PO number is not available. Please refresh the page."
-      );
+      setSubmitError("PO number is not available. Please refresh the page.");
       return;
     }
 
@@ -1242,7 +1315,17 @@ export default function PurchaseOrderForm() {
         vendor: data.vendor || {},
 
         intro_text: data.introText || "",
-        items: data.items || [],
+        items: normalizePOItems(data.items || [], {
+          migrateLegacyAmount: false,
+        }).map((item) => ({
+          ...item,
+          qty: item.qty ?? "",
+          rate_per_unit: toFiniteNumber(item.rate),
+          amount: toFiniteNumber(item.amount),
+          thickness: item.thickness ?? "",
+          length: item.length ?? "",
+          width: item.width ?? "",
+        })),
         columns: columns || [],
         include_amount_details: includeAmountDetails,
 
@@ -1259,6 +1342,16 @@ export default function PurchaseOrderForm() {
 
         document_data: {
           ...data,
+          items: normalizePOItems(data.items || [], {
+            migrateLegacyAmount: false,
+          }).map((item) => ({
+            ...item,
+            rate_per_unit: toFiniteNumber(item.rate),
+            amount: toFiniteNumber(item.amount),
+            thickness: item.thickness ?? "",
+            length: item.length ?? "",
+            width: item.width ?? "",
+          })),
           poNumber,
           includeAmountDetails,
         },
@@ -1270,15 +1363,11 @@ export default function PurchaseOrderForm() {
         console.log("Purchase Order POST payload:", payload);
       }
 
-      const response = await api.post(
-        "/erp/purchase-orders/",
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
+      const response = await api.post("/erp/purchase-orders/", payload, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
 
       if (!response.data?.success) {
         throw { response: { data: response.data } };
@@ -1290,8 +1379,7 @@ export default function PurchaseOrderForm() {
         throw { response: { data: response.data } };
       }
 
-      const confirmedPoNumber =
-        createdPO.po_number || poNumber;
+      const confirmedPoNumber = createdPO.po_number || poNumber;
 
       const previewData = {
         ...data,
@@ -1308,28 +1396,50 @@ export default function PurchaseOrderForm() {
           data: previewData,
           columns,
           includeAmountDetails,
-        })
+        }),
       );
 
       setSavedAt(new Date());
 
       await loadPurchaseOrderPrintEngine();
 
-      if (
-        typeof window.generatePurchaseOrderPrint !== "function"
-      ) {
+      if (typeof window.generatePurchaseOrderPrint !== "function") {
         setSubmitError(
-          "Purchase Order was created successfully, but the print preview could not be loaded."
+          "Purchase Order was created successfully, but the print preview could not be loaded.",
         );
 
         return;
       }
 
-      window.generatePurchaseOrderPrint(
-        previewData,
-        summary,
-        columns
+      // Keep the print engine input compatible with its previous shape.
+      // Dimensions are persisted in the backend payload/document data but are
+      // deliberately omitted from PurchaseOrderPrint.js input.
+      const printItems = (previewData.items || []).map((item) => {
+        const {
+          thickness,
+          length,
+          width,
+          rate,
+          rate_per_unit,
+          ratePerUnit,
+          ...printItem
+        } = item;
+        return printItem;
+      });
+      const printData = { ...previewData, items: printItems };
+      const printColumns = columns.filter(
+        (column) =>
+          ![
+            "thickness",
+            "length",
+            "width",
+            "rate",
+            "rate_per_unit",
+            "ratePerUnit",
+          ].includes(column.id),
       );
+
+      window.generatePurchaseOrderPrint(printData, summary, printColumns);
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error("Purchase Order creation failed:", error);
@@ -1389,9 +1499,7 @@ export default function PurchaseOrderForm() {
       const firstNonSystemIdx = cols.findIndex((c) => !c.system);
 
       const insertAt =
-        firstNonSystemIdx === -1
-          ? cols.length
-          : firstNonSystemIdx;
+        firstNonSystemIdx === -1 ? cols.length : firstNonSystemIdx;
 
       const next = [...cols];
       next.splice(insertAt, 0, newColumn);
@@ -1410,12 +1518,7 @@ export default function PurchaseOrderForm() {
     setNewColLabel("");
     setNewColType("text");
     setNewColOptions("");
-  }, [
-    newColLabel,
-    newColType,
-    newColOptions,
-    columns,
-  ]);
+  }, [newColLabel, newColType, newColOptions, columns]);
 
   // ==========================================================
   // RENAME COLUMN
@@ -1424,7 +1527,7 @@ export default function PurchaseOrderForm() {
   const handleRenameColumn = useCallback((column) => {
     const next = window.prompt(
       `Rename column "${column.label}" to:`,
-      column.label
+      column.label,
     );
 
     if (next === null) return;
@@ -1434,11 +1537,7 @@ export default function PurchaseOrderForm() {
     if (!trimmed) return;
 
     setColumns((cols) =>
-      cols.map((c) =>
-        c.id === column.id
-          ? { ...c, label: trimmed }
-          : c
-      )
+      cols.map((c) => (c.id === column.id ? { ...c, label: trimmed } : c)),
     );
   }, []);
 
@@ -1451,15 +1550,13 @@ export default function PurchaseOrderForm() {
 
     if (
       !window.confirm(
-        `Delete the "${column.label}" column? This removes its data from every row.`
+        `Delete the "${column.label}" column? This removes its data from every row.`,
       )
     ) {
       return;
     }
 
-    setColumns((cols) =>
-      cols.filter((c) => c.id !== column.id)
-    );
+    setColumns((cols) => cols.filter((c) => c.id !== column.id));
 
     setData((d) => ({
       ...d,
@@ -1474,28 +1571,24 @@ export default function PurchaseOrderForm() {
   // MOVE COLUMN
   // ==========================================================
 
-  const handleMoveColumn = useCallback(
-    (column, direction) => {
-      if (column.movable === false) return;
+  const handleMoveColumn = useCallback((column, direction) => {
+    if (column.movable === false) return;
 
-      setColumns((cols) => {
-        const idx = cols.findIndex((c) => c.id === column.id);
-        if (idx === -1) return cols;
+    setColumns((cols) => {
+      const idx = cols.findIndex((c) => c.id === column.id);
+      if (idx === -1) return cols;
 
-        const target =
-          direction === "up" ? idx - 1 : idx + 1;
+      const target = direction === "up" ? idx - 1 : idx + 1;
 
-        if (target < 0 || target >= cols.length) return cols;
-        if (cols[target].movable === false) return cols;
+      if (target < 0 || target >= cols.length) return cols;
+      if (cols[target].movable === false) return cols;
 
-        const next = [...cols];
-        [next[idx], next[target]] = [next[target], next[idx]];
+      const next = [...cols];
+      [next[idx], next[target]] = [next[target], next[idx]];
 
-        return next;
-      });
-    },
-    []
-  );
+      return next;
+    });
+  }, []);
 
   // ==========================================================
   // TOGGLE COLUMN
@@ -1505,11 +1598,7 @@ export default function PurchaseOrderForm() {
     if (column.hideable === false) return;
 
     setColumns((cols) =>
-      cols.map((c) =>
-        c.id === column.id
-          ? { ...c, visible: !c.visible }
-          : c
-      )
+      cols.map((c) => (c.id === column.id ? { ...c, visible: !c.visible } : c)),
     );
   }, []);
 
@@ -1571,25 +1660,18 @@ export default function PurchaseOrderForm() {
               <div className="po-hero__heading">
                 <h1>Purchase Order</h1>
                 <p>
-                  Fill in the details below, then preview the official
-                  document.
+                  Fill in the details below, then preview the official document.
                 </p>
               </div>
 
               <div className="po-status">
                 <div className="po-status__card">
-                  <span className="po-status__label">
-                    Draft Status
-                  </span>
-                  <strong>
-                    {savedAt ? "Saved" : "Not Saved"}
-                  </strong>
+                  <span className="po-status__label">Draft Status</span>
+                  <strong>{savedAt ? "Saved" : "Not Saved"}</strong>
                 </div>
 
                 <div className="po-status__card">
-                  <span className="po-status__label">
-                    Last Saved
-                  </span>
+                  <span className="po-status__label">Last Saved</span>
                   <strong>
                     {savedAt ? savedAt.toLocaleTimeString() : "--"}
                   </strong>
@@ -1608,47 +1690,45 @@ export default function PurchaseOrderForm() {
               Only shown when opened from Reports with an
               existing PO number and the user hasn't decided yet.
               ================================================= */}
-          {reportMode === "view" &&
-            reportNumber &&
-            numberChoice === null && (
-              <div className="po-submit-error po-number-choice">
-                <div className="po-submit-error__content">
-                  <strong>
-                    This Purchase Order already exists: {reportNumber}
-                  </strong>
-                  <span>
-                    Do you want to edit the existing PO (same number), or
-                    create a new one with the next number in the sequence?
-                  </span>
+          {reportMode === "view" && reportNumber && numberChoice === null && (
+            <div className="po-submit-error po-number-choice">
+              <div className="po-submit-error__content">
+                <strong>
+                  This Purchase Order already exists: {reportNumber}
+                </strong>
+                <span>
+                  Do you want to edit the existing PO (same number), or create a
+                  new one with the next number in the sequence?
+                </span>
 
-                  <div className="po-number-choice__actions">
-                    <button
-                      type="button"
-                      className="po-btn po-btn--primary po-btn--sm"
-                      onClick={handleUseExistingNumber}
-                    >
-                      Use this number (edit)
-                    </button>
+                <div className="po-number-choice__actions">
+                  <button
+                    type="button"
+                    className="po-btn po-btn--primary po-btn--sm"
+                    onClick={handleUseExistingNumber}
+                  >
+                    Use this number (edit)
+                  </button>
 
-                    <button
-                      type="button"
-                      className="po-btn po-btn--secondary po-btn--sm"
-                      onClick={handleUseNewNumber}
-                    >
-                      New number
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="po-btn po-btn--secondary po-btn--sm"
+                    onClick={handleUseNewNumber}
+                  >
+                    New number
+                  </button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
           {reportMode === "view" && numberChoice === "existing" && (
             <div className="po-submit-error po-number-info">
               <div className="po-submit-error__content">
                 <strong>Editing existing PO {reportNumber}</strong>
                 <span>
-                  When you click Preview, the backend will not consume a
-                  new number.
+                  When you click Preview, the backend will not consume a new
+                  number.
                 </span>
               </div>
             </div>
@@ -1669,15 +1749,11 @@ export default function PurchaseOrderForm() {
 
           {Object.keys(errors).length > 0 && (
             <div className="po-validation">
-              <div className="po-validation__title">
-                Validation Required
-              </div>
+              <div className="po-validation__title">Validation Required</div>
 
               <div className="po-validation__text">
                 Please fix the highlighted fields before previewing:{" "}
-                {Object.values(errors)
-                  .filter(Boolean)
-                  .join(" · ")}
+                {Object.values(errors).filter(Boolean).join(" · ")}
               </div>
             </div>
           )}
@@ -1685,9 +1761,7 @@ export default function PurchaseOrderForm() {
           {(submitError || poNumberError) && (
             <div className="po-submit-error">
               <div className="po-submit-error__content">
-                <strong>
-                  Purchase Order could not be created
-                </strong>
+                <strong>Purchase Order could not be created</strong>
                 <span style={{ whiteSpace: "pre-wrap" }}>
                   {submitError || poNumberError}
                 </span>
@@ -1728,14 +1802,11 @@ export default function PurchaseOrderForm() {
 
             <div className="po-grid">
               <label className="po-field">
-                <span className="po-field__label">
-                  PO Number
-                </span>
+                <span className="po-field__label">PO Number</span>
                 <input
                   className="po-input"
                   value={
-                    data.poNumber ||
-                    (poNumberLoading ? "Loading..." : "—")
+                    data.poNumber || (poNumberLoading ? "Loading..." : "—")
                   }
                   readOnly
                 />
@@ -1763,17 +1834,13 @@ export default function PurchaseOrderForm() {
                 <input
                   className="po-input"
                   value={data.refQuoteNumber ?? ""}
-                  onChange={(e) =>
-                    set("refQuoteNumber", e.target.value)
-                  }
+                  onChange={(e) => set("refQuoteNumber", e.target.value)}
                   placeholder="e.g. CS-QT/1544 R4/25-26"
                 />
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Reference Date
-                </span>
+                <span className="po-field__label">Reference Date</span>
                 <input
                   type="date"
                   className="po-input"
@@ -1793,15 +1860,11 @@ export default function PurchaseOrderForm() {
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Prepared By
-                </span>
+                <span className="po-field__label">Prepared By</span>
                 <input
                   className="po-input"
                   value={data.preparedBy ?? ""}
-                  onChange={(e) =>
-                    set("preparedBy", e.target.value)
-                  }
+                  onChange={(e) => set("preparedBy", e.target.value)}
                   placeholder="Employee name"
                 />
               </label>
@@ -1825,51 +1888,38 @@ export default function PurchaseOrderForm() {
 
             {!customersLoading && customersError && (
               <div className="po-customer-error">
-                <Error
-                  onRetry={() => loadCustomers(accessToken)}
-                />
+                <Error onRetry={() => loadCustomers(accessToken)} />
               </div>
             )}
 
-            {!customersLoading &&
-              !customersError &&
-              customers.length > 0 && (
-                <div className="po-grid">
-                  <label className="po-field po-field--wide">
-                    <span className="po-field__label">
-                      Select Customer
-                    </span>
+            {!customersLoading && !customersError && customers.length > 0 && (
+              <div className="po-grid">
+                <label className="po-field po-field--wide">
+                  <span className="po-field__label">Select Customer</span>
 
-                    <select
-                      className="po-input"
-                      value={selectedCustomerId}
-                      onChange={(e) =>
-                        handleCustomerChange(e.target.value)
-                      }
-                    >
-                      <option value="">Select Customer</option>
+                  <select
+                    className="po-input"
+                    value={selectedCustomerId}
+                    onChange={(e) => handleCustomerChange(e.target.value)}
+                  >
+                    <option value="">Select Customer</option>
 
-                      {customers.map((customer) => (
-                        <option
-                          key={customer.id}
-                          value={customer.id}
-                        >
-                          {customer.company_name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
+                    {customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.company_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
 
-            {!customersLoading &&
-              !customersError &&
-              customers.length === 0 && (
-                <div className="po-customer-empty">
-                  No saved customers. You can enter customer details
-                  manually below.
-                </div>
-              )}
+            {!customersLoading && !customersError && customers.length === 0 && (
+              <div className="po-customer-empty">
+                No saved customers. You can enter customer details manually
+                below.
+              </div>
+            )}
 
             <VendorDetails
               mode="form"
@@ -1887,9 +1937,7 @@ export default function PurchaseOrderForm() {
             {!customersLoading && !customersError && (
               <div
                 className={`po-customer-actions ${
-                  availableAction === "update"
-                    ? "po-customer-modified"
-                    : ""
+                  availableAction === "update" ? "po-customer-modified" : ""
                 }`}
               >
                 <div className="po-customer-actions__info">
@@ -1897,8 +1945,8 @@ export default function PurchaseOrderForm() {
                     <>
                       <strong>Customer details changed</strong>
                       <span>
-                        Save changes to the master customer record, or
-                        reset to the saved values.
+                        Save changes to the master customer record, or reset to
+                        the saved values.
                       </span>
                     </>
                   )}
@@ -1907,8 +1955,8 @@ export default function PurchaseOrderForm() {
                     <>
                       <strong>New customer</strong>
                       <span>
-                        No matching customer exists. Create it to
-                        reuse in future purchase orders.
+                        No matching customer exists. Create it to reuse in
+                        future purchase orders.
                       </span>
                     </>
                   )}
@@ -1991,9 +2039,7 @@ export default function PurchaseOrderForm() {
                 <textarea
                   className="po-textarea"
                   value={data.introText ?? ""}
-                  onChange={(e) =>
-                    set("introText", e.target.value)
-                  }
+                  onChange={(e) => set("introText", e.target.value)}
                 />
               </label>
             </div>
@@ -2010,9 +2056,7 @@ export default function PurchaseOrderForm() {
                   <input
                     type="checkbox"
                     checked={includeAmountDetails}
-                    onChange={(e) =>
-                      setIncludeAmountDetails(e.target.checked)
-                    }
+                    onChange={(e) => setIncludeAmountDetails(e.target.checked)}
                   />
                   <span>Include amount details</span>
                 </label>
@@ -2032,7 +2076,7 @@ export default function PurchaseOrderForm() {
                 variant="po"
                 mode="form"
                 items={data.items}
-                onChange={(items) => set("items", items)}
+                onChange={handleItemsChange}
                 columns={columns}
               />
             </div>
@@ -2049,9 +2093,7 @@ export default function PurchaseOrderForm() {
 
             <div className="po-grid">
               <label className="po-field">
-                <span className="po-field__label">
-                  Total Amount (₹)
-                </span>
+                <span className="po-field__label">Total Amount (₹)</span>
                 <input
                   type="number"
                   className="po-input"
@@ -2068,9 +2110,7 @@ export default function PurchaseOrderForm() {
                     errors.gstPercent ? "po-input--error" : ""
                   }`}
                   value={data.gstPercent ?? ""}
-                  onChange={(e) =>
-                    set("gstPercent", e.target.value)
-                  }
+                  onChange={(e) => set("gstPercent", e.target.value)}
                   placeholder="e.g. 18"
                   min="0"
                   max="100"
@@ -2078,9 +2118,7 @@ export default function PurchaseOrderForm() {
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  GST Amount (₹)
-                </span>
+                <span className="po-field__label">GST Amount (₹)</span>
                 <input
                   type="number"
                   className="po-input"
@@ -2090,9 +2128,7 @@ export default function PurchaseOrderForm() {
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Final Total (₹)
-                </span>
+                <span className="po-field__label">Final Total (₹)</span>
                 <input
                   type="number"
                   className="po-input"
@@ -2114,9 +2150,7 @@ export default function PurchaseOrderForm() {
 
             <div className="po-grid">
               <label className="po-field po-field--wide">
-                <span className="po-field__label">
-                  Delivery Address
-                </span>
+                <span className="po-field__label">Delivery Address</span>
                 <input
                   className="po-input"
                   value={data.delivery.address ?? ""}
@@ -2127,9 +2161,7 @@ export default function PurchaseOrderForm() {
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Delivery Date
-                </span>
+                <span className="po-field__label">Delivery Date</span>
                 <input
                   type="date"
                   className="po-input"
@@ -2141,9 +2173,7 @@ export default function PurchaseOrderForm() {
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Mode of Transport
-                </span>
+                <span className="po-field__label">Mode of Transport</span>
                 <input
                   className="po-input"
                   value={data.delivery.mode ?? ""}
@@ -2155,18 +2185,12 @@ export default function PurchaseOrderForm() {
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Expected Delivery
-                </span>
+                <span className="po-field__label">Expected Delivery</span>
                 <input
                   className="po-input"
                   value={data.delivery.expectedDelivery ?? ""}
                   onChange={(e) =>
-                    setNested(
-                      "delivery",
-                      "expectedDelivery",
-                      e.target.value
-                    )
+                    setNested("delivery", "expectedDelivery", e.target.value)
                   }
                   placeholder="e.g. 4-6 weeks"
                 />
@@ -2185,9 +2209,7 @@ export default function PurchaseOrderForm() {
 
             <div className="po-grid">
               <label className="po-field">
-                <span className="po-field__label">
-                  Payment Terms
-                </span>
+                <span className="po-field__label">Payment Terms</span>
                 <input
                   className="po-input"
                   value={data.payment.terms ?? ""}
@@ -2199,54 +2221,36 @@ export default function PurchaseOrderForm() {
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Advance %
-                </span>
+                <span className="po-field__label">Advance %</span>
                 <input
                   type="number"
                   className="po-input"
                   value={data.payment.advancePercent ?? ""}
                   onChange={(e) =>
-                    setNested(
-                      "payment",
-                      "advancePercent",
-                      e.target.value
-                    )
+                    setNested("payment", "advancePercent", e.target.value)
                   }
                 />
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Credit Days
-                </span>
+                <span className="po-field__label">Credit Days</span>
                 <input
                   type="number"
                   className="po-input"
                   value={data.payment.creditDays ?? ""}
                   onChange={(e) =>
-                    setNested(
-                      "payment",
-                      "creditDays",
-                      e.target.value
-                    )
+                    setNested("payment", "creditDays", e.target.value)
                   }
                 />
               </label>
 
               <label className="po-field po-field--wide">
-                <span className="po-field__label">
-                  Bank Details
-                </span>
+                <span className="po-field__label">Bank Details</span>
                 <input
                   className="po-input"
                   value={data.payment.bankDetails ?? ""}
                   onChange={(e) =>
-                    setNested(
-                      "payment",
-                      "bankDetails",
-                      e.target.value
-                    )
+                    setNested("payment", "bankDetails", e.target.value)
                   }
                   placeholder="Bank name, A/c no., IFSC"
                 />
@@ -2302,52 +2306,34 @@ export default function PurchaseOrderForm() {
 
             <div className="po-grid po-grid--compact">
               <label className="po-field">
-                <span className="po-field__label">
-                  Prepared By
-                </span>
+                <span className="po-field__label">Prepared By</span>
                 <input
                   className="po-input"
                   value={data.signatures.preparedBy ?? ""}
                   onChange={(e) =>
-                    setNested(
-                      "signatures",
-                      "preparedBy",
-                      e.target.value
-                    )
+                    setNested("signatures", "preparedBy", e.target.value)
                   }
                 />
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Checked By
-                </span>
+                <span className="po-field__label">Checked By</span>
                 <input
                   className="po-input"
                   value={data.signatures.checkedBy ?? ""}
                   onChange={(e) =>
-                    setNested(
-                      "signatures",
-                      "checkedBy",
-                      e.target.value
-                    )
+                    setNested("signatures", "checkedBy", e.target.value)
                   }
                 />
               </label>
 
               <label className="po-field">
-                <span className="po-field__label">
-                  Approved By
-                </span>
+                <span className="po-field__label">Approved By</span>
                 <input
                   className="po-input"
                   value={data.signatures.approvedBy ?? ""}
                   onChange={(e) =>
-                    setNested(
-                      "signatures",
-                      "approvedBy",
-                      e.target.value
-                    )
+                    setNested("signatures", "approvedBy", e.target.value)
                   }
                 />
               </label>
@@ -2430,17 +2416,13 @@ export default function PurchaseOrderForm() {
                       <li
                         key={c.id}
                         className={`po-column-row${
-                          c.visible === false
-                            ? " po-column-row--hidden"
-                            : ""
+                          c.visible === false ? " po-column-row--hidden" : ""
                         }`}
                       >
                         <div className="po-column-row__left">
                           <span>{c.label}</span>
                           {c.custom && (
-                            <span className="po-column-badge">
-                              custom
-                            </span>
+                            <span className="po-column-badge">custom</span>
                           )}
                         </div>
 
@@ -2459,8 +2441,7 @@ export default function PurchaseOrderForm() {
                             type="button"
                             className="po-icon-btn"
                             disabled={
-                              c.movable === false ||
-                              idx === columns.length - 1
+                              c.movable === false || idx === columns.length - 1
                             }
                             title="Move down"
                             onClick={() => handleMoveColumn(c, "down")}
@@ -2485,12 +2466,10 @@ export default function PurchaseOrderForm() {
                               c.hideable === false
                                 ? "Always visible"
                                 : c.visible === false
-                                ? "Show column"
-                                : "Hide column"
+                                  ? "Show column"
+                                  : "Hide column"
                             }
-                            onClick={() =>
-                              handleToggleColumnVisibility(c)
-                            }
+                            onClick={() => handleToggleColumnVisibility(c)}
                           >
                             {c.visible === false ? "🙈" : "👁"}
                           </button>
@@ -2518,29 +2497,21 @@ export default function PurchaseOrderForm() {
 
                     <div className="po-grid">
                       <label className="po-field">
-                        <span className="po-field__label">
-                          Column Name
-                        </span>
+                        <span className="po-field__label">Column Name</span>
                         <input
                           className="po-input"
                           value={newColLabel}
-                          onChange={(e) =>
-                            setNewColLabel(e.target.value)
-                          }
+                          onChange={(e) => setNewColLabel(e.target.value)}
                           placeholder="e.g. Heat Number"
                         />
                       </label>
 
                       <label className="po-field">
-                        <span className="po-field__label">
-                          Data Type
-                        </span>
+                        <span className="po-field__label">Data Type</span>
                         <select
                           className="po-input"
                           value={newColType}
-                          onChange={(e) =>
-                            setNewColType(e.target.value)
-                          }
+                          onChange={(e) => setNewColType(e.target.value)}
                         >
                           <option value="text">Text</option>
                           <option value="number">Number</option>
@@ -2557,9 +2528,7 @@ export default function PurchaseOrderForm() {
                           <input
                             className="po-input"
                             value={newColOptions}
-                            onChange={(e) =>
-                              setNewColOptions(e.target.value)
-                            }
+                            onChange={(e) => setNewColOptions(e.target.value)}
                             placeholder="e.g. A36, A572, SS400"
                           />
                         </label>

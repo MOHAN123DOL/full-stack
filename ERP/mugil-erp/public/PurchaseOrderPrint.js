@@ -1857,11 +1857,11 @@
           visible: true,
         },
         {
-          id: "amount",
-          label: "Price / Unit (₹)",
-          type: "number",
-          visible: true,
-        },
+  id: "amount",
+  label: "Amount",
+  type: "number",
+  visible: true,
+},
       ];
     }
 
