@@ -3302,6 +3302,12 @@ class MaterialStock(models.Model):
         blank=True,
         default="",
     )
+    # Stores the actual weight separately from stock quantity.
+    weight = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=0,
+    )
 
     # ---- Traceability ----
     heat_number = models.CharField(

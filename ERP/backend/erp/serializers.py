@@ -3025,6 +3025,11 @@ class MaterialStockSerializer(serializers.ModelSerializer):
     thickness = serializers.CharField(read_only=True)
     length = serializers.CharField(read_only=True)
     width = serializers.CharField(read_only=True)
+    weight = serializers.DecimalField(
+    max_digits=15,
+    decimal_places=3,
+    read_only=True,
+)
     heatNumber = serializers.CharField(source="heat_number", read_only=True)
     plateNumber = serializers.CharField(source="plate_number", read_only=True)
     originalQty = serializers.DecimalField(
@@ -3064,6 +3069,7 @@ class MaterialStockSerializer(serializers.ModelSerializer):
             "thickness",
             "length",
             "width",
+            "weight",
             "heatNumber",
             "plateNumber",
             "originalQty",

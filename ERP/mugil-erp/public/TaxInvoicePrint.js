@@ -1241,7 +1241,7 @@
         });
     }
 
-    saveBtn.addEventListener("click", handleSaveAndConfirm);
+    // saveBtn.addEventListener("click", handleSaveAndConfirm);
     printBtn.addEventListener("click", handleSaveAndConfirm);
   }
 })();

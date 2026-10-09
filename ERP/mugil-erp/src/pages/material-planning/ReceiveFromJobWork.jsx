@@ -47,9 +47,9 @@ function getApiError(error, fallback = GENERIC_ERROR) {
   if (typeof data?.detail === "string") return data.detail;
   if (typeof data?.message === "string") return data.message;
   if (data && typeof data === "object") {
-    const first = Object.values(data).flat().find(
-      (v) => typeof v === "string"
-    );
+    const first = Object.values(data)
+      .flat()
+      .find((v) => typeof v === "string");
     if (first) return first;
   }
   if (error?.message) return error.message;
@@ -163,7 +163,7 @@ const newOutputRow = (fields, plNumber) =>
       ...row,
       [f.key]: f.key === "pieceNo" ? plNumber : "",
     }),
-    { rowId: outputRowId++ }
+    { rowId: outputRowId++ },
   );
 
 const newRemainingRow = (plNumber) => ({
@@ -210,9 +210,7 @@ export default function ReceiveFromJobWork() {
   });
 
   const [activeJob, setActiveJob] = useState(null);
-  const [form, setForm] = useState(() =>
-    emptyForm(defaultOutputConfig.fields)
-  );
+  const [form, setForm] = useState(() => emptyForm(defaultOutputConfig.fields));
   const [modalError, setModalError] = useState("");
   const [savingReceive, setSavingReceive] = useState(false);
 
@@ -221,7 +219,7 @@ export default function ReceiveFromJobWork() {
 
   const authHeaders = useCallback(
     () => ({ Authorization: `Bearer ${accessToken}` }),
-    [accessToken]
+    [accessToken],
   );
 
   /* ============================================================
@@ -254,7 +252,7 @@ export default function ReceiveFromJobWork() {
         if (!silent) setIsLoading(false);
       }
     },
-    [accessToken, authHeaders]
+    [accessToken, authHeaders],
   );
 
   useEffect(() => {
@@ -288,8 +286,7 @@ export default function ReceiveFromJobWork() {
   };
 
   const hasActiveFilters =
-    search.trim() !== "" ||
-    Object.values(filters).some((v) => v !== "All");
+    search.trim() !== "" || Object.values(filters).some((v) => v !== "All");
 
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -341,14 +338,12 @@ export default function ReceiveFromJobWork() {
   const summary = useMemo(() => {
     const total = jobs.length;
     const notReceived = jobs.filter(
-      (j) => statusOf(j) === "Not Received"
+      (j) => statusOf(j) === "Not Received",
     ).length;
     const partial = jobs.filter(
-      (j) => statusOf(j) === "Partially Received"
+      (j) => statusOf(j) === "Partially Received",
     ).length;
-    const full = jobs.filter(
-      (j) => statusOf(j) === "Fully Received"
-    ).length;
+    const full = jobs.filter((j) => statusOf(j) === "Fully Received").length;
 
     return { total, notReceived, partial, full };
   }, [jobs]);
@@ -366,39 +361,30 @@ export default function ReceiveFromJobWork() {
     : 0;
 
   const completedInputQty = Number(form.completedInputQty) || 0;
-  const inputEntered =
-    form.completedInputQty !== "" && completedInputQty > 0;
+  const inputEntered = form.completedInputQty !== "" && completedInputQty > 0;
   const remainingInputQty = inputEntered
     ? Math.max(balanceToReceive - completedInputQty, 0)
     : null;
 
   const totalOutputQty = useMemo(
-    () =>
-      form.outputPieces.reduce((sum, p) => sum + (Number(p.qty) || 0), 0),
-    [form.outputPieces]
+    () => form.outputPieces.reduce((sum, p) => sum + (Number(p.qty) || 0), 0),
+    [form.outputPieces],
   );
 
   const totalOutputWeight = useMemo(
     () =>
-      form.outputPieces.reduce(
-        (sum, p) => sum + (Number(p.weight) || 0),
-        0
-      ),
-    [form.outputPieces]
+      form.outputPieces.reduce((sum, p) => sum + (Number(p.weight) || 0), 0),
+    [form.outputPieces],
   );
 
   const totalRemainingWeight = useMemo(
     () =>
-      form.remainingPieces.reduce(
-        (sum, p) => sum + (Number(p.weight) || 0),
-        0
-      ),
-    [form.remainingPieces]
+      form.remainingPieces.reduce((sum, p) => sum + (Number(p.weight) || 0), 0),
+    [form.remainingPieces],
   );
 
   const openModal = (job) => {
-    const cfg =
-      processOutputConfig[job.processId] || defaultOutputConfig;
+    const cfg = processOutputConfig[job.processId] || defaultOutputConfig;
     setActiveJob(job);
     setForm(emptyForm(cfg.fields));
     setModalError("");
@@ -415,9 +401,7 @@ export default function ReceiveFromJobWork() {
 
   const handleCompletedInputChange = (raw) => {
     const clamped =
-      raw === ""
-        ? ""
-        : Math.max(0, Math.min(Number(raw), balanceToReceive));
+      raw === "" ? "" : Math.max(0, Math.min(Number(raw), balanceToReceive));
 
     setForm((f) => ({
       ...f,
@@ -431,7 +415,7 @@ export default function ReceiveFromJobWork() {
     setForm((f) => ({
       ...f,
       outputPieces: f.outputPieces.map((p) =>
-        p.rowId === rowId ? { ...p, [field]: value } : p
+        p.rowId === rowId ? { ...p, [field]: value } : p,
       ),
     }));
 
@@ -439,7 +423,7 @@ export default function ReceiveFromJobWork() {
     setForm((f) => {
       const nextN = nextPlNumber(
         f.outputPieces.map((p) => p.pieceNo),
-        "output"
+        "output",
       );
       return {
         ...f,
@@ -465,7 +449,7 @@ export default function ReceiveFromJobWork() {
     setForm((f) => ({
       ...f,
       remainingPieces: f.remainingPieces.map((p) =>
-        p.rowId === rowId ? { ...p, [field]: value } : p
+        p.rowId === rowId ? { ...p, [field]: value } : p,
       ),
     }));
 
@@ -473,7 +457,7 @@ export default function ReceiveFromJobWork() {
     setForm((f) => {
       const nextN = nextPlNumber(
         f.remainingPieces.map((p) => p.plateNo),
-        "remaining"
+        "remaining",
       );
       return {
         ...f,
@@ -487,9 +471,7 @@ export default function ReceiveFromJobWork() {
   const removeRemainingPiece = (rowId) =>
     setForm((f) => ({
       ...f,
-      remainingPieces: f.remainingPieces.filter(
-        (p) => p.rowId !== rowId
-      ),
+      remainingPieces: f.remainingPieces.filter((p) => p.rowId !== rowId),
     }));
 
   /* ============================================================
@@ -505,7 +487,7 @@ export default function ReceiveFromJobWork() {
     }
 
     const validOutputPieces = form.outputPieces.filter(
-      (p) => (p.pieceNo || "").toString().trim() && Number(p.qty) > 0
+      (p) => (p.pieceNo || "").toString().trim() && Number(p.qty) > 0,
     );
     if (validOutputPieces.length === 0) {
       return "Add at least one process output piece with a Piece No and Quantity.";
@@ -541,16 +523,13 @@ export default function ReceiveFromJobWork() {
     }
 
     const outputPieces = form.outputPieces
-      .filter(
-        (p) => (p.pieceNo || "").toString().trim() && Number(p.qty) > 0
-      )
+      .filter((p) => (p.pieceNo || "").toString().trim() && Number(p.qty) > 0)
       .map((p) => ({
         pieceNo: p.pieceNo.trim(),
         length: p.length?.toString().trim() || "",
         width: p.width?.toString().trim() || "",
         qty: Number(p.qty),
-        weight:
-          p.weight === "" || p.weight == null ? 0 : Number(p.weight),
+        weight: p.weight === "" || p.weight == null ? 0 : Number(p.weight),
         remarks: p.remarks?.toString().trim() || "",
       }));
 
@@ -558,8 +537,8 @@ export default function ReceiveFromJobWork() {
       plateNo: p.plateNo.trim(),
       length: p.length?.toString().trim() || "",
       width: p.width?.toString().trim() || "",
-      weight:
-        p.weight === "" || p.weight == null ? 0 : Number(p.weight),
+      qty: 1, // Every remaining piece represents one piece
+      weight: p.weight === "" || p.weight == null ? 0 : Number(p.weight),
       remarks: p.remarks?.toString().trim() || "",
       reworkRequired: p.reworkRequired === "Yes" ? "Yes" : "No",
     }));
@@ -575,23 +554,16 @@ export default function ReceiveFromJobWork() {
     try {
       setSavingReceive(true);
 
-      await api.post(
-        `${API_BASE}/job-work/receive/${activeJob.id}/`,
-        payload,
-        { headers: authHeaders() }
-      );
+      await api.post(`${API_BASE}/job-work/receive/${activeJob.id}/`, payload, {
+        headers: authHeaders(),
+      });
 
       closeModal();
 
-      await Promise.all([
-        fetchJobs({ silent: true }),
-        refreshFilterOptions(),
-      ]);
+      await Promise.all([fetchJobs({ silent: true }), refreshFilterOptions()]);
     } catch (err) {
       console.error("Receive failed:", err);
-      setModalError(
-        getApiError(err, "Failed to receive job work.")
-      );
+      setModalError(getApiError(err, "Failed to receive job work."));
     } finally {
       setSavingReceive(false);
     }
@@ -603,10 +575,7 @@ export default function ReceiveFromJobWork() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([
-      fetchJobs({ silent: true }),
-      refreshFilterOptions(),
-    ]);
+    await Promise.all([fetchJobs({ silent: true }), refreshFilterOptions()]);
     setRefreshing(false);
   };
 
@@ -622,7 +591,6 @@ export default function ReceiveFromJobWork() {
 
       <div className="material-page">
         <div className="material-content">
-
           {/* HEADER */}
           <div className="page-header-wrap">
             <div className="page-header-left">
@@ -631,13 +599,10 @@ export default function ReceiveFromJobWork() {
                 Back
               </button>
               <div className="page-header-title-group">
-                <h1 className="page-header-title">
-                  Receive From Job Work
-                </h1>
+                <h1 className="page-header-title">Receive From Job Work</h1>
                 <p className="page-header-subtitle">
                   Record completed input quantity, process output and any
-                  remaining input material against each issued job work
-                  ticket.
+                  remaining input material against each issued job work ticket.
                 </p>
               </div>
             </div>
@@ -648,10 +613,7 @@ export default function ReceiveFromJobWork() {
                 onClick={handleRefresh}
                 disabled={refreshing || isLoading}
               >
-                <RefreshCw
-                  size={14}
-                  className={refreshing ? "spin" : ""}
-                />
+                <RefreshCw size={14} className={refreshing ? "spin" : ""} />
                 {refreshing ? "Refreshing..." : "Refresh"}
               </button>
             </div>
@@ -678,12 +640,8 @@ export default function ReceiveFromJobWork() {
                     <Layers size={18} strokeWidth={1.8} />
                   </div>
                   <div>
-                    <span className="summary-card-value">
-                      {summary.total}
-                    </span>
-                    <span className="summary-card-label">
-                      Total Records
-                    </span>
+                    <span className="summary-card-value">{summary.total}</span>
+                    <span className="summary-card-label">Total Records</span>
                   </div>
                 </div>
 
@@ -695,9 +653,7 @@ export default function ReceiveFromJobWork() {
                     <span className="summary-card-value">
                       {summary.notReceived}
                     </span>
-                    <span className="summary-card-label">
-                      Not Received
-                    </span>
+                    <span className="summary-card-label">Not Received</span>
                   </div>
                 </div>
 
@@ -720,12 +676,8 @@ export default function ReceiveFromJobWork() {
                     <PackageCheck size={18} strokeWidth={1.8} />
                   </div>
                   <div>
-                    <span className="summary-card-value">
-                      {summary.full}
-                    </span>
-                    <span className="summary-card-label">
-                      Fully Received
-                    </span>
+                    <span className="summary-card-value">{summary.full}</span>
+                    <span className="summary-card-label">Fully Received</span>
                   </div>
                 </div>
               </div>
@@ -809,9 +761,7 @@ export default function ReceiveFromJobWork() {
               <div className="panel">
                 <div className="panel-head">
                   <div>
-                    <div className="panel-head-title">
-                      Job Work Records
-                    </div>
+                    <div className="panel-head-title">Job Work Records</div>
                     <p className="panel-head-subtitle">
                       {filteredJobs.length} of {jobs.length} record
                       {jobs.length !== 1 ? "s" : ""}
@@ -863,20 +813,15 @@ export default function ReceiveFromJobWork() {
                       )}
 
                       {filteredJobs.map((job) => {
-                        const balance =
-                          job.issuedQty - job.previouslyReceived;
+                        const balance = job.issuedQty - job.previouslyReceived;
                         const status = statusOf(job);
                         const canReceive = balance > 0;
 
                         return (
                           <tr key={job.id}>
-                            <td className="cell-mono">
-                              {job.issueNumber}
-                            </td>
+                            <td className="cell-mono">{job.issueNumber}</td>
                             <td>{job.poType}</td>
-                            <td className="cell-mono">
-                              {job.poNumber}
-                            </td>
+                            <td className="cell-mono">{job.poNumber}</td>
                             <td>{job.supplier}</td>
                             <td>{job.description}</td>
                             <td>{job.project}</td>
@@ -897,9 +842,7 @@ export default function ReceiveFromJobWork() {
                             </td>
                             <td>{job.jobWorkUnit}</td>
                             <td>{job.process}</td>
-                            <td className="cell-mono">
-                              {job.processId}
-                            </td>
+                            <td className="cell-mono">{job.processId}</td>
                             <td className="cell-num">
                               {fmt(job.issuedQty)} {job.uom}
                             </td>
@@ -909,13 +852,11 @@ export default function ReceiveFromJobWork() {
                             <td className="cell-num cell-balance">
                               {fmt(balance)} {job.uom}
                             </td>
-                            <td className="cell-num">
-                              {fmt(job.outputQty)}
-                            </td>
+                            <td className="cell-num">{fmt(job.outputQty)}</td>
                             <td>
                               <span
                                 className={`status-badge ${statusToneClass(
-                                  status
+                                  status,
                                 )}`}
                               >
                                 {status}
@@ -947,12 +888,9 @@ export default function ReceiveFromJobWork() {
               <div className="modal-box modal-box-wide">
                 <div className="modal-head">
                   <div>
-                    <h2 className="modal-title">
-                      Receive From Job Work
-                    </h2>
+                    <h2 className="modal-title">Receive From Job Work</h2>
                     <p className="modal-subtitle">
-                      Job Work ID :{" "}
-                      <strong>{activeJob.issueNumber}</strong>
+                      Job Work ID : <strong>{activeJob.issueNumber}</strong>
                     </p>
                   </div>
                   <button
@@ -967,12 +905,9 @@ export default function ReceiveFromJobWork() {
                 </div>
 
                 <div className="modal-body">
-
                   {/* Integrated Requirement */}
                   <div className="modal-card">
-                    <h3 className="modal-card-title">
-                      Integrated Requirement
-                    </h3>
+                    <h3 className="modal-card-title">Integrated Requirement</h3>
                     <div className="readonly-grid">
                       <ReadonlyField
                         label="Project"
@@ -996,9 +931,7 @@ export default function ReceiveFromJobWork() {
                       />
                       <ReadonlyField
                         label="Required Qty"
-                        value={`${fmt(activeJob.requiredQty)} ${
-                          activeJob.uom
-                        }`}
+                        value={`${fmt(activeJob.requiredQty)} ${activeJob.uom}`}
                       />
                       <ReadonlyField
                         label="Original Size"
@@ -1009,9 +942,7 @@ export default function ReceiveFromJobWork() {
 
                   {/* Job Work Details */}
                   <div className="modal-card">
-                    <h3 className="modal-card-title">
-                      Job Work Details
-                    </h3>
+                    <h3 className="modal-card-title">Job Work Details</h3>
                     <div className="readonly-grid">
                       <ReadonlyField
                         label="Job Work Type"
@@ -1035,21 +966,17 @@ export default function ReceiveFromJobWork() {
                       />
                       <ReadonlyField
                         label="Issued Quantity"
-                        value={`${fmt(activeJob.issuedQty)} ${
-                          activeJob.uom
-                        }`}
+                        value={`${fmt(activeJob.issuedQty)} ${activeJob.uom}`}
                       />
                       <ReadonlyField
                         label="Previously Received"
                         value={`${fmt(
-                          activeJob.previouslyReceived
+                          activeJob.previouslyReceived,
                         )} ${activeJob.uom}`}
                       />
                       <ReadonlyField
                         label="Balance to Receive"
-                        value={`${fmt(balanceToReceive)} ${
-                          activeJob.uom
-                        }`}
+                        value={`${fmt(balanceToReceive)} ${activeJob.uom}`}
                         emphasize
                       />
                     </div>
@@ -1057,13 +984,11 @@ export default function ReceiveFromJobWork() {
 
                   {/* Input Material Receipt */}
                   <div className="modal-card">
-                    <h3 className="modal-card-title">
-                      Input Material Receipt
-                    </h3>
+                    <h3 className="modal-card-title">Input Material Receipt</h3>
                     <p className="modal-card-subtitle">
                       How many of the original{" "}
-                      {activeJob.material.toLowerCase()} units were
-                      processed / consumed?
+                      {activeJob.material.toLowerCase()} units were processed /
+                      consumed?
                     </p>
                     <div className="receive-input-row">
                       <div className="form-field">
@@ -1136,20 +1061,14 @@ export default function ReceiveFromJobWork() {
                               <th style={{ width: 90 }}>Weight</th>
                               <th style={{ minWidth: 160 }}>Remarks</th>
                               <th style={{ width: 150 }}>Rework</th>
-                              <th
-                                style={{ width: 40 }}
-                                aria-label="Remove"
-                              />
+                              <th style={{ width: 40 }} aria-label="Remove" />
                             </tr>
                           </thead>
 
                           <tbody>
                             {/* OUTPUT ROWS */}
                             {form.outputPieces.map((piece, idx) => (
-                              <tr
-                                key={piece.rowId}
-                                className="row-output"
-                              >
+                              <tr key={piece.rowId} className="row-output">
                                 <td className="cell-num">{idx + 1}</td>
                                 <td>
                                   <span className="type-badge type-badge-inhouse">
@@ -1163,7 +1082,7 @@ export default function ReceiveFromJobWork() {
                                       updateOutputPiece(
                                         piece.rowId,
                                         "pieceNo",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1178,7 +1097,7 @@ export default function ReceiveFromJobWork() {
                                       updateOutputPiece(
                                         piece.rowId,
                                         "length",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1193,7 +1112,7 @@ export default function ReceiveFromJobWork() {
                                       updateOutputPiece(
                                         piece.rowId,
                                         "width",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1215,7 +1134,7 @@ export default function ReceiveFromJobWork() {
                                       updateOutputPiece(
                                         piece.rowId,
                                         "qty",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1230,7 +1149,7 @@ export default function ReceiveFromJobWork() {
                                       updateOutputPiece(
                                         piece.rowId,
                                         "weight",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1244,7 +1163,7 @@ export default function ReceiveFromJobWork() {
                                       updateOutputPiece(
                                         piece.rowId,
                                         "remarks",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1275,16 +1194,13 @@ export default function ReceiveFromJobWork() {
                             {form.remainingPieces.length > 0 && (
                               <tr className="row-divider">
                                 <td colSpan={11}>
-                                  <strong>
-                                    Remaining Input Material
-                                  </strong>
+                                  <strong>Remaining Input Material</strong>
                                   <span className="divider-note">
                                     {form.remainingPieces.length} piece
                                     {form.remainingPieces.length !== 1
                                       ? "s"
                                       : ""}
-                                    {inputEntered &&
-                                    remainingInputQty > 0
+                                    {inputEntered && remainingInputQty > 0
                                       ? ` · expected ${remainingInputQty}`
                                       : ""}
                                   </span>
@@ -1294,10 +1210,7 @@ export default function ReceiveFromJobWork() {
 
                             {/* REMAINING ROWS */}
                             {form.remainingPieces.map((piece, idx) => (
-                              <tr
-                                key={piece.rowId}
-                                className="row-remaining"
-                              >
+                              <tr key={piece.rowId} className="row-remaining">
                                 <td className="cell-num">
                                   {form.outputPieces.length + idx + 1}
                                 </td>
@@ -1313,7 +1226,7 @@ export default function ReceiveFromJobWork() {
                                       updateRemainingPiece(
                                         piece.rowId,
                                         "plateNo",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1328,7 +1241,7 @@ export default function ReceiveFromJobWork() {
                                       updateRemainingPiece(
                                         piece.rowId,
                                         "length",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1343,7 +1256,7 @@ export default function ReceiveFromJobWork() {
                                       updateRemainingPiece(
                                         piece.rowId,
                                         "width",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1366,7 +1279,7 @@ export default function ReceiveFromJobWork() {
                                       updateRemainingPiece(
                                         piece.rowId,
                                         "weight",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1380,7 +1293,7 @@ export default function ReceiveFromJobWork() {
                                       updateRemainingPiece(
                                         piece.rowId,
                                         "remarks",
-                                        e.target.value
+                                        e.target.value,
                                       )
                                     }
                                     className="inline-input"
@@ -1393,14 +1306,12 @@ export default function ReceiveFromJobWork() {
                                       <input
                                         type="radio"
                                         name={`rework-${piece.rowId}`}
-                                        checked={
-                                          piece.reworkRequired === "No"
-                                        }
+                                        checked={piece.reworkRequired === "No"}
                                         onChange={() =>
                                           updateRemainingPiece(
                                             piece.rowId,
                                             "reworkRequired",
-                                            "No"
+                                            "No",
                                           )
                                         }
                                         disabled={savingReceive}
@@ -1411,14 +1322,12 @@ export default function ReceiveFromJobWork() {
                                       <input
                                         type="radio"
                                         name={`rework-${piece.rowId}`}
-                                        checked={
-                                          piece.reworkRequired === "Yes"
-                                        }
+                                        checked={piece.reworkRequired === "Yes"}
                                         onChange={() =>
                                           updateRemainingPiece(
                                             piece.rowId,
                                             "reworkRequired",
-                                            "Yes"
+                                            "Yes",
                                           )
                                         }
                                         disabled={savingReceive}
@@ -1460,9 +1369,9 @@ export default function ReceiveFromJobWork() {
                                 className="cell-muted"
                                 style={{ textAlign: "left" }}
                               >
-                                Output: {form.outputPieces.length} ·
-                                Remaining: {form.remainingPieces.length} ·
-                                Weight: {totalRemainingWeight}
+                                Output: {form.outputPieces.length} · Remaining:{" "}
+                                {form.remainingPieces.length} · Weight:{" "}
+                                {totalRemainingWeight}
                               </td>
                             </tr>
                           </tfoot>
@@ -1471,10 +1380,9 @@ export default function ReceiveFromJobWork() {
 
                       <div className="pieces-summary">
                         <span>
-                          Output quantity is independent of input
-                          quantity — one input unit can yield many
-                          output pieces. Add remaining rows manually
-                          as needed.
+                          Output quantity is independent of input quantity — one
+                          input unit can yield many output pieces. Add remaining
+                          rows manually as needed.
                         </span>
                       </div>
                     </div>
@@ -1499,9 +1407,7 @@ export default function ReceiveFromJobWork() {
                   </div>
 
                   <div className="form-field">
-                    <label htmlFor="receive-remarks">
-                      Remarks (optional)
-                    </label>
+                    <label htmlFor="receive-remarks">Remarks (optional)</label>
                     <textarea
                       id="receive-remarks"
                       rows={2}
@@ -1516,9 +1422,7 @@ export default function ReceiveFromJobWork() {
                     />
                   </div>
 
-                  {modalError && (
-                    <div className="error-box">{modalError}</div>
-                  )}
+                  {modalError && <div className="error-box">{modalError}</div>}
 
                   <div className="modal-actions">
                     <button
@@ -1535,9 +1439,7 @@ export default function ReceiveFromJobWork() {
                       className="btn btn-primary"
                       disabled={savingReceive}
                     >
-                      {savingReceive
-                        ? "Saving..."
-                        : "Receive Job Work"}
+                      {savingReceive ? "Saving..." : "Receive Job Work"}
                     </button>
                   </div>
                 </div>

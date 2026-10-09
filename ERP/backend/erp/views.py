@@ -9895,172 +9895,124 @@ class ProjectPOItemListAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+from decimal import Decimal, InvalidOperation
+
+from django.db import transaction
+from django.db.models import Sum, Q
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
 
 class ProjectIntegrationCreateAPIView(APIView):
     """
     POST /erp/material/project-po-integration/create/
 
-    Body:
-        {
-          "projectId": 1,
-          "rows": [
-            {"poItemId": 42, "sourceType": "real",  "quantity": 5},
-            {"poItemId": 7,  "sourceType": "dummy", "quantity": 3},
-            ...
-          ]
-        }
+    Request:
+    {
+        "projectId": 1,
+        "rows": [
+            {
+                "poItemId": 42,
+                "sourceType": "real",
+                "quantity": 5
+            },
+            {
+                "poItemId": 7,
+                "sourceType": "dummy",
+                "quantity": 3
+            }
+        ]
+    }
+
+    Features:
+    1. Validates project and PO items.
+    2. Validates integration quantities.
+    3. Creates BOMPOIntegration records.
+    4. Updates existing MaterialStock records when the GRN
+       was created before project integration.
+    5. Supports real and dummy PO items.
+    6. Executes all changes inside one transaction.
     """
 
     permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     @transaction.atomic
     def post(self, request):
+
+        # =========================================================
+        # 1. VALIDATE PROJECT
+        # =========================================================
+
         project_id = request.data.get("projectId")
         rows = request.data.get("rows") or []
 
         if not project_id:
             return Response(
-                {"success": False, "message": "projectId is required."},
+                {
+                    "success": False,
+                    "message": "projectId is required.",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
             project = Project.objects.get(id=project_id)
-        except Project.DoesNotExist:
+
+        except (Project.DoesNotExist, ValueError, TypeError):
             return Response(
-                {"success": False, "message": "Project not found."},
+                {
+                    "success": False,
+                    "message": "Project not found.",
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if not rows:
+        if not isinstance(rows, list) or not rows:
             return Response(
-                {"success": False, "message": "No rows provided."},
+                {
+                    "success": False,
+                    "message": "No valid rows provided.",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # --- Fetch items up-front ---
-        real_ids = {r["poItemId"] for r in rows if r.get("sourceType") == "real"}
-        dummy_ids = {r["poItemId"] for r in rows if r.get("sourceType") == "dummy"}
-
-        real_map = {
-            p.id: p for p in (
-                PurchaseOrderItem.objects
-                .filter(id__in=real_ids)
-                .select_related("purchase_order")
-            )
-        }
-        dummy_map = {
-            d.id: d for d in (
-                DummyPurchaseOrderItem.objects
-                .filter(id__in=dummy_ids)
-                .select_related("dummy_po")
-            )
-        }
-
-        # --- Current integrated totals ---
-        real_integrated = {
-            row["purchase_order_item_id"]: row["total"]
-            for row in (
-                BOMPOIntegration.objects
-                .filter(purchase_order_item_id__in=real_ids)
-                .values("purchase_order_item_id")
-                .annotate(total=Sum("quantity"))
-            )
-        }
-        dummy_integrated = {
-            row["dummy_purchase_order_item_id"]: row["total"]
-            for row in (
-                BOMPOIntegration.objects
-                .filter(dummy_purchase_order_item_id__in=dummy_ids)
-                .values("dummy_purchase_order_item_id")
-                .annotate(total=Sum("quantity"))
-            )
-        }
+        # =========================================================
+        # 2. VALIDATE REQUEST ROWS
+        # =========================================================
 
         errors = []
-        prepared = []
 
-        running_real = dict(real_integrated)
-        running_dummy = dict(dummy_integrated)
+        for idx, row in enumerate(rows, start=1):
 
-        for idx, r in enumerate(rows, start=1):
-            source = r.get("sourceType")
-            po_item_id = r.get("poItemId")
-            raw_qty = r.get("quantity")
-
-            try:
-                qty = Decimal(str(raw_qty))
-            except (InvalidOperation, TypeError, ValueError):
-                errors.append({"row": idx, "error": "Invalid quantity."})
+            if not isinstance(row, dict):
+                errors.append(
+                    {
+                        "row": idx,
+                        "error": "Each row must be an object.",
+                    }
+                )
                 continue
 
-            if qty <= 0:
-                errors.append({
-                    "row": idx,
-                    "error": "Quantity must be greater than 0.",
-                })
-                continue
-
-            if source == "real":
-                po_item = real_map.get(po_item_id)
-                if not po_item:
-                    errors.append({"row": idx, "error": "PO item not found."})
-                    continue
-
-                po_remaining = (
-                    (po_item.quantity or Decimal("0"))
-                    - running_real.get(po_item.id, Decimal("0"))
-                )
-                if qty > po_remaining:
-                    errors.append({
+            if row.get("sourceType") not in ("real", "dummy"):
+                errors.append(
+                    {
                         "row": idx,
-                        "error": f"Quantity exceeds PO remaining ({po_remaining}).",
-                    })
-                    continue
-
-                running_real[po_item.id] = (
-                    running_real.get(po_item.id, Decimal("0")) + qty
+                        "error": "sourceType must be real or dummy.",
+                    }
                 )
-                prepared.append({
-                    "purchase_order_item": po_item,
-                    "dummy_purchase_order_item": None,
-                    "quantity": qty,
-                })
 
-            elif source == "dummy":
-                di = dummy_map.get(po_item_id)
-                if not di:
-                    errors.append({"row": idx, "error": "Dummy PO item not found."})
-                    continue
-
-                po_remaining = (
-                    (di.quantity or Decimal("0"))
-                    - running_dummy.get(di.id, Decimal("0"))
-                )
-                if qty > po_remaining:
-                    errors.append({
+            if row.get("poItemId") in (None, ""):
+                errors.append(
+                    {
                         "row": idx,
-                        "error": f"Quantity exceeds dummy PO remaining ({po_remaining}).",
-                    })
-                    continue
-
-                running_dummy[di.id] = (
-                    running_dummy.get(di.id, Decimal("0")) + qty
+                        "error": "poItemId is required.",
+                    }
                 )
-                prepared.append({
-                    "purchase_order_item": None,
-                    "dummy_purchase_order_item": di,
-                    "quantity": qty,
-                })
-
-            else:
-                errors.append({
-                    "row": idx,
-                    "error": f"Unknown sourceType: {source!r}.",
-                })
 
         if errors:
-            transaction.set_rollback(True)
             return Response(
                 {
                     "success": False,
@@ -10070,23 +10022,318 @@ class ProjectIntegrationCreateAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # =========================================================
+        # 3. FETCH REAL AND DUMMY PO ITEMS
+        # =========================================================
+
+        real_ids = {
+            row["poItemId"]
+            for row in rows
+            if row.get("sourceType") == "real"
+        }
+
+        dummy_ids = {
+            row["poItemId"]
+            for row in rows
+            if row.get("sourceType") == "dummy"
+        }
+
+        real_map = {
+            item.id: item
+            for item in (
+                PurchaseOrderItem.objects
+                .filter(id__in=real_ids)
+                .select_related("purchase_order")
+                .order_by("id")
+            )
+        }
+
+        dummy_map = {
+            item.id: item
+            for item in (
+                DummyPurchaseOrderItem.objects
+                .filter(id__in=dummy_ids)
+                .select_related("dummy_po")
+                .order_by("id")
+            )
+        }
+
+        # =========================================================
+        # 4. FETCH EXISTING INTEGRATED QUANTITIES
+        # =========================================================
+
+        real_integrated = {
+            item["purchase_order_item_id"]: item["total"]
+            for item in (
+                BOMPOIntegration.objects
+                .filter(
+                    purchase_order_item_id__in=real_ids
+                )
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        dummy_integrated = {
+            item["dummy_purchase_order_item_id"]: item["total"]
+            for item in (
+                BOMPOIntegration.objects
+                .filter(
+                    dummy_purchase_order_item_id__in=dummy_ids
+                )
+                .values("dummy_purchase_order_item_id")
+                .annotate(total=Sum("quantity"))
+            )
+        }
+
+        running_real = dict(real_integrated)
+        running_dummy = dict(dummy_integrated)
+
+        prepared = []
+
+        # =========================================================
+        # 5. VALIDATE INTEGRATION QUANTITIES
+        # =========================================================
+
+        for idx, row in enumerate(rows, start=1):
+
+            source = row.get("sourceType")
+            po_item_id = row.get("poItemId")
+            raw_qty = row.get("quantity")
+
+            try:
+                qty = Decimal(str(raw_qty))
+
+            except (InvalidOperation, TypeError, ValueError):
+                errors.append(
+                    {
+                        "row": idx,
+                        "error": "Invalid quantity.",
+                    }
+                )
+                continue
+
+            if not qty.is_finite() or qty <= 0:
+                errors.append(
+                    {
+                        "row": idx,
+                        "error": "Quantity must be greater than 0.",
+                    }
+                )
+                continue
+
+            if source == "real":
+
+                po_item = real_map.get(po_item_id)
+
+                if not po_item:
+                    errors.append(
+                        {
+                            "row": idx,
+                            "error": "PO item not found.",
+                        }
+                    )
+                    continue
+
+                # Preserve the existing confirmed-PO requirement.
+                if (
+                    po_item.purchase_order.status
+                    != PurchaseOrder.Status.CONFIRMED
+                ):
+                    errors.append(
+                        {
+                            "row": idx,
+                            "error": "PO is not confirmed.",
+                        }
+                    )
+                    continue
+
+                po_qty = po_item.quantity or Decimal("0")
+
+                already_integrated = running_real.get(
+                    po_item.id,
+                    Decimal("0"),
+                )
+
+                po_remaining = po_qty - already_integrated
+
+                if qty > po_remaining:
+                    errors.append(
+                        {
+                            "row": idx,
+                            "error": (
+                                "Quantity exceeds PO remaining "
+                                f"({po_remaining})."
+                            ),
+                        }
+                    )
+                    continue
+
+                running_real[po_item.id] = (
+                    already_integrated + qty
+                )
+
+                prepared.append(
+                    {
+                        "purchase_order_item": po_item,
+                        "dummy_purchase_order_item": None,
+                        "quantity": qty,
+                    }
+                )
+
+            elif source == "dummy":
+
+                dummy_item = dummy_map.get(po_item_id)
+
+                if not dummy_item:
+                    errors.append(
+                        {
+                            "row": idx,
+                            "error": "Dummy PO item not found.",
+                        }
+                    )
+                    continue
+
+                dummy_qty = dummy_item.quantity or Decimal("0")
+
+                already_integrated = running_dummy.get(
+                    dummy_item.id,
+                    Decimal("0"),
+                )
+
+                po_remaining = dummy_qty - already_integrated
+
+                if qty > po_remaining:
+                    errors.append(
+                        {
+                            "row": idx,
+                            "error": (
+                                "Quantity exceeds dummy PO remaining "
+                                f"({po_remaining})."
+                            ),
+                        }
+                    )
+                    continue
+
+                running_dummy[dummy_item.id] = (
+                    already_integrated + qty
+                )
+
+                prepared.append(
+                    {
+                        "purchase_order_item": None,
+                        "dummy_purchase_order_item": dummy_item,
+                        "quantity": qty,
+                    }
+                )
+
+        # =========================================================
+        # 6. STOP IF ANY VALIDATION FAILED
+        # =========================================================
+
+        if errors:
+            return Response(
+                {
+                    "success": False,
+                    "message": "One or more rows failed validation.",
+                    "errors": errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # =========================================================
+        # 7. CREATE PROJECT INTEGRATIONS
+        # =========================================================
+
         created_ids = []
+
         for entry in prepared:
-            intg = BOMPOIntegration.objects.create(
+
+            integration = BOMPOIntegration.objects.create(
                 project=project,
                 bom_item=None,
-                purchase_order_item=entry["purchase_order_item"],
-                dummy_purchase_order_item=entry["dummy_purchase_order_item"],
+                purchase_order_item=entry[
+                    "purchase_order_item"
+                ],
+                dummy_purchase_order_item=entry[
+                    "dummy_purchase_order_item"
+                ],
                 quantity=entry["quantity"],
-                is_dummy=entry["dummy_purchase_order_item"] is not None,
+                is_dummy=(
+                    entry["dummy_purchase_order_item"] is not None
+                ),
             )
-            created_ids.append(intg.id)
+
+            created_ids.append(integration.id)
+
+        # =========================================================
+        # 8. BACKFILL PROJECT ID TO EXISTING MATERIAL STOCK
+        # =========================================================
+        #
+        # If GRN was created before integration:
+        #
+        # MaterialStock.project_id = NULL
+        #
+        # After integration:
+        #
+        # MaterialStock.project_id = project.id
+        #
+        # Do not modify quantities, movements, or GRN records.
+        # =========================================================
+
+        real_item_ids = {
+            entry["purchase_order_item"].id
+            for entry in prepared
+            if entry["purchase_order_item"] is not None
+        }
+
+        dummy_item_ids = {
+            entry["dummy_purchase_order_item"].id
+            for entry in prepared
+            if entry["dummy_purchase_order_item"] is not None
+        }
+
+        stock_filter = Q()
+
+        if real_item_ids:
+            stock_filter |= Q(
+                purchase_order_item_id__in=real_item_ids
+            )
+
+        if dummy_item_ids:
+            stock_filter |= Q(
+                dummy_purchase_order_item_id__in=dummy_item_ids
+            )
+
+        updated_stocks = 0
+
+        if real_item_ids or dummy_item_ids:
+
+            updated_stocks = (
+                MaterialStock.objects
+                .filter(
+                    stock_filter,
+                    project__isnull=True,
+                )
+                .update(
+                    project=project,
+                )
+            )
+
+        # =========================================================
+        # 9. RESPONSE
+        # =========================================================
 
         return Response(
             {
                 "success": True,
-                "message": f"Saved {len(created_ids)} integrations.",
+                "message": (
+                    f"Saved {len(created_ids)} integrations "
+                    f"for project {project.id}."
+                ),
+                "projectId": project.id,
                 "integrationIds": created_ids,
+                "updatedStockRecords": updated_stocks,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -10253,7 +10500,7 @@ class MaterialReceiveListAPIView(APIView):
     Project comes from BOMPOIntegration (first linked project).
     """
 
-    permission_classes = [IsAuthenticated, IsMaterialPlanning]
+    permission_classes = [AllowAny]
 
     def get(self, request):
 
@@ -10432,6 +10679,7 @@ from .models import (
     BOMPOIntegration,
     Project,
 )
+
 # =====================================================================
 # CREATE — RECORD ONE GRN
 # =====================================================================
@@ -12455,6 +12703,7 @@ class JobWorkReceiveHistoryAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+    
 class JobWorkReceiveCreateAPIView(APIView):
     """
     POST /erp/material/job-work/receive/<issue_id>/
@@ -12768,10 +13017,11 @@ class JobWorkReceiveCreateAPIView(APIView):
                 thickness=issue.thickness or "",
                 length=p.get("length", ""),
                 width=p.get("width", ""),
+                weight=p.get("weight") or Decimal("0"),
                 heat_number="",
                 plate_number=p["plate_no"],
                 original_qty=Decimal("0"),
-                uom=issue.uom or "Nos",
+                uom= "Nos",
                 project=issue.project,
                 dwg_description=issue.dwg_description or "",
                 revision=issue.revision or "",
@@ -12785,17 +13035,20 @@ class JobWorkReceiveCreateAPIView(APIView):
             )
 
             MaterialStockMovement.objects.create(
-                stock=lot,
-                direction=MaterialStockMovement.Direction.IN,
-                movement_type=(
-                    MaterialStockMovement.MovementType.RETURN_JOB_WORK
-                ),
-                quantity=p.get("weight") or Decimal("0"),
-                reference_type="JobWorkReceive",
-                reference_id=receive.id,
-                remarks=p.get("remarks", ""),
-                created_by=request.user,
-            )
+                    stock=lot,
+                    direction=MaterialStockMovement.Direction.IN,
+                    movement_type=(
+                        MaterialStockMovement.MovementType.RETURN_JOB_WORK
+                    ),
+
+                    # One remaining piece = one unit of stock.
+                    quantity=Decimal("1"),
+
+                    reference_type="JobWorkReceive",
+                    reference_id=receive.id,
+                    remarks=p.get("remarks", ""),
+                    created_by=request.user,
+                )
 
             # --------------------------------------------------------
             # 9b. Flag for Rework → create ReworkRecord

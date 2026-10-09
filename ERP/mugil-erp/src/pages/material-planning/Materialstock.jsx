@@ -145,7 +145,6 @@ function Modal({ open, title, subtitle, onClose, children }) {
    ============================================================ */
 
 const emptyFilters = {
-  material: "All",
   thickness: "All",
   length: "All",
   width: "All",
@@ -258,7 +257,6 @@ export default function MaterialStock() {
   const hasActiveFilters =
     search.trim() !== "" ||
     unitTab !== "All" ||
-    filters.material !== "All" ||
     filters.thickness !== "All" ||
     filters.length !== "All" ||
     filters.width !== "All" ||
@@ -281,16 +279,11 @@ export default function MaterialStock() {
         [
           s.poNumber,
           s.description,
-          s.material,
-          s.materialCode,
-          s.materialSpec,
           s.thickness,
           s.length,
           s.width,
-          s.heatNumber,
           s.plateNumber,
           s.project,
-          s.dwgDescription,
         ]
           .filter(Boolean)
           .join(" ")
@@ -298,9 +291,6 @@ export default function MaterialStock() {
           .includes(q);
 
       const matchesUnit = unitTab === "All" || s.unit === unitTab;
-
-      const matchesMaterial =
-        filters.material === "All" || s.material === filters.material;
 
       const matchesThickness =
         filters.thickness === "All" ||
@@ -338,7 +328,6 @@ export default function MaterialStock() {
       return (
         matchesSearch &&
         matchesUnit &&
-        matchesMaterial &&
         matchesThickness &&
         matchesLength &&
         matchesWidth &&
@@ -562,7 +551,7 @@ export default function MaterialStock() {
                   <div className="panel-toolbar-search">
                     <Search size={14} />
                     <input
-                      placeholder="Search PO, description, material, size, heat no, project..."
+                      placeholder="Search PO, description, size, plate no, project..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
@@ -658,23 +647,6 @@ export default function MaterialStock() {
                     </div>
 
                     <div className="form-field">
-                      <label>Material</label>
-                      <select
-                        value={filters.material}
-                        onChange={(e) =>
-                          updateFilter("material", e.target.value)
-                        }
-                      >
-                        <option value="All">All</option>
-                        {(filterOptions.material || []).map((m) => (
-                          <option key={m} value={m}>
-                            {m}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="form-field">
                       <label>PO Number</label>
                       <input
                         type="text"
@@ -756,19 +728,13 @@ export default function MaterialStock() {
                         <th>Source Type</th>
                         <th>PO Number</th>
                         <th>Description</th>
-                        <th>Material</th>
-                        <th>Material Code</th>
-                        <th>Material Specification</th>
                         <th>Thickness</th>
                         <th>Length</th>
                         <th>Width</th>
-                        <th>Heat Number</th>
                         <th>Plate Number</th>
-                        <th>Original Qty</th>
                         <th>Available Qty</th>
                         <th>UOM</th>
                         <th>Project</th>
-                        <th>DWG / Description</th>
                         <th>Revision</th>
                         <th>Stock Status</th>
                         <th>Rework Required</th>
@@ -787,23 +753,9 @@ export default function MaterialStock() {
                             </td>
                             <td className="cell-mono">{s.poNumber}</td>
                             <td>{s.description}</td>
-                            <td>{s.material || "—"}</td>
-                            <td className="cell-mono">
-                              {s.materialCode || "—"}
-                            </td>
-                            <td>{s.materialSpec || "—"}</td>
                             <td>{s.thickness || "—"}</td>
                             <td>{s.length || "—"}</td>
                             <td>{s.width || "—"}</td>
-                            <td
-                              className={
-                                !s.heatNumber || s.heatNumber === "—"
-                                  ? "cell-muted"
-                                  : "cell-mono"
-                              }
-                            >
-                              {s.heatNumber || "—"}
-                            </td>
                             <td
                               className={
                                 !s.plateNumber || s.plateNumber === "—"
@@ -812,9 +764,6 @@ export default function MaterialStock() {
                               }
                             >
                               {s.plateNumber || "—"}
-                            </td>
-                            <td className="cell-muted">
-                              {fmt(s.originalQty)}
                             </td>
                             <td>
                               <strong>{fmt(s.availableQty)}</strong>
@@ -828,15 +777,6 @@ export default function MaterialStock() {
                               }
                             >
                               {s.project || "—"}
-                            </td>
-                            <td
-                              className={
-                                !s.dwgDescription || s.dwgDescription === "—"
-                                  ? "cell-muted"
-                                  : ""
-                              }
-                            >
-                              {s.dwgDescription || "—"}
                             </td>
                             <td
                               className={
@@ -879,7 +819,7 @@ export default function MaterialStock() {
 
                       {filteredStock.length === 0 && (
                         <tr>
-                          <td colSpan={22}>
+                          <td colSpan={16}>
                             <div className="empty-state">
                               <p className="empty-state-title">
                                 No stock matches your search or filters
@@ -927,20 +867,6 @@ export default function MaterialStock() {
                     <strong>{viewStock.description}</strong>
                   </div>
                   <div className="kv">
-                    <span>Material</span>
-                    <strong>{viewStock.material || "—"}</strong>
-                  </div>
-                  <div className="kv">
-                    <span>Material Code</span>
-                    <strong className="mono">
-                      {viewStock.materialCode || "—"}
-                    </strong>
-                  </div>
-                  <div className="kv">
-                    <span>Specification</span>
-                    <strong>{viewStock.materialSpec || "—"}</strong>
-                  </div>
-                  <div className="kv">
                     <span>Thickness</span>
                     <strong>{viewStock.thickness || "—"}</strong>
                   </div>
@@ -953,18 +879,8 @@ export default function MaterialStock() {
                     <strong>{viewStock.width || "—"}</strong>
                   </div>
                   <div className="kv">
-                    <span>Heat Number</span>
-                    <strong>{viewStock.heatNumber || "—"}</strong>
-                  </div>
-                  <div className="kv">
                     <span>Plate Number</span>
                     <strong>{viewStock.plateNumber || "—"}</strong>
-                  </div>
-                  <div className="kv">
-                    <span>Original Quantity</span>
-                    <strong>
-                      {fmt(viewStock.originalQty)} {viewStock.uom}
-                    </strong>
                   </div>
                   <div className="kv kv-highlight">
                     <span>Available Quantity</span>
@@ -975,10 +891,6 @@ export default function MaterialStock() {
                   <div className="kv">
                     <span>Project</span>
                     <strong>{viewStock.project || "—"}</strong>
-                  </div>
-                  <div className="kv">
-                    <span>DWG / Description</span>
-                    <strong>{viewStock.dwgDescription || "—"}</strong>
                   </div>
                   <div className="kv">
                     <span>Revision</span>
