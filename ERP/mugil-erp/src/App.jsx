@@ -47,6 +47,7 @@ import Dispatch from "./pages/material-planning/Dispatch.jsx";
 import Reports from "./pages/material-planning/Reports";
 import Scrap from "./pages/material-planning/Scrap";
 import Contact from "./components/ContactUs.jsx";
+import HelpCenter from "./components/HelpCenter.jsx";
 
 /* =====================================================================
    HR LAYOUT
@@ -117,14 +118,10 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/contact"
-          element={
-            <ProtectedRoute>
-              <Contact />
-            </ProtectedRoute>
-          }
-        />
+        {/* Public on purpose: users who cannot sign in must still be able to
+            read Help and reach support. Both pages load no protected data. */}
+        <Route path="/help" element={<HelpCenter />} />
+        <Route path="/contact" element={<Contact />} />
 
         {/* ================= MATERIAL PLANNING / INVENTORY ================= */}
         <Route

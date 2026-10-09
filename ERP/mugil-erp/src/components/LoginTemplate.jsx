@@ -13,20 +13,13 @@ import {
   AlertTriangle,
   Check,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import industrialImage from "../assets/industrial-login.png";
 import mugilLogo from "../assets/mugil-logo.png";
 import "../styles/login.css";
 
 const DEPARTMENTS = [
-  {
-    label: "Production",
-    value: "production",
-    loginPath: "/production/login",
-    icon: Factory,
-    description: "Production & Operations",
-  },
   {
     label: "Admin",
     value: "admin",
@@ -48,13 +41,7 @@ const DEPARTMENTS = [
     icon: Package,
     description: "Material & Inventory",
   },
-  {
-    label: "Supervisor",
-    value: "supervisor",
-    loginPath: "/supervisor/login",
-    icon: ShieldCheck,
-    description: "Supervision & Control",
-  },
+
   {
     label: "Accounts",
     value: "accounts",
@@ -554,7 +541,13 @@ export default function LoginTemplate({
           <div className="login-footer">
             <span>© {new Date().getFullYear()} Mugil Industries</span>
 
-            <a href="/privacy-policy">Privacy Policy</a>
+            <div className="login-footer-links">
+              <Link to="/privacy-policy">Privacy Policy</Link>
+              <span className="login-footer-divider" aria-hidden="true">
+                |
+              </span>
+              <Link to="/contact">Contact Us</Link>
+            </div>
           </div>
         </form>
       </section>
