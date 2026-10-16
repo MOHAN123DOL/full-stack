@@ -1,0 +1,1038 @@
+/* =========================================================
+   PO WITH PENDING GRN
+   OPTION 3 — DEEP OCEAN / OCEAN BREEZE
+   ========================================================= */
+
+
+/* =========================================================
+   PAGE
+   ========================================================= */
+
+.admin-po-pending-grn-page {
+  --po-primary: #0b3d91;
+  --po-primary-dark: #061b4f;
+  --po-primary-deep: #031438;
+
+  --po-secondary: #3ba7f2;
+  --po-cyan: #22d3ee;
+  --po-tertiary: #7fe7d6;
+
+  --po-background: #e8f6ff;
+
+  --po-text: #071a3d;
+  --po-muted: #637895;
+
+  --po-border: rgba(59, 167, 242, 0.24);
+
+  position: relative;
+
+  width: 100%;
+  min-height: calc(100vh - 60px);
+
+  /*
+   * AdminLayout now has zero padding.
+   * Give this page its own horizontal spacing.
+   */
+  margin: 0;
+  padding: 0 28px 40px;
+
+  box-sizing: border-box;
+
+  color: var(--po-text);
+
+  /*
+   * Full-page background.
+   * This now continues into the empty space below the table.
+   */
+  background:
+    radial-gradient(
+      circle at 88% 8%,
+      rgba(59, 167, 242, 0.48),
+      transparent 32%
+    ),
+    radial-gradient(
+      circle at 8% 88%,
+      rgba(11, 61, 145, 0.36),
+      transparent 35%
+    ),
+    linear-gradient(
+      135deg,
+      #0b3d91 0%,
+      #1977c7 32%,
+      #3ba7f2 60%,
+      #7fe7d6 100%
+    );
+
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+
+/* =========================================================
+   BACKGROUND LIGHT EFFECTS
+   ========================================================= */
+
+.admin-po-pending-grn-page::before {
+  content: "";
+
+  position: absolute;
+
+  top: 0;
+  right: 0;
+
+  width: 560px;
+  height: 360px;
+
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(255, 255, 255, 0.20),
+      transparent 68%
+    );
+
+  pointer-events: none;
+}
+
+.admin-po-pending-grn-page::after {
+  content: "";
+
+  position: absolute;
+
+  left: 0;
+  bottom: 0;
+
+  width: 600px;
+  height: 350px;
+
+  background:
+    radial-gradient(
+      circle at bottom left,
+      rgba(3, 20, 56, 0.20),
+      transparent 70%
+    );
+
+  pointer-events: none;
+}
+
+
+/* =========================================================
+   PAGE HEADER
+   ========================================================= */
+
+.admin-po-page-header {
+  position: relative;
+
+  z-index: 2;
+
+  min-height: 116px;
+
+  margin-bottom: 15px;
+
+  padding: 24px 28px;
+
+  display: flex;
+
+  align-items: center;
+
+  overflow: hidden;
+
+  border:
+    1px solid rgba(255, 255, 255, 0.20);
+
+  border-radius: 16px;
+
+  background:
+    linear-gradient(
+      115deg,
+      #031438 0%,
+      #061b4f 30%,
+      #0b3d91 63%,
+      #1977c7 100%
+    );
+
+  box-shadow:
+    0 18px 40px rgba(3, 20, 56, 0.26);
+}
+
+.admin-po-page-header::after {
+  content: "";
+
+  position: absolute;
+
+  inset: 0;
+
+  background:
+    radial-gradient(
+      ellipse at 80% 20%,
+      rgba(59, 167, 242, 0.28),
+      transparent 48%
+    );
+
+  pointer-events: none;
+}
+
+.admin-po-header-content {
+  position: relative;
+
+  z-index: 2;
+}
+
+.admin-po-header-kicker {
+  display: block;
+
+  margin-bottom: 6px;
+
+  color:
+    rgba(255, 255, 255, 0.68);
+
+  font-size: 9px;
+
+  font-weight: 800;
+
+  letter-spacing: 1.7px;
+
+  text-transform: uppercase;
+}
+
+.admin-po-header-content h1 {
+  margin: 0;
+
+  color: #ffffff;
+
+  font-size: 26px;
+
+  line-height: 1.15;
+
+  font-weight: 700;
+
+  letter-spacing: -0.4px;
+}
+
+.admin-po-header-content p {
+  margin: 7px 0 0;
+
+  color:
+    rgba(255, 255, 255, 0.78);
+
+  font-size: 12px;
+
+  line-height: 1.4;
+}
+
+
+/* =========================================================
+   TOOLBAR
+   ========================================================= */
+
+.admin-po-toolbar-wrap {
+  position: relative;
+
+  z-index: 3;
+
+  margin-bottom: 14px;
+}
+
+.admin-po-pending-grn-page
+.admin-toolbar {
+  min-height: 43px;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  gap: 16px;
+
+  padding:
+    4px 7px 4px 8px;
+
+  border:
+    1px solid rgba(59, 167, 242, 0.26);
+
+  border-radius: 8px;
+
+  background:
+    rgba(255, 255, 255, 0.97);
+
+  box-shadow:
+    0 8px 20px rgba(3, 38, 92, 0.13);
+}
+
+
+/* Search */
+
+.admin-po-pending-grn-page
+.admin-toolbar
+.admin-search {
+  flex: 1;
+
+  max-width: 430px;
+}
+
+.admin-po-pending-grn-page
+.admin-toolbar
+input {
+  height: 34px;
+
+  border:
+    1px solid rgba(59, 167, 242, 0.30);
+
+  border-radius: 6px;
+
+  background: #ffffff;
+
+  color: var(--po-text);
+
+  font-size: 12px;
+}
+
+.admin-po-pending-grn-page
+.admin-toolbar
+input:focus {
+  border-color:
+    var(--po-secondary);
+
+  outline: none;
+
+  box-shadow:
+    0 0 0 3px rgba(59, 167, 242, 0.13);
+}
+
+.admin-po-pending-grn-page
+.admin-toolbar
+input::placeholder {
+  color: #8396b0;
+}
+
+
+/* Status filter */
+
+.admin-po-pending-grn-page
+.admin-field {
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  margin: 0;
+
+  color:
+    var(--po-primary-dark);
+
+  font-size: 11px;
+
+  font-weight: 600;
+
+  white-space: nowrap;
+}
+
+.admin-po-pending-grn-page
+.admin-field
+select {
+  width: 105px;
+
+  height: 34px;
+
+  padding:
+    0 28px 0 10px;
+
+  border:
+    1px solid rgba(59, 167, 242, 0.30);
+
+  border-radius: 6px;
+
+  background: #ffffff;
+
+  color:
+    var(--po-primary-dark);
+
+  font-size: 11px;
+
+  cursor: pointer;
+
+  outline: none;
+}
+
+.admin-po-pending-grn-page
+.admin-field
+select:focus {
+  border-color:
+    var(--po-secondary);
+
+  box-shadow:
+    0 0 0 3px rgba(59, 167, 242, 0.13);
+}
+
+
+/* =========================================================
+   KPI STRIP
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-stat-strip {
+  position: relative;
+
+  z-index: 2;
+
+  gap: 10px;
+
+  margin-bottom: 15px;
+}
+
+
+/* Base KPI */
+
+.admin-po-pending-grn-page
+.admin-stat {
+  position: relative;
+
+  min-height: 91px;
+
+  overflow: hidden;
+
+  border-radius: 12px;
+
+  border:
+    1px solid rgba(59, 167, 242, 0.24);
+
+  box-shadow:
+    0 10px 25px rgba(3, 38, 92, 0.14);
+
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.admin-po-pending-grn-page
+.admin-stat:hover {
+  transform:
+    translateY(-2px);
+
+  box-shadow:
+    0 15px 30px rgba(3, 38, 92, 0.19);
+}
+
+
+/* =========================================================
+   KPI ICONS
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-stat::before {
+  content: "";
+
+  display: block;
+
+  width: 42px;
+  height: 42px;
+
+  flex:
+    0 0 42px;
+
+  box-sizing: border-box;
+
+  margin-bottom: 4px;
+
+  padding: 7px;
+
+  border-radius: 11px;
+
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 27px 27px;
+
+  overflow: hidden;
+}
+
+
+/* ---------------------------------------------------------
+   PENDING ITEMS
+   --------------------------------------------------------- */
+
+.admin-po-pending-grn-page
+.admin-stat--info {
+  border-color:
+    rgba(59, 167, 242, 0.46);
+
+  background:
+    linear-gradient(
+      135deg,
+      #ffffff 0%,
+      #e8f6ff 55%,
+      #d2efff 100%
+    );
+}
+
+.admin-po-pending-grn-page
+.admin-stat--info::before {
+  background-color:
+    #0b3d91;
+
+  background-image:
+    url("/popendinggrn/po_pending_items_icon.png");
+
+  border:
+    1px solid rgba(59, 167, 242, 0.48);
+
+  box-shadow:
+    0 5px 12px rgba(11, 61, 145, 0.28);
+}
+
+
+/* ---------------------------------------------------------
+   NOT RECEIVED
+   --------------------------------------------------------- */
+
+.admin-po-pending-grn-page
+.admin-stat--danger {
+  border-color:
+    rgba(11, 61, 145, 0.55);
+
+  background:
+    linear-gradient(
+      135deg,
+      #061b4f 0%,
+      #0b3d91 58%,
+      #1769bf 100%
+    );
+
+  color:
+    #ffffff;
+
+  box-shadow:
+    0 13px 28px rgba(11, 61, 145, 0.30);
+}
+
+.admin-po-pending-grn-page
+.admin-stat--danger::before {
+  background-color:
+    #0b3d91;
+
+  background-image:
+    url("/popendinggrn/po_not_received_icon.png");
+
+  border:
+    1px solid rgba(255, 255, 255, 0.30);
+
+  box-shadow:
+    0 5px 12px rgba(34, 211, 238, 0.25);
+}
+
+
+/* ---------------------------------------------------------
+   PARTIALLY RECEIVED
+   --------------------------------------------------------- */
+
+.admin-po-pending-grn-page
+.admin-stat--warning {
+  border-color:
+    rgba(127, 231, 214, 0.70);
+
+  background:
+    linear-gradient(
+      135deg,
+      #c9faf2 0%,
+      #7fe7d6 55%,
+      #55d6c7 100%
+    );
+
+  color:
+    var(--po-primary-dark);
+
+  box-shadow:
+    0 13px 28px rgba(42, 184, 173, 0.22);
+}
+
+.admin-po-pending-grn-page
+.admin-stat--warning::before {
+  background-color:
+    #7fe7d6;
+
+  background-image:
+    url("/popendinggrn/po_partially_received_icon.png");
+
+  border:
+    1px solid rgba(255, 255, 255, 0.58);
+
+  box-shadow:
+    0 5px 12px rgba(0, 103, 112, 0.20);
+}
+
+
+/* =========================================================
+   KPI TEXT
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-stat
+.admin-stat-label {
+  color:
+    var(--po-muted);
+}
+
+.admin-po-pending-grn-page
+.admin-stat
+.admin-stat-value {
+  color:
+    var(--po-primary-dark);
+}
+
+
+/* Not Received */
+
+.admin-po-pending-grn-page
+.admin-stat--danger
+.admin-stat-label,
+.admin-po-pending-grn-page
+.admin-stat--danger
+.admin-stat-value {
+  color:
+    #ffffff;
+}
+
+
+/* Partially Received */
+
+.admin-po-pending-grn-page
+.admin-stat--warning
+.admin-stat-label,
+.admin-po-pending-grn-page
+.admin-stat--warning
+.admin-stat-value {
+  color:
+    var(--po-primary-dark);
+}
+
+
+/* =========================================================
+   TABLE CARD
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-card {
+  position: relative;
+
+  z-index: 2;
+
+  overflow: hidden;
+
+  border:
+    1px solid rgba(59, 167, 242, 0.24);
+
+  border-radius: 15px;
+
+  background:
+    rgba(255, 255, 255, 0.97);
+
+  box-shadow:
+    0 18px 38px rgba(3, 38, 92, 0.17);
+}
+
+
+/* =========================================================
+   TABLE
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-data-table {
+  border-radius: 0;
+}
+
+
+/* Table header */
+
+.admin-po-pending-grn-page
+.admin-data-table
+thead
+th {
+  background:
+    linear-gradient(
+      90deg,
+      #061b4f,
+      #0b3d91
+    ) !important;
+
+  color:
+    #ffffff !important;
+
+  border-color:
+    rgba(255, 255, 255, 0.10);
+
+  font-size: 10px;
+}
+
+.admin-po-pending-grn-page
+.admin-data-table
+thead
+th * {
+  color:
+    #ffffff !important;
+}
+
+
+/* Body */
+
+.admin-po-pending-grn-page
+.admin-data-table
+tbody
+tr {
+  transition:
+    background-color 0.15s ease;
+}
+
+.admin-po-pending-grn-page
+.admin-data-table
+tbody
+tr:hover {
+  background:
+    rgba(232, 246, 255, 0.72);
+}
+
+.admin-po-pending-grn-page
+.admin-data-table
+tbody
+td {
+  border-color:
+    rgba(59, 167, 242, 0.11);
+
+  font-size: 11px;
+}
+
+
+/* =========================================================
+   TABLE CELL COLORS
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-cell-primary {
+  color:
+    var(--po-primary-dark);
+
+  font-weight: 700;
+}
+
+.admin-po-pending-grn-page
+.admin-cell-secondary {
+  color:
+    #7185a2;
+
+  font-size: 9px;
+}
+
+.admin-po-pending-grn-page
+.admin-cell-wrap {
+  color:
+    #314968;
+}
+
+
+/* =========================================================
+   STATUS BADGES
+   Uses the actual shared AdminStatusBadge classes:
+   .admin-badge--danger
+   .admin-badge--warning
+   ========================================================= */
+
+
+/* ---------------------------------------------------------
+   NOT RECEIVED
+   --------------------------------------------------------- */
+
+.admin-po-pending-grn-page
+.admin-badge--danger {
+  background:
+    linear-gradient(
+      135deg,
+      #061b4f 0%,
+      #0b3d91 100%
+    ) !important;
+
+  color:
+    #ffffff !important;
+
+  border:
+    1px solid rgba(255, 255, 255, 0.20) !important;
+
+  box-shadow:
+    0 3px 8px rgba(11, 61, 145, 0.22);
+}
+
+.admin-po-pending-grn-page
+.admin-badge--danger
+* {
+  color:
+    #ffffff !important;
+}
+
+
+/* Make the status dot white */
+
+.admin-po-pending-grn-page
+.admin-badge--danger
+.admin-badge-dot {
+  background:
+    #ffffff !important;
+}
+
+
+/* ---------------------------------------------------------
+   PARTIALLY RECEIVED
+   --------------------------------------------------------- */
+
+.admin-po-pending-grn-page
+.admin-badge--warning {
+  background:
+    linear-gradient(
+      135deg,
+      #c9faf2 0%,
+      #7fe7d6 100%
+    ) !important;
+
+  color:
+    #061b4f !important;
+
+  border:
+    1px solid rgba(42, 184, 173, 0.35) !important;
+
+  box-shadow:
+    0 3px 8px rgba(42, 184, 173, 0.18);
+}
+
+.admin-po-pending-grn-page
+.admin-badge--warning
+* {
+  color:
+    #061b4f !important;
+}
+
+
+/* Make the status dot navy */
+
+.admin-po-pending-grn-page
+.admin-badge--warning
+.admin-badge-dot {
+  background:
+    #061b4f !important;
+}
+
+
+/* =========================================================
+   LOADING / EMPTY STATES
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-table-loading,
+.admin-po-pending-grn-page
+.admin-table-empty {
+  color:
+    var(--po-muted);
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1100px) {
+
+  .admin-po-pending-grn-page {
+    padding:
+      20px;
+  }
+
+  .admin-po-page-header {
+    min-height: 112px;
+
+    padding:
+      22px 25px;
+  }
+
+  .admin-po-header-content h1 {
+    font-size: 24px;
+  }
+}
+
+
+@media (max-width: 760px) {
+  .admin-po-pending-grn-page {
+    margin: 0;
+    padding: 20px;
+    min-height: calc(100vh - 60px);
+  }
+
+  .admin-po-page-header {
+    min-height: 105px;
+    padding: 20px;
+  }
+
+  .admin-po-header-content h1 {
+    font-size: 21px;
+  }
+
+  .admin-po-header-content p {
+    font-size: 11px;
+  }
+
+  .admin-po-pending-grn-page .admin-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-po-pending-grn-page .admin-search {
+    max-width: none;
+  }
+
+  .admin-po-pending-grn-page .admin-field {
+    justify-content: space-between;
+  }
+
+  .admin-po-pending-grn-page .admin-field select {
+    flex: 1;
+    max-width: 180px;
+  }
+}
+/* =========================================================
+   PENDING GRN TABLE HEADER — SPACING FIX
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-card {
+  overflow: hidden;
+}
+
+
+/* Header area above the table */
+
+.admin-po-pending-grn-page
+.admin-card > div:first-child {
+  padding:
+    14px 16px 11px !important;
+
+  min-height: 70px;
+
+  box-sizing: border-box;
+}
+
+
+/* Procurement label */
+
+.admin-po-pending-grn-page
+.admin-card > div:first-child
+.admin-section-kicker {
+  display: block;
+
+  margin:
+    0 0 3px !important;
+
+  line-height: 1.1;
+
+  color:
+    #3ba7f2 !important;
+
+  font-size: 8px !important;
+
+  font-weight: 800;
+
+  letter-spacing: 1.4px;
+
+  text-transform: uppercase;
+}
+
+
+/* Pending GRN Items title */
+
+.admin-po-pending-grn-page
+.admin-card > div:first-child
+h2,
+.admin-po-pending-grn-page
+.admin-card > div:first-child
+h3 {
+  margin:
+    0 !important;
+
+  color:
+    #061b4f !important;
+
+  font-size: 15px !important;
+
+  line-height: 1.2 !important;
+
+  font-weight: 700 !important;
+}
+
+
+/* 8 items badge */
+
+.admin-po-pending-grn-page
+.admin-card > div:first-child
+.admin-card-count,
+.admin-po-pending-grn-page
+.admin-card > div:first-child
+.admin-count-badge {
+  margin:
+    0 !important;
+
+  align-self: center;
+}
+
+
+/* Table should begin cleanly after header */
+
+.admin-po-pending-grn-page
+.admin-card
+.admin-data-table {
+  margin-top: 0 !important;
+}
+
+
+/* Prevent the first table row/header from touching the
+   card heading */
+
+.admin-po-pending-grn-page
+.admin-data-table
+thead {
+  margin-top: 0;
+}
+
+
+/* =========================================================
+   IF THE SHARED CARD USES A HEADER CLASS
+   ========================================================= */
+
+.admin-po-pending-grn-page
+.admin-card-header {
+  padding:
+    14px 16px 11px !important;
+
+  min-height: 70px;
+
+  box-sizing: border-box;
+}
+
+
+/* Kicker inside card header */
+
+.admin-po-pending-grn-page
+.admin-card-header
+.admin-section-kicker {
+  margin-bottom:
+    3px !important;
+}
+
+
+/* Card title */
+
+.admin-po-pending-grn-page
+.admin-card-header
+h2,
+.admin-po-pending-grn-page
+.admin-card-header
+h3 {
+  margin:
+    0 !important;
+
+  line-height:
+    1.2 !important;
+}

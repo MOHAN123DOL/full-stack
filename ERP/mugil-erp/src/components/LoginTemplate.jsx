@@ -252,8 +252,8 @@ export default function LoginTemplate({
           navigate("/inventory", {
             replace: true,
           });
-        } else if (department === "supervisor") {
-          navigate("/inventory", {
+        } else if (department === "admin") {
+          navigate("/admin", {
             replace: true,
           });
         } else {

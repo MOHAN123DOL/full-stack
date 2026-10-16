@@ -15,6 +15,7 @@ import { useAuth } from "../../context/AuthContext";
 const PI_CUSTOMERS_ENDPOINT = "/erp/proforma-invoice-customers/";
 const PI_NEXT_NUMBER_ENDPOINT = "/erp/proforma-invoices/next-number/";
 const PI_SAVE_ENDPOINT = "/erp/proforma-invoices/";
+const COMPANY_BANK_DETAILS_ENDPOINT = "/erp/company-bank-details/";
 
 /* Single generic error message for every failure. */
 const GENERIC_ERROR = "Something went wrong. Please try again.";
@@ -137,7 +138,8 @@ const defaultFormData = {
   igstPct: 0,
   roundedOff: 0,
 
-  bankName: "STATE BANK OF INDIA",
+  // Loaded from GET /erp/company-bank-details/ on component mount.
+  bankName: "",
   accountNumber: "",
   branch: "",
   ifsc: "",
@@ -325,6 +327,40 @@ export default function ProformaInvoiceForm() {
   }, [formData, items]);
 
   /* ============================================================
+     LOAD COMPANY BANK DETAILS (READ-ONLY)
+     ============================================================ */
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await api.get(COMPANY_BANK_DETAILS_ENDPOINT, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (cancelled) return;
+
+        const data = response.data?.data ?? response.data ?? {};
+
+        setFormData((prev) => ({
+          ...prev,
+          bankName: data.bank_name ?? prev.bankName,
+          accountNumber: data.account_number ?? prev.accountNumber,
+          branch: data.branch ?? prev.branch,
+          ifsc: data.ifsc ?? prev.ifsc,
+        }));
+      } catch (err) {
+        console.error("Failed to load company bank details:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  /* ============================================================
      LOAD CUSTOMERS
      ============================================================ */
   const loadCustomers = useCallback(async () => {
@@ -426,11 +462,8 @@ export default function ProformaInvoiceForm() {
           igstPct: serverData.igst_percent ?? prev.igstPct,
           roundedOff: serverData.rounded_off ?? prev.roundedOff,
 
-          bankName: serverData.bank_name ?? prev.bankName,
-          accountNumber:
-            serverData.account_number ?? prev.accountNumber,
-          branch: serverData.branch ?? prev.branch,
-          ifsc: serverData.ifsc ?? prev.ifsc,
+          // Bank details always come from the backend .env GET endpoint,
+          // not from previously saved invoice data.
 
           declaration: serverData.declaration ?? prev.declaration,
           enclosureText:
@@ -2074,9 +2107,8 @@ export default function ProformaInvoiceForm() {
                   <input
                     className="ti-form-input"
                     value={formData.bankName}
-                    onChange={(e) =>
-                      updateField("bankName", e.target.value)
-                    }
+                    readOnly
+                    disabled
                   />
                 </div>
 
@@ -2085,9 +2117,8 @@ export default function ProformaInvoiceForm() {
                   <input
                     className="ti-form-input"
                     value={formData.accountNumber}
-                    onChange={(e) =>
-                      updateField("accountNumber", e.target.value)
-                    }
+                    readOnly
+                    disabled
                   />
                 </div>
 
@@ -2096,7 +2127,8 @@ export default function ProformaInvoiceForm() {
                   <input
                     className="ti-form-input"
                     value={formData.branch}
-                    onChange={(e) => updateField("branch", e.target.value)}
+                    readOnly
+                    disabled
                   />
                 </div>
 
@@ -2105,7 +2137,8 @@ export default function ProformaInvoiceForm() {
                   <input
                     className="ti-form-input"
                     value={formData.ifsc}
-                    onChange={(e) => updateField("ifsc", e.target.value)}
+                    readOnly
+                    disabled
                   />
                 </div>
 
@@ -2115,6 +2148,7 @@ export default function ProformaInvoiceForm() {
                     className="ti-form-input"
                     value={COMPANY.pan}
                     readOnly
+                    disabled
                   />
                 </div>
               </div>

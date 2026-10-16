@@ -250,3 +250,79 @@
 .accounts-report-top {
   margin-bottom: 16px;
 }
+
+/* ============================================================
+   PRINT OVERLAY
+   ------------------------------------------------------------
+   #print-container is created by AccountsReport.jsx
+   (ensurePrintContainer) and appended to <body>. It is created
+   hidden and is shown (inline display:flex) only right before a
+   print engine renders into it, so a print script's boot-time
+   "empty state" can never appear inline on the report page.
+
+   The #id + class selector deliberately out-ranks the
+   `#print-container { width: 210mm; margin: 7mm auto }` rule in
+   DeliveryChallanPrint.css, which is attached while the overlay
+   is open.
+   ============================================================ */
+
+#print-container.accounts-print-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100% !important;
+  height: 100%;
+  margin: 0 !important;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow: auto;
+  background: #d7d7d7; /* same grey as DeliveryChallanPrint.css */
+}
+
+/* Centre the toolbar / A4 sheet without clipping on narrow screens */
+#print-container.accounts-print-overlay > * {
+  flex: 0 0 auto;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Toolbar sits above the sheet inside the overlay */
+#print-container.accounts-print-overlay .dc-print-controls {
+  align-items: center;
+}
+
+#print-container.accounts-print-overlay .dc-status {
+  align-self: center;
+  margin-right: 8px;
+  font-size: 13px;
+  color: #1e3770;
+}
+
+/* Stop the report page scrolling behind the overlay */
+body.accounts-print-open {
+  overflow: hidden;
+}
+
+@media print {
+  /* Show only the sheet when printing from the browser */
+  body.accounts-print-open > *:not(#print-container) {
+    display: none !important;
+  }
+
+  body.accounts-print-open {
+    overflow: visible;
+    background: #fff;
+  }
+
+  #print-container.accounts-print-overlay {
+    position: static;
+    inset: auto;
+    height: auto;
+    padding: 0;
+    overflow: visible;
+    background: #fff;
+  }
+}

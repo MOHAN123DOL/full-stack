@@ -1,253 +1,374 @@
 import {
   createContext,
+  useCallback,
   useContext,
+  useEffect,
   useState,
 } from "react";
 
 import { loginUser } from "../api/auth";
-import api from "../api/axios";
+
+import {
+  setAccessToken as setAxiosAccessToken,
+  setActiveUserType,
+  setAuthHandlers,
+  refreshDepartmentSession,
+  logoutDepartmentSession,
+} from "../api/axios";
 
 const AuthContext = createContext(null);
 
-// Prevent multiple refresh requests at the same time
-let refreshPromise = null;
+/*
+|--------------------------------------------------------------------------
+| Supported departments
+|--------------------------------------------------------------------------
+*/
 
-/**
- * =========================================================
- * CHANGED (new helper) — extractBackendErrorMessage
- * =========================================================
- *
- * Reads the actual Django/DRF error payload and converts it
- * into a single human-readable string, instead of throwing
- * the backend response away.
- *
- * Supports:
- *   1. { message: "..." }
- *   2. { detail: "..." }
- *   3. { errors: { field: ["msg", ...], ... } }
- *   4. { field: ["msg", ...], ... }  (raw DRF field errors)
- */
-function extractBackendErrorMessage(responseData, fallbackStatus) {
-  if (!responseData || typeof responseData !== "object") {
+const VALID_USER_TYPES = [
+  "admin",
+  "accounts",
+  "hr",
+  "material-planning",
+  "production",
+  "supervisor",
+];
+
+/*
+|--------------------------------------------------------------------------
+| Prevent duplicate refresh requests for the same department
+|--------------------------------------------------------------------------
+*/
+
+const refreshPromises = new Map();
+
+function isValidUserType(userType) {
+  return VALID_USER_TYPES.includes(userType);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Extract backend error messages
+|--------------------------------------------------------------------------
+*/
+
+function extractBackendErrorMessage(
+  responseData,
+  fallbackStatus
+) {
+  if (
+    !responseData ||
+    typeof responseData !== "object"
+  ) {
     return fallbackStatus
       ? `Login failed (${fallbackStatus}).`
       : "Unable to sign in. Please try again.";
   }
 
-  // Format 1
-  if (typeof responseData.message === "string" && responseData.message) {
+  if (
+    typeof responseData.message === "string" &&
+    responseData.message
+  ) {
     return responseData.message;
   }
 
-  // Format 2
-  if (typeof responseData.detail === "string" && responseData.detail) {
+  if (
+    typeof responseData.detail === "string" &&
+    responseData.detail
+  ) {
     return responseData.detail;
   }
 
-  // Format 3
-  if (responseData.errors && typeof responseData.errors === "object") {
-    const combined = Object.entries(responseData.errors)
+  if (
+    responseData.errors &&
+    typeof responseData.errors === "object"
+  ) {
+    return Object.entries(responseData.errors)
       .map(([field, messages]) => {
-        const text = Array.isArray(messages)
+        const message = Array.isArray(messages)
           ? messages.join(", ")
           : String(messages);
-        return `${field}: ${text}`;
+
+        return `${field}: ${message}`;
       })
       .join(" | ");
-
-    if (combined) {
-      return combined;
-    }
   }
 
-  // Format 4 (raw field-level object, e.g. { username: [...], password: [...] })
-  const combined = Object.entries(responseData)
-    .map(([field, messages]) => {
-      const text = Array.isArray(messages)
-        ? messages.join(", ")
-        : String(messages);
-      return `${field}: ${text}`;
-    })
-    .join(" | ");
-
   return (
-    combined ||
-    (fallbackStatus
-      ? `Login failed (${fallbackStatus}).`
-      : "Unable to sign in. Please try again.")
+    `Unable to sign in${
+      fallbackStatus
+        ? ` (${fallbackStatus})`
+        : ""
+    }.`
   );
 }
 
+/*
+|--------------------------------------------------------------------------
+| Auth Provider
+|--------------------------------------------------------------------------
+*/
+
 export function AuthProvider({ children }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] =
+    useState(false);
+
   const [user, setUser] = useState(null);
-  const [accessToken, setAccessToken] = useState(null);
 
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState(false);
+  const [accessToken, setAccessToken] =
+    useState(null);
 
-  /**
-   * =========================================================
-   * RESTORE SESSION
-   * =========================================================
-   *
-   * Refresh token:
-   * - Stored in HttpOnly cookie
-   * - JavaScript cannot read it
-   * - Browser automatically sends it to Django
-   *
-   * Django:
-   * - Reads refresh cookie
-   * - Validates refresh token
-   * - Rotates refresh token
-   * - Returns a new access token
-   */
-  const restoreSession = async () => {
-    // Prevent duplicate refresh requests
-    if (refreshPromise) {
-      return refreshPromise;
-    }
+  // Used for login and session restoration requests.
+  const [authLoading, setAuthLoading] =
+    useState(false);
 
-    refreshPromise = (async () => {
-      try {
-        setAuthLoading(true);
-        setAuthError(false);
+  const [authError, setAuthError] =
+    useState(false);
 
-        console.log("Restoring authentication session...");
+  /*
+  |--------------------------------------------------------------------------
+  | Synchronize Axios authentication callbacks
+  |--------------------------------------------------------------------------
+  |
+  | When Axios refreshes an expired access token, it notifies
+  | this context so React state remains synchronized.
+  |
+  */
 
-        const response = await api.post("/erp/refresh/");
+  useEffect(() => {
+    setAuthHandlers({
+      onRefresh: (newAccessToken, refreshedUser) => {
+        setAxiosAccessToken(newAccessToken);
+        setAccessToken(newAccessToken);
 
-        console.log(
-          "Refresh response:",
-          response.data
-        );
-
-        /*
-         * Expected response:
-         *
-         * {
-         *   success: true,
-         *   access: "...",
-         *   user: {
-         *     id: 1,
-         *     username: "mohan",
-         *     user_type: "material-planning"
-         *   }
-         * }
-         */
-
-        if (
-          response.data?.success &&
-          response.data?.access
-        ) {
-          const newAccessToken =
-            response.data.access;
-
-          const authenticatedUser =
-            response.data.user || null;
-
-          // Store new access token in React memory
-          setAccessToken(newAccessToken);
-
-          // Store authenticated user
-          setUser(authenticatedUser);
-
-          // Mark authentication as successful
-          setIsAuthenticated(true);
-
-          console.log(
-            "Session restored successfully."
-          );
-
-          return true;
+        if (refreshedUser) {
+          setUser(refreshedUser);
         }
 
-        // Invalid refresh response
-        console.warn(
-          "Refresh response did not contain a valid access token."
-        );
+        setIsAuthenticated(true);
+        setAuthError(false);
+      },
 
+      onFail: () => {
+        setAxiosAccessToken(null);
         setAccessToken(null);
         setUser(null);
         setIsAuthenticated(false);
+      },
+    });
 
-        return false;
-      } catch (error) {
+    return () => {
+      setAuthHandlers({
+        onRefresh: null,
+        onFail: null,
+      });
+    };
+  }, []);
+
+  /*
+  |--------------------------------------------------------------------------
+  | RESTORE SESSION
+  |--------------------------------------------------------------------------
+  |
+  | Called by ProtectedRoute after a browser refresh.
+  |
+  | The access token is stored in memory, so it disappears
+  | when the page reloads.
+  |
+  | The backend must use the department-specific HttpOnly
+  | refresh cookie to issue a new access token.
+  |
+  */
+
+  const restoreSession = useCallback(
+    async (userType) => {
+      if (!isValidUserType(userType)) {
         console.error(
-          "Session restore error:",
-          error
+          "Invalid department passed to restoreSession:",
+          userType
         );
 
-        /*
-         * 401 means:
-         * - Refresh token missing
-         * - Refresh token expired
-         * - Refresh token invalid
-         * - Refresh token blacklisted
-         */
-        if (error.response?.status === 401) {
-          console.warn(
-            "Refresh token is invalid or expired."
+        return false;
+      }
+
+      /*
+       * If this department is already authenticated,
+       * do not make another refresh request.
+       */
+
+      if (
+        isAuthenticated &&
+        user?.user_type === userType &&
+        accessToken
+      ) {
+        return true;
+      }
+
+      /*
+       * Avoid simultaneous refresh requests for the
+       * same department.
+       */
+
+      if (refreshPromises.has(userType)) {
+        return refreshPromises.get(userType);
+      }
+
+      const restorePromise = (async () => {
+        try {
+          setAuthLoading(true);
+          setAuthError(false);
+
+          setActiveUserType(userType);
+
+          const response =
+            await refreshDepartmentSession(userType);
+
+          const data = response?.data;
+
+          if (
+            !data?.success ||
+            !data?.access ||
+            !data?.user
+          ) {
+            throw new Error(
+              "The refresh endpoint must return success, access, and user."
+            );
+          }
+
+          const authenticatedUser = data.user;
+
+          /*
+           * Never accept a session belonging to another
+           * department.
+           */
+
+          if (
+            authenticatedUser.user_type !== userType
+          ) {
+            throw new Error(
+              "The authenticated department does not match the requested department."
+            );
+          }
+
+          /*
+           * Restore the access token and user in React
+           * and Axios.
+           */
+
+          setActiveUserType(userType);
+          setAxiosAccessToken(data.access);
+
+          setAccessToken(data.access);
+          setUser(authenticatedUser);
+
+          setIsAuthenticated(true);
+          setAuthError(false);
+
+          return true;
+        } catch (error) {
+          console.error(
+            `Session restoration failed for ${userType}:`,
+            error
           );
 
+          setAxiosAccessToken(null);
           setAccessToken(null);
+
           setUser(null);
           setIsAuthenticated(false);
 
+          /*
+           * A missing or expired refresh cookie means
+           * the user must log in again.
+           *
+           * Other server errors are exposed through
+           * authError for troubleshooting.
+           */
+
+          if (
+            error.response &&
+            error.response.status !== 401 &&
+            error.response.status !== 403
+          ) {
+            setAuthError(true);
+          } else if (!error.response) {
+            setAuthError(true);
+          }
+
           return false;
+        } finally {
+          setAuthLoading(false);
         }
+      })();
 
-        /*
-         * Other errors:
-         * - Server unavailable
-         * - Network problem
-         * - Django error
-         */
-        setAuthError(true);
+      refreshPromises.set(
+        userType,
+        restorePromise
+      );
 
-        return false;
+      try {
+        return await restorePromise;
       } finally {
-        setAuthLoading(false);
-
-        // Allow another refresh request later
-        refreshPromise = null;
+        if (
+          refreshPromises.get(userType) ===
+          restorePromise
+        ) {
+          refreshPromises.delete(userType);
+        }
       }
-    })();
+    },
+    [
+      isAuthenticated,
+      user,
+      accessToken,
+    ]
+  );
 
-    return refreshPromise;
-  };
+  /*
+  |--------------------------------------------------------------------------
+  | LOGIN
+  |--------------------------------------------------------------------------
+  */
 
-  /**
-   * =========================================================
-   * LOGIN
-   * =========================================================
-   */
   const login = async (
     username,
     password,
     userType
   ) => {
+    if (!isValidUserType(userType)) {
+      return {
+        success: false,
+        message: "Invalid department selected.",
+      };
+    }
+
     try {
+      setAuthLoading(true);
+      setAuthError(false);
+
+      /*
+       * Select the department before the login request.
+       */
+
+      setActiveUserType(userType);
+
+      /*
+       * Remove any previous in-memory token.
+       */
+
+      setAxiosAccessToken(null);
+      setAccessToken(null);
+
       const data = await loginUser(
         username,
         password,
         userType
       );
 
-      /*
-       * Expected login response:
-       *
-       * {
-       *   success: true,
-       *   access: "...",
-       *   user: {...}
-       * }
-       *
-       * Refresh token is NOT returned here.
-       * It is stored in an HttpOnly cookie by Django.
-       */
-
-      if (!data?.success) {
+      if (
+        !data?.success ||
+        !data?.access ||
+        !data?.user
+      ) {
         return {
           success: false,
           message:
@@ -256,16 +377,40 @@ export function AuthProvider({ children }) {
         };
       }
 
-      // Store access token in React memory
+      /*
+       * Verify the department returned by Django.
+       */
+
+      if (
+        data.user.user_type !== userType
+      ) {
+        setAxiosAccessToken(null);
+        setAccessToken(null);
+
+        setUser(null);
+        setIsAuthenticated(false);
+
+        return {
+          success: false,
+          message:
+            "The account does not belong to the selected department.",
+        };
+      }
+
+      /*
+       * Save authentication state.
+       *
+       * The backend must also set the appropriate
+       * department-specific refresh cookie.
+       */
+
+      setActiveUserType(userType);
+      setAxiosAccessToken(data.access);
+
       setAccessToken(data.access);
+      setUser(data.user);
 
-      // Store user information
-      setUser(data.user || null);
-
-      // Mark authenticated
       setIsAuthenticated(true);
-
-      // Clear previous auth error
       setAuthError(false);
 
       return {
@@ -274,109 +419,75 @@ export function AuthProvider({ children }) {
         accessToken: data.access,
       };
     } catch (error) {
-      console.error(
-        "Login error:",
-        error
-      );
+      console.error("Login error:", error);
 
-      /*
-       * Django returned an HTTP error
-       *
-       * CHANGED: previously this only ever read
-       * error.response.data?.message, which silently
-       * discarded "detail", "errors", and raw field-level
-       * error payloads from Django/DRF. Now the full
-       * response body is inspected via
-       * extractBackendErrorMessage() so the real backend
-       * message reaches LoginTemplate.jsx.
-       */
-      if (error.response) {
-        return {
-          success: false,
-          message: extractBackendErrorMessage(
-            error.response.data,
-            error.response.status
-          ),
-        };
-      }
+      setAxiosAccessToken(null);
+      setAccessToken(null);
 
-      /*
-       * Request was sent but no response received
-       */
-      if (error.request) {
-        return {
-          success: false,
-          message:
-            "Unable to connect to the server. Please check whether the backend is running.",
-        };
-      }
+      setUser(null);
+      setIsAuthenticated(false);
 
-      /*
-       * Something happened while creating
-       * the request
-       */
       return {
         success: false,
-        message:
-          "Something went wrong. Please try again.",
+        message: error.response
+          ? extractBackendErrorMessage(
+              error.response.data,
+              error.response.status
+            )
+          : error.request
+            ? "Unable to connect to the server. Check whether the backend is running."
+            : "Something went wrong. Please try again.",
       };
+    } finally {
+      setAuthLoading(false);
     }
   };
 
-  /**
-   * =========================================================
-   * LOGOUT
-   * =========================================================
-   */
+  /*
+  |--------------------------------------------------------------------------
+  | LOGOUT
+  |--------------------------------------------------------------------------
+  */
+
   const logout = async () => {
+    const department = user?.user_type;
+
     try {
-      /*
-       * Django receives the refresh cookie,
-       * blacklists the refresh token,
-       * and deletes the cookie.
-       */
-      await api.post("/erp/logout/");
+      if (
+        department &&
+        isValidUserType(department)
+      ) {
+        await logoutDepartmentSession(
+          department
+        );
+      }
     } catch (error) {
-      console.error(
-        "Logout error:",
-        error
-      );
+      console.error("Logout error:", error);
     } finally {
-      /*
-       * Always clear frontend authentication state,
-       * even if the backend logout request fails.
-       */
-      setIsAuthenticated(false);
-      setUser(null);
+      setAxiosAccessToken(null);
       setAccessToken(null);
+
+      setUser(null);
+      setIsAuthenticated(false);
+
       setAuthError(false);
     }
   };
 
-  /**
-   * =========================================================
-   * AUTH CONTEXT
-   * =========================================================
-   */
+  /*
+  |--------------------------------------------------------------------------
+  | CONTEXT
+  |--------------------------------------------------------------------------
+  */
+
   return (
     <AuthContext.Provider
       value={{
-        // Authentication state
         isAuthenticated,
-
-        // Current logged-in user
         user,
-
-        // Short-lived JWT access token
         accessToken,
-
-        // Authentication loading state
         authLoading,
-
-        // Authentication/server error state
         authError,
-
-        // Functions
         login,
         restoreSession,
         logout,
@@ -387,11 +498,20 @@ export function AuthProvider({ children }) {
   );
 }
 
-/**
- * =========================================================
- * USE AUTH HOOK
- * =========================================================
- */
+/*
+|--------------------------------------------------------------------------
+| Auth Hook
+|--------------------------------------------------------------------------
+*/
+
 export function useAuth() {
-  return useContext(AuthContext);
+  const context = useContext(AuthContext);
+
+  if (!context) {
+    throw new Error(
+      "useAuth must be used inside AuthProvider."
+    );
+  }
+
+  return context;
 }

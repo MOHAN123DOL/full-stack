@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPoPendingGRnAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
@@ -40,10 +40,25 @@ urlpatterns = [
 
 
     # FOR LOGIN, LOGOUT, REFRESH TOKEN
-    path("login/", LoginAPIView.as_view(), name="erp-login"),
-     
-    path("refresh/",RefreshTokenAPIView.as_view(),name="erp-refresh", ),
-    path("logout/", LogoutAPIView.as_view(), name="erp-logout",),
+    path(
+        "login/",
+        LoginAPIView.as_view(),
+        name="erp-login",
+    ),
+
+    # Department-specific refresh endpoints.
+    path(
+        "refresh/<str:user_type>/",
+        RefreshTokenAPIView.as_view(),
+        name="erp-refresh",
+    ),
+
+    # Department-specific logout endpoints.
+    path(
+        "logout/<str:user_type>/",
+        LogoutAPIView.as_view(),
+        name="erp-logout",
+    ),
     # FOR PROFILE CREATE ONLY BUT DEV
      path("profiles/",UserProfileListCreateAPIView.as_view(),name="user-profile-list-create",),
      path(
@@ -122,6 +137,11 @@ urlpatterns = [
     DeliveryChallanConfirmAPIView.as_view(),
     name="delivery-challan-confirm",
 ),
+ path(
+        "company-bank-details/",
+        CompanyBankDetailsAPIView.as_view(),
+        name="company-bank-details",
+    ),
 #for tax invoice
 
         path(
@@ -194,6 +214,7 @@ urlpatterns = [
         AccountsReportStatusAPIView.as_view(),
         name="accounts-report-status",
     ),
+
      path("journal/", JournalAPIView.as_view(), name="journal"),
     path("journal/<int:pk>/", JournalDetailAPIView.as_view(), name="journal-detail"),
     path("journal/po-options/", JournalPOOptionsAPIView.as_view(), name="journal-po-options"),
@@ -783,6 +804,55 @@ path(
 
     path("contact/", ContactUsAPIView.as_view(), name="contact-us"),
 
+#admin modukes
+
+    path(
+        "admin/modules/",
+        AdminModulesAPIView.as_view(),
+        name="admin-modules",
+    ),
+
+     path(
+        "admin/contact-requests/",
+        AdminContactRequestsAPIView.as_view(),
+        name="admin-contact-requests",
+    ),
+    path(
+    "admin/contact-requests/<int:pk>/",
+    AdminContactRequestsAPIView.as_view(),
+    name="admin-contact-request-detail",
+),
+
+
+
+    path(
+        "admin/attendance/",
+        AdminAttendanceAPIView.as_view(),
+        name="admin-attendance",
+    ),
+
+
+    path(
+    "admin/po-pending-grn/",
+    AdminPoPendingGRnAPIView.as_view(),
+    name="admin-po-pending-grn",
+),
+
+path(
+    "admin/document-numbers/",
+    AdminDocumentNumberListAPIView.as_view(),
+    name="admin-document-numbers",
+),
+path(
+    "admin/document-numbers/<str:key>/",
+    AdminDocumentNumberDetailAPIView.as_view(),
+    name="admin-document-number-detail",
+),
+path(
+    "admin/document-numbers/<str:key>/used/",
+    AdminDocumentNumberUsedAPIView.as_view(),
+    name="admin-document-number-used",
+),
 
     
 

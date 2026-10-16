@@ -1,0 +1,1549 @@
+/* ==========================================================================
+   MUGIL ERP — ATTENDANCE
+   GLASS NEON DESIGN
+   ========================================================================== */
+
+.admin-attendance-page {
+  --attendance-navy: #0f172a;
+  --attendance-purple: #7c3aed;
+  --attendance-cyan: #22d3ee;
+  --attendance-lavender: #a78bfa;
+  --attendance-light: #ede9fe;
+  --attendance-white: #ffffff;
+
+  --attendance-text: #0f172a;
+  --attendance-muted: #64748b;
+
+  position: relative;
+  min-height: 100%;
+
+  padding: 2px 28px 28px;
+
+  color: var(--attendance-text);
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(237, 233, 254, 0.34),
+      rgba(255, 255, 255, 0.18)
+    ),
+    url("/attendance/attendance_glass_neon_background.png");
+
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* ==========================================================================
+   TOOLBAR
+   ========================================================================== */
+
+.admin-attendance-page .admin-toolbar {
+  position: relative;
+  z-index: 2;
+
+  margin-bottom: 16px;
+  padding: 10px 12px;
+
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 16px;
+
+  background: rgba(255, 255, 255, 0.48);
+
+  box-shadow:
+    0 10px 30px rgba(124, 58, 237, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+/* ==========================================================================
+   TOOLBAR — CLEAN 2-ROW LAYOUT
+   ========================================================================== */
+
+.attendance-toolbar-filters {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* ---- Period slicer ---- */
+.attendance-period-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+
+  border: 1px solid rgba(124, 58, 237, 0.14);
+  border-radius: 12px;
+
+  background: rgba(255, 255, 255, 0.65);
+
+  box-shadow: inset 0 1px 2px rgba(30, 80, 120, 0.05);
+
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+
+.attendance-period-button {
+  height: 34px;
+  padding: 0 14px;
+
+  border: 1px solid transparent;
+  border-radius: 8px;
+
+  background: transparent;
+  color: #526579;
+
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.attendance-period-button:hover {
+  background: #eaf7ff;
+  color: #0788b0;
+  border-color: #c6e8f5;
+}
+
+.attendance-period-button:active {
+  transform: translateY(1px);
+}
+
+.attendance-period-button-active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #12c9e8, #159ed1);
+  border-color: #11b8da;
+  box-shadow:
+    0 3px 8px rgba(17, 184, 218, 0.24),
+    inset 0 1px 1px rgba(255, 255, 255, 0.35);
+}
+
+/* ---- Filter row ---- */
+.attendance-filter-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* ---- Select fields ---- */
+.attendance-select-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 130px;
+}
+
+.attendance-select-field span {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  color: #64758a;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.attendance-select-field select {
+  width: 100%;
+  height: 38px;
+  padding: 0 30px 0 11px;
+
+  border: 1px solid rgba(124, 58, 237, 0.16);
+  border-radius: 10px;
+
+  background: rgba(255, 255, 255, 0.85);
+  color: #0f172a;
+
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.attendance-select-field select:hover {
+  border-color: rgba(124, 58, 237, 0.30);
+}
+
+.attendance-select-field select:focus {
+  border-color: #14bddd;
+  box-shadow: 0 0 0 3px rgba(20, 189, 221, 0.12);
+}
+
+.attendance-month-select { min-width: 140px; }
+.attendance-year-select  { min-width: 105px; }
+
+/* ---- Date fields ---- */
+.attendance-date-field {
+  min-width: 145px;
+}
+
+.attendance-date-field input {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+
+  border: 1px solid rgba(124, 58, 237, 0.16);
+  border-radius: 10px;
+
+  background: rgba(255, 255, 255, 0.85);
+  color: #0f172a;
+
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  box-sizing: border-box;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.attendance-date-field input:hover {
+  border-color: rgba(124, 58, 237, 0.30);
+}
+
+.attendance-date-field input:focus {
+  border-color: #14bddd;
+  box-shadow: 0 0 0 3px rgba(20, 189, 221, 0.12);
+}
+
+/* ---- Custom range ---- */
+.attendance-custom-date-range {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+}
+
+.attendance-date-range-arrow {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7c8ea2;
+  font-size: 15px;
+  font-weight: 700;
+  padding-bottom: 1px;
+}
+
+/* ---- Fixed slot for period-specific controls ----
+   Reserves the same space for Year / Month+Year / Date / From→To,
+   so Department & Status (and everything below) never shift. */
+.attendance-period-slot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 10px;
+  flex: 0 0 auto;
+  width: 440px;
+  max-width: 100%;
+  height: 52px;            /* label (10px) + gap (4px) + control (38px) */
+  min-width: 0;
+}
+
+/* Fixed widths so controls don't resize between periods */
+.attendance-select-field,
+.attendance-date-field {
+  flex: 0 0 auto;
+}
+
+.attendance-filter-row > .attendance-select-field {
+  width: 190px;
+}
+
+.attendance-period-slot .attendance-month-select { width: 160px; }
+.attendance-period-slot .attendance-year-select  { width: 120px; }
+.attendance-period-slot .attendance-date-field   { width: 190px; }
+
+.attendance-period-slot .attendance-custom-date-range {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.attendance-period-slot .attendance-custom-date-range .attendance-date-field {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
+
+/* Keep the period buttons and filter row heights constant */
+.attendance-filter-row {
+  min-height: 52px;
+}
+
+/* ==========================================================================
+   GLASS NEON KPI STRIP
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat-strip {
+  position: relative;
+  z-index: 2;
+
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+
+  margin-bottom: 16px;
+}
+
+/* ==========================================================================
+   BASE KPI CARD
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat {
+  position: relative;
+
+  min-height: 94px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+
+  gap: 3px;
+
+  padding: 14px 15px 14px 68px;
+
+  overflow: hidden;
+
+  border: 1px solid rgba(255, 255, 255, 0.50);
+  border-left-width: 1px;
+
+  border-radius: 16px;
+
+  color: #ffffff;
+
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+
+  box-sizing: border-box;
+
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
+}
+
+.admin-attendance-page .admin-stat {
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.20) 0%,
+      rgba(255, 255, 255, 0.04) 34%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    var(--stat-neon-bg);
+}
+
+/* ==========================================================================
+   PRESENT — CYAN
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat--success {
+  --stat-neon-bg:
+    linear-gradient(
+      135deg,
+      rgba(34, 211, 238, 0.97) 0%,
+      rgba(14, 165, 233, 0.90) 55%,
+      rgba(8, 145, 178, 0.82) 100%
+    );
+
+  background-color: #0ea5e9;
+
+  border-color: rgba(103, 232, 249, 0.72);
+  border-left-color: rgba(255, 255, 255, 0.50);
+
+  box-shadow:
+    0 12px 30px rgba(14, 165, 233, 0.30),
+    0 0 25px rgba(34, 211, 238, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.60);
+}
+
+/* ==========================================================================
+   ON LEAVE — PURPLE
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat--warning {
+  --stat-neon-bg:
+    linear-gradient(
+      135deg,
+      rgba(124, 58, 237, 0.98) 0%,
+      rgba(109, 40, 217, 0.90) 55%,
+      rgba(91, 33, 182, 0.82) 100%
+    );
+
+  background-color: #7c3aed;
+
+  border-color: rgba(196, 181, 253, 0.66);
+  border-left-color: rgba(255, 255, 255, 0.50);
+
+  box-shadow:
+    0 12px 30px rgba(124, 58, 237, 0.32),
+    0 0 26px rgba(124, 58, 237, 0.21),
+    inset 0 1px 0 rgba(255, 255, 255, 0.60);
+}
+
+/* ==========================================================================
+   NOT MARKED — DARK NAVY
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat--neutral {
+  --stat-neon-bg:
+    linear-gradient(
+      135deg,
+      rgba(15, 23, 42, 0.98) 0%,
+      rgba(30, 41, 59, 0.96) 55%,
+      rgba(51, 65, 85, 0.90) 100%
+    );
+
+  background-color: #0f172a;
+
+  border-color: rgba(148, 163, 184, 0.42);
+  border-left-color: rgba(255, 255, 255, 0.35);
+
+  box-shadow:
+    0 12px 30px rgba(15, 23, 42, 0.32),
+    0 0 22px rgba(15, 23, 42, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.17);
+}
+
+/* ==========================================================================
+   ACTIVE EMPLOYEES — LAVENDER / VIOLET
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat--info {
+  --stat-neon-bg:
+    linear-gradient(
+      135deg,
+      rgba(167, 139, 250, 0.98) 0%,
+      rgba(139, 92, 246, 0.92) 52%,
+      rgba(124, 58, 237, 0.86) 100%
+    );
+
+  background-color: #8b5cf6;
+
+  border-color: rgba(221, 214, 254, 0.70);
+  border-left-color: rgba(255, 255, 255, 0.50);
+
+  box-shadow:
+    0 12px 30px rgba(124, 58, 237, 0.30),
+    0 0 26px rgba(167, 139, 250, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+
+/* ==========================================================================
+   KPI AMBIENT GLOW
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat::after {
+  content: "";
+
+  position: absolute;
+
+  width: 125px;
+  height: 125px;
+
+  right: -48px;
+  bottom: -66px;
+
+  border-radius: 50%;
+
+  background: rgba(255, 255, 255, 0.22);
+
+  filter: blur(27px);
+
+  pointer-events: none;
+
+  z-index: 1;
+}
+
+/* ==========================================================================
+   KPI ICONS
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat::before {
+  content: "";
+
+  position: absolute;
+
+  left: 15px;
+  top: 50%;
+
+  width: 40px;
+  height: 40px;
+
+  transform: translateY(-50%);
+
+  border-radius: 12px;
+
+  background-color: rgba(255, 255, 255, 0.22);
+
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 26px 26px;
+
+  border: 1px solid rgba(255, 255, 255, 0.42);
+
+  box-shadow:
+    0 5px 15px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.48);
+
+  z-index: 3;
+}
+
+.admin-attendance-page .admin-stat--success::before {
+  background-image: url("/attendance/attendance_present-icon.png");
+}
+
+.admin-attendance-page .admin-stat--warning::before {
+  background-image: url("/attendance/attendance_on-leave-icon.png");
+}
+
+.admin-attendance-page .admin-stat--neutral::before {
+  background-image: url("/attendance/attendance_not-marked-icon.png");
+}
+
+.admin-attendance-page .admin-stat--info::before {
+  background-image: url("/attendance/attendance_active-employees-icon.png");
+}
+
+/* ==========================================================================
+   KPI TEXT
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat-label {
+  position: relative;
+  z-index: 4;
+
+  color: rgba(255, 255, 255, 0.90);
+
+  font-size: 11.5px;
+  font-weight: 650;
+
+  line-height: 1.2;
+
+  text-shadow: 0 1px 4px rgba(15, 23, 42, 0.28);
+}
+
+.admin-attendance-page .admin-stat-value {
+  position: relative;
+  z-index: 4;
+
+  margin-top: 2px;
+
+  color: #ffffff;
+
+  font-size: 25px;
+  font-weight: 800;
+
+  line-height: 1;
+
+  letter-spacing: -0.035em;
+
+  font-variant-numeric: tabular-nums;
+
+  text-shadow: 0 2px 8px rgba(15, 23, 42, 0.25);
+}
+
+/* ==========================================================================
+   KPI HOVER
+   ========================================================================== */
+
+.admin-attendance-page .admin-stat:hover {
+  transform: translateY(-3px);
+  filter: brightness(1.045);
+}
+
+.admin-attendance-page .admin-stat--success:hover {
+  box-shadow:
+    0 17px 36px rgba(14, 165, 233, 0.36),
+    0 0 30px rgba(34, 211, 238, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.66);
+}
+
+.admin-attendance-page .admin-stat--warning:hover {
+  box-shadow:
+    0 17px 36px rgba(124, 58, 237, 0.38),
+    0 0 32px rgba(124, 58, 237, 0.27),
+    inset 0 1px 0 rgba(255, 255, 255, 0.66);
+}
+
+.admin-attendance-page .admin-stat--neutral:hover {
+  box-shadow:
+    0 17px 36px rgba(15, 23, 42, 0.38),
+    0 0 26px rgba(15, 23, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.20);
+}
+
+.admin-attendance-page .admin-stat--info:hover {
+  box-shadow:
+    0 17px 36px rgba(124, 58, 237, 0.36),
+    0 0 32px rgba(167, 139, 250, 0.27),
+    inset 0 1px 0 rgba(255, 255, 255, 0.68);
+}
+
+/* ==========================================================================
+   MAIN DATA CARDS
+   ========================================================================== */
+
+.admin-attendance-page > .admin-card {
+  position: relative;
+  z-index: 2;
+
+  margin-bottom: 16px;
+
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 17px;
+
+  background: rgba(255, 255, 255, 0.55);
+
+  box-shadow:
+    0 12px 34px rgba(124, 58, 237, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+
+  overflow: hidden;
+
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.admin-attendance-page > .admin-card:hover {
+  border-color: rgba(124, 58, 237, 0.20);
+  box-shadow:
+    0 16px 38px rgba(124, 58, 237, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.admin-attendance-page .admin-card--warning,
+.admin-attendance-page .admin-card--success {
+  border-top: 1px solid rgba(255, 255, 255, 0.78);
+}
+
+/* ==========================================================================
+   CARD HEADER
+   ========================================================================== */
+
+.admin-attendance-page .admin-card-header {
+  min-height: 54px;
+  padding: 11px 16px;
+
+  border-bottom: 1px solid rgba(124, 58, 237, 0.10);
+
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.admin-attendance-page .admin-card-heading {
+  gap: 9px;
+}
+
+.admin-attendance-page .admin-card-title {
+  color: var(--attendance-navy);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.admin-attendance-page .admin-card-dot {
+  width: 9px;
+  height: 9px;
+
+  box-shadow:
+    0 0 0 4px rgba(124, 58, 237, 0.08),
+    0 0 10px rgba(124, 58, 237, 0.24);
+}
+
+.admin-attendance-page .admin-card--warning .admin-card-dot {
+  background: var(--attendance-purple);
+  box-shadow:
+    0 0 0 4px rgba(124, 58, 237, 0.10),
+    0 0 12px rgba(124, 58, 237, 0.35);
+}
+
+.admin-attendance-page .admin-card--success .admin-card-dot {
+  background: var(--attendance-cyan);
+  box-shadow:
+    0 0 0 4px rgba(34, 211, 238, 0.10),
+    0 0 12px rgba(34, 211, 238, 0.38);
+}
+
+.admin-attendance-page .admin-card-subtitle {
+  color: #718096;
+  font-size: 11.5px;
+}
+
+.admin-attendance-page .admin-card-count {
+  min-width: 27px;
+  height: 25px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0 9px;
+
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+
+  background: rgba(255, 255, 255, 0.60);
+
+  color: var(--attendance-purple);
+
+  font-size: 11.5px;
+  font-weight: 750;
+
+  box-shadow:
+    0 4px 12px rgba(124, 58, 237, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+}
+
+/* ==========================================================================
+   TABLE
+   ========================================================================== */
+
+.admin-attendance-page .admin-table-scroll {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.admin-attendance-page .admin-data-table {
+  font-size: 12.5px;
+}
+
+.admin-attendance-page .admin-data-table thead th {
+  height: 36px;
+  padding: 0 15px;
+
+  border-bottom: 1px solid rgba(124, 58, 237, 0.10);
+
+  background: rgba(237, 233, 254, 0.34);
+
+  color: #475569;
+
+  font-size: 10px;
+  font-weight: 750;
+
+  letter-spacing: 0.045em;
+}
+
+.admin-attendance-page .admin-data-table tbody td {
+  height: 46px;
+  padding: 6px 15px;
+
+  border-bottom: 1px solid rgba(124, 58, 237, 0.075);
+
+  color: #475569;
+
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.admin-attendance-page .admin-data-table tbody tr {
+  transition:
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.admin-attendance-page .admin-data-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* ==========================================================================
+   EMPLOYEE CELLS
+   ========================================================================== */
+
+.admin-attendance-page .admin-cell-primary {
+  color: var(--attendance-navy);
+  font-weight: 650;
+}
+
+.admin-attendance-page .admin-cell-secondary {
+  color: #94a3b8;
+  font-size: 10.5px;
+}
+
+.admin-attendance-page .admin-cell-wrap {
+  display: inline-block;
+  min-width: 140px;
+  max-width: 260px;
+  color: #64748b;
+}
+
+.admin-attendance-page .admin-cell-muted {
+  color: #94a3b8;
+}
+
+.admin-attendance-page .admin-data-table tbody td strong {
+  color: var(--attendance-purple);
+  font-weight: 750;
+}
+
+/* ==========================================================================
+   STATUS BADGES
+   ========================================================================== */
+
+.admin-attendance-page .admin-badge {
+  min-height: 23px;
+  padding: 3px 9px;
+
+  border: 1px solid rgba(255, 255, 255, 0.70);
+  border-radius: 999px;
+
+  font-size: 10.5px;
+  font-weight: 700;
+
+  box-shadow:
+    0 3px 9px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.admin-attendance-page .admin-badge--success {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.30);
+  color: #087b91;
+  box-shadow:
+    0 3px 10px rgba(34, 211, 238, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.admin-attendance-page .admin-badge--info {
+  background: rgba(124, 58, 237, 0.14);
+  border-color: rgba(124, 58, 237, 0.24);
+  color: #6d28d9;
+  box-shadow:
+    0 3px 10px rgba(124, 58, 237, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.admin-attendance-page .admin-badge--warning {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(245, 158, 11, 0.26);
+  color: #a16207;
+  box-shadow:
+    0 3px 10px rgba(245, 158, 11, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* ==========================================================================
+   TABLE STATES
+   ========================================================================== */
+
+.admin-attendance-page .admin-table-empty,
+.admin-attendance-page .admin-table-loading,
+.admin-attendance-page .admin-table-error {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ==========================================================================
+   GLASS HIGHLIGHT ON DATA CARDS
+   ========================================================================== */
+
+.admin-attendance-page > .admin-card::before {
+  content: "";
+
+  position: absolute;
+
+  top: 0;
+  left: 8%;
+  right: 8%;
+
+  height: 1px;
+
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.95),
+    transparent
+  );
+
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   WINDOW CAPTION
+   ========================================================================== */
+
+.attendance-window-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+
+  margin: 2px 2px 14px;
+  padding: 10px 14px;
+
+  font-size: 13px;
+  line-height: 1.4;
+  color: #475569;
+
+  background: #f8fafc;
+
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #6366f1;
+  border-radius: 8px;
+}
+
+.attendance-window-caption strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.attendance-window-label {
+  font-weight: 600;
+  color: #334155;
+}
+
+.attendance-window-sep {
+  margin: 0 2px;
+  color: #94a3b8;
+}
+
+.attendance-window-caption--loading {
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+/* ==========================================================================
+   DAY TOTALS  ← includes the "not configured" warning line
+   ========================================================================== */
+
+.attendance-day-totals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+
+  margin: -6px 2px 14px;
+  padding: 10px 14px;
+
+  font-size: 12px;
+  color: #64748b;
+
+  background: #f8fafc;
+
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #94a3b8;
+  border-radius: 8px;
+}
+
+.attendance-day-totals strong {
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The amber "not configured" warning line */
+.attendance-day-totals em {
+  flex-basis: 100%;
+
+  margin-top: 4px;
+  padding: 6px 10px;
+
+  font-style: normal;
+  font-weight: 600;
+  font-size: 11.5px;
+  color: #92400e;
+
+  background: rgba(251, 191, 36, 0.14);
+  border: 1px dashed rgba(245, 158, 11, 0.45);
+  border-radius: 6px;
+}
+
+/* ==========================================================================
+   NUMERIC / DATE / LOGIN CELLS
+   ========================================================================== */
+
+.attendance-numeric {
+  display: inline-block;
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+
+.attendance-dates-cell {
+  display: inline-block;
+  min-width: 150px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.attendance-login-cell {
+  display: inline-block;
+  min-width: 84px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   TABLE HEADER SEARCH
+   ========================================================================== */
+
+.attendance-table-search {
+  width: 210px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+
+  border: 1px solid #d8e3ec;
+  border-radius: 8px;
+
+  background: #ffffff;
+
+  box-sizing: border-box;
+}
+
+.attendance-table-search svg {
+  color: #8ca2b3;
+  flex-shrink: 0;
+}
+
+.attendance-table-search input {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+
+  border: none;
+  outline: none;
+  background: transparent;
+
+  color: #24384d;
+  font-size: 12px;
+}
+
+.attendance-table-search input::placeholder {
+  color: #9aa9b7;
+}
+
+.attendance-table-search:focus-within {
+  border-color: #16bfdc;
+  box-shadow: 0 0 0 3px rgba(22, 191, 220, 0.1);
+}
+
+/* ==========================================================================
+   EYE BUTTON (daily view)
+   ========================================================================== */
+
+.attendance-eye-cell {
+  display: inline-flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.admin-attendance-page .attendance-eye-button,
+.attendance-eye-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 34px;
+  height: 34px;
+  padding: 0;
+
+  border: 1px solid rgba(124, 58, 237, 0.24);
+  border-radius: 10px;
+
+  color: #6d28d9;
+  background: rgba(255, 255, 255, 0.85);
+
+  box-shadow: 0 3px 10px rgba(124, 58, 237, 0.08);
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.admin-attendance-page .attendance-eye-button:hover,
+.attendance-eye-button:hover {
+  color: #ffffff;
+  background: linear-gradient(135deg, #7c3aed, #22d3ee);
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.28);
+}
+
+.attendance-eye-button:focus-visible {
+  outline: 2px solid #22d3ee;
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   STATUS PILLS
+   ========================================================================== */
+
+.attendance-pill {
+  display: inline-flex;
+  align-items: center;
+
+  min-height: 23px;
+  padding: 3px 10px;
+
+  border: 1px solid transparent;
+  border-radius: 999px;
+
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.attendance-pill--present   { color: #047857; background: rgba(16, 185, 129, 0.16); border-color: rgba(16, 185, 129, 0.32); }
+.attendance-pill--half      { color: #a16207; background: rgba(251, 191, 36, 0.20);  border-color: rgba(245, 158, 11, 0.34); }
+.attendance-pill--wfh       { color: #0e7490; background: rgba(34, 211, 238, 0.18);  border-color: rgba(34, 211, 238, 0.34); }
+.attendance-pill--leave     { color: #6d28d9; background: rgba(124, 58, 237, 0.14);  border-color: rgba(124, 58, 237, 0.28); }
+.attendance-pill--absent    { color: #b91c1c; background: rgba(239, 68, 68, 0.14);   border-color: rgba(239, 68, 68, 0.30); }
+.attendance-pill--holiday   { color: #be185d; background: rgba(236, 72, 153, 0.14);  border-color: rgba(236, 72, 153, 0.30); }
+.attendance-pill--weekly    { color: #475569; background: rgba(100, 116, 139, 0.14); border-color: rgba(100, 116, 139, 0.28); }
+.attendance-pill--notmarked { color: #64748b; background: #f1f5f9;                   border-color: #cbd5e1; border-style: dashed; }
+.attendance-pill--other     { color: #334155; background: #e2e8f0;                   border-color: #cbd5e1; }
+
+/* ==========================================================================
+   DAILY MODAL
+   ========================================================================== */
+
+.attendance-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+
+  background: rgba(15, 23, 42, 0.52);
+
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.attendance-daily-modal {
+  width: min(960px, 100%);
+  max-height: min(88vh, 820px);
+
+  display: flex;
+  flex-direction: column;
+
+  overflow: hidden;
+
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 18px;
+
+  background: rgba(255, 255, 255, 0.96);
+
+  box-shadow:
+    0 25px 80px rgba(15, 23, 42, 0.30),
+    0 0 0 1px rgba(124, 58, 237, 0.10);
+
+  color: #0f172a;
+}
+
+.attendance-daily-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+
+  padding: 18px 22px;
+
+  border-bottom: 1px solid #e9e5f5;
+
+  background: linear-gradient(135deg, rgba(237, 233, 254, 0.7), rgba(255, 255, 255, 0.9));
+}
+
+.attendance-daily-modal-header h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+
+  margin: 0;
+
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.attendance-daily-code {
+  padding: 2px 9px;
+
+  border-radius: 999px;
+
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.12);
+
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.attendance-daily-modal-header p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.attendance-daily-modal-header p strong {
+  color: #0f172a;
+}
+
+.attendance-modal-close {
+  flex: 0 0 auto;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 34px;
+  height: 34px;
+
+  border: 0;
+  border-radius: 9px;
+
+  color: #475569;
+  background: #f1f5f9;
+
+  cursor: pointer;
+
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.attendance-modal-close:hover {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+/* ---- totals chips ---- */
+.attendance-daily-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  padding: 12px 22px;
+
+  border-bottom: 1px solid #eef2f7;
+
+  background: #fbfaff;
+}
+
+.attendance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 4px 10px;
+
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+
+  color: #475569;
+  background: #ffffff;
+
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.attendance-chip strong {
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.attendance-chip--present   { border-color: rgba(16, 185, 129, 0.35); }
+.attendance-chip--leave     { border-color: rgba(124, 58, 237, 0.32); }
+.attendance-chip--absent    { border-color: rgba(239, 68, 68, 0.32); }
+.attendance-chip--holiday   { border-color: rgba(236, 72, 153, 0.32); }
+.attendance-chip--weekly    { border-color: rgba(100, 116, 139, 0.32); }
+.attendance-chip--notmarked { border-style: dashed; }
+
+/* ---- modal table ---- */
+.attendance-daily-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.attendance-daily-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.attendance-daily-table th,
+.attendance-daily-table td {
+  padding: 10px 16px;
+
+  text-align: left;
+  white-space: nowrap;
+
+  border-bottom: 1px solid #eef2f7;
+}
+
+.attendance-daily-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+
+  color: #475569;
+  background: #f8f7fc;
+
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.attendance-daily-table .attendance-th-right,
+.attendance-daily-table .attendance-td-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.attendance-daily-row--weekly td,
+.attendance-daily-row--holiday td {
+  background: rgba(241, 245, 249, 0.55);
+}
+
+.attendance-daily-row--absent td:first-child {
+  box-shadow: inset 3px 0 0 #ef4444;
+}
+
+.attendance-daily-row--present td:first-child,
+.attendance-daily-row--wfh td:first-child {
+  box-shadow: inset 3px 0 0 #10b981;
+}
+
+.attendance-daily-row--half td:first-child {
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+
+.attendance-daily-row--leave td:first-child {
+  box-shadow: inset 3px 0 0 #7c3aed;
+}
+
+.attendance-daily-table tbody tr:hover td {
+  background: rgba(237, 233, 254, 0.45);
+}
+
+.attendance-daily-note {
+  margin-left: 8px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.attendance-modal-state {
+  padding: 22px;
+  margin: 0;
+  color: #64748b;
+  text-align: center;
+}
+
+.attendance-modal-error {
+  color: #b91c1c;
+}
+
+.attendance-modal-retry,
+.attendance-modal-done {
+  padding: 8px 16px;
+
+  border: 1px solid rgba(124, 58, 237, 0.28);
+  border-radius: 10px;
+
+  color: #6d28d9;
+  background: #ffffff;
+
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+
+  transition: background 0.2s ease;
+}
+
+.attendance-modal-retry:hover,
+.attendance-modal-done:hover {
+  background: #ede9fe;
+}
+
+.attendance-daily-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+
+  padding: 12px 22px;
+
+  border-top: 1px solid #e9e5f5;
+
+  background: #fbfaff;
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+  .admin-attendance-page .admin-stat-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 850px) {
+  .attendance-filter-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .attendance-select-field,
+  .attendance-date-field,
+  .attendance-custom-date-range {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .attendance-filter-row > .attendance-select-field {
+    width: 100%;
+  }
+
+  .attendance-period-slot {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .attendance-period-slot .attendance-month-select,
+  .attendance-period-slot .attendance-year-select,
+  .attendance-period-slot .attendance-date-field {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+
+  .attendance-custom-date-range {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: end;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-attendance-page {
+    padding-bottom: 20px;
+    background-attachment: scroll;
+    background-position: center top;
+  }
+
+  .admin-attendance-page .admin-toolbar {
+    align-items: stretch;
+  }
+
+  .admin-attendance-page .admin-stat-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-attendance-page .admin-stat {
+    min-height: 86px;
+  }
+}
+
+@media (max-width: 640px) {
+  .attendance-window-caption {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+
+  .attendance-modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .attendance-daily-modal {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .attendance-daily-modal-header,
+  .attendance-daily-chips,
+  .attendance-daily-modal-footer {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .attendance-daily-table th,
+  .attendance-daily-table td {
+    padding: 9px 11px;
+  }
+}
+
+@media (max-width: 520px) {
+  .admin-attendance-page .admin-stat-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-attendance-page .admin-stat {
+    min-height: 80px;
+    padding-left: 64px;
+  }
+
+  .admin-attendance-page .admin-stat::before {
+    left: 13px;
+    width: 38px;
+    height: 38px;
+    background-size: 24px 24px;
+  }
+
+  .admin-attendance-page .admin-card-header {
+    padding: 10px 13px;
+  }
+
+  .admin-attendance-page .admin-data-table thead th,
+  .admin-attendance-page .admin-data-table tbody td {
+    padding-left: 11px;
+    padding-right: 11px;
+  }
+
+  .attendance-filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .attendance-period-filter {
+    width: 100%;
+  }
+
+  .attendance-period-button {
+    flex: 1 1 auto;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+}

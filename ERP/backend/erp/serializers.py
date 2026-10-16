@@ -1486,8 +1486,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
         source="emergency_contact_name", required=False, allow_blank=True
     )
     emergencyContactNumber = serializers.CharField(
-        source="emergency_contact_number", required=False, allow_blank=True
-    )
+    source="emergency_contact_number",
+    required=False,
+    allow_blank=True,
+)
+    
+    
     employmentType = serializers.CharField(
         source="employment_type", required=False, allow_blank=True
     )
@@ -1518,10 +1522,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     employmentHistory = serializers.JSONField(
         source="employment_history", required=False
     )
-    employeeCode = serializers.CharField(
-        source="employee_code",
-        read_only=True,
-    )
+    
 
     class Meta:
         model = Employee
@@ -2721,10 +2722,7 @@ class BOMItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Unit weight cannot be negative.")
         return value
 
-    def validate_quantity(self, value):
-        if value <= 0:
-            raise serializers.ValidationError("Quantity must be greater than 0.")
-        return value
+    
 
 
 class DrawingSerializer(serializers.ModelSerializer):

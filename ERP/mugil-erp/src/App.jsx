@@ -49,6 +49,18 @@ import Scrap from "./pages/material-planning/Scrap";
 import Contact from "./components/ContactUs.jsx";
 import HelpCenter from "./components/HelpCenter.jsx";
 
+
+
+import AdminLayout from "./pages/admin/AdminLayout.jsx";
+import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
+import AdminAttendance from "./pages/admin/AdminAttendance.jsx";
+import AdminPoPendingGrn from "./pages/admin/AdminPoPendingGrn.jsx";
+import AdminPendingPayments from "./pages/admin/AdminPendingPayments.jsx";
+import AdminProjectStatus from "./pages/admin/AdminProjectStatus.jsx";
+import AdminDocumentNumber from "./pages/admin/AdminDocumentNumber.jsx";
+import AdminBufferStock from "./pages/admin/AdminBufferStock.jsx";
+import AdminStatistics from "./pages/admin/AdminStatistics.jsx";
+
 /* =====================================================================
    HR LAYOUT
    ---------------------------------------------------------------------
@@ -405,6 +417,41 @@ export default function App() {
           path="*"
           element={<Navigate to="/production/login" replace />}
         />
+
+
+        {/* ================= ADMIN ROUTES ================= */}
+<Route
+  path="/admin"
+  element={
+    <ProtectedRoute>
+      <AdminLayout />
+    </ProtectedRoute>
+  }
+>
+  <Route index element={<Navigate to="dashboard" replace />} />
+
+  <Route path="dashboard" element={<AdminDashboard />} />
+
+  <Route path="statistics" element={<AdminStatistics />} />
+
+  <Route path="attendance" element={<AdminAttendance />} />
+
+  <Route path="po-pending-grn" element={<AdminPoPendingGrn />} />
+
+  <Route
+    path="pending-customer-payment"
+    element={<AdminPendingPayments />}
+  />
+
+  <Route path="project-status" element={<AdminProjectStatus />} />
+
+  <Route path="document-number" element={<AdminDocumentNumber />} />
+
+  <Route path="buffer-stock" element={<AdminBufferStock />} />
+
+  {/* Redirect unknown admin routes */}
+  <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+</Route>
       </Routes>
     </AuthProvider>
   );

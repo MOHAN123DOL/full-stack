@@ -2238,3 +2238,89 @@ def _last_movement_date_for_project(project_id):
     if d: cands.append(d.isoformat())
 
     return max(cands) if cands else DASH
+
+
+
+
+
+
+
+
+
+from django.db import transaction
+from django.utils import timezone
+
+
+def _dim(item, key):
+    """Safely pull and normalise a dimension value."""
+    val = item.get(key)
+    if val is None:
+        return ""
+    return str(val).strip()
+
+
+@transaction.atomic
+def sync_purchase_order_items(purchase_order):
+    """
+    Materialise PurchaseOrderItem rows from the JSON `items` blob.
+
+    Called ONLY when a PO is confirmed — never on every save.
+    Idempotent: re-running with the same items is a no-op.
+    """
+    # Imported lazily so the service module can be imported
+    # without pulling in the entire models module first.
+    from erp.models import PurchaseOrderItem
+
+    items = purchase_order.items or []
+
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+
+        PurchaseOrderItem.objects.update_or_create(
+            purchase_order=purchase_order,
+            item_code=f"DESC-{index:03d}",
+            defaults={
+                "po_number": purchase_order.po_number,
+                "description": (
+                    item.get("description")
+                    or item.get("poDescription")
+                    or item.get("itemDescription")
+                    or ""
+                ),
+                "material": (
+                    item.get("material")
+                    or item.get("materialType")
+                    or ""
+                ),
+                "material_code": (
+                    item.get("materialCode")
+                    or item.get("material_code")
+                    or ""
+                ),
+                "material_spec": (
+                    item.get("materialSpec")
+                    or item.get("material_spec")
+                    or ""
+                ),
+                "quantity": (
+                    item.get("quantity")
+                    or item.get("qty")
+                    or item.get("poQty")
+                    or 0
+                ),
+                "unit": (
+                    item.get("unit")
+                    or item.get("uom")
+                    or ""
+                ),
+                "unit_weight": (
+                    item.get("unitWeight")
+                    or item.get("unit_weight")
+                    or None
+                ),
+                "length": _dim(item, "length"),
+                "width": _dim(item, "width"),
+                "thickness": _dim(item, "thickness"),
+            },
+        )

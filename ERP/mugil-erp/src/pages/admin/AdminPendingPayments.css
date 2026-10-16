@@ -1,0 +1,764 @@
+/* =========================================================
+   ADMIN PENDING CUSTOMER PAYMENT
+   OPTION 4 — VIBRANT SUNSET
+   ========================================================= */
+
+
+/* =========================================================
+   PAGE
+   ========================================================= */
+
+.admin-pending-payments-page {
+  --payment-primary: #4d3a4d;
+  --payment-secondary: #be5ca9;
+  --payment-tertiary: #d59cc5;
+  --payment-background: #eadada;
+
+  --payment-pink: #eb4dae;
+
+  min-height: 100%;
+  box-sizing: border-box;
+
+  padding: 18px 24px 28px;
+
+  color: #241c2d;
+
+  background:
+    linear-gradient(
+      135deg,
+      #eadada 0%,
+      #f4d8e9 42%,
+      #f6e9f1 72%,
+      #eadada 100%
+    );
+
+  background-image:
+    url("/pending payment/pending_payment_background.png");
+
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+
+  position: relative;
+}
+
+
+/* =========================================================
+   HERO
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-payment-hero {
+  position: relative;
+
+  min-height: 150px;
+
+  margin-bottom: 16px;
+
+  padding: 30px 34px;
+
+  display: flex;
+  align-items: center;
+
+  overflow: hidden;
+
+  box-sizing: border-box;
+
+  border-radius: 20px;
+
+  border: 1px solid
+    rgba(255, 255, 255, 0.72);
+
+  background:
+    linear-gradient(
+      110deg,
+      #4d3a4d 0%,
+      #684361 35%,
+      #be5ca9 100%
+    );
+
+  box-shadow:
+    0 14px 32px rgba(77, 58, 77, 0.16);
+
+  color: #ffffff;
+}
+
+
+/* soft decorative glow */
+
+.admin-pending-payments-page
+.admin-payment-hero::after {
+  content: "";
+
+  position: absolute;
+
+  width: 330px;
+  height: 330px;
+
+  right: -90px;
+  top: -145px;
+
+  border-radius: 50%;
+
+  background:
+    rgba(255, 255, 255, 0.09);
+
+  pointer-events: none;
+}
+
+
+/* hero content */
+
+.admin-pending-payments-page
+.admin-payment-hero-content {
+  position: relative;
+  z-index: 2;
+}
+
+
+/* eyebrow */
+
+.admin-pending-payments-page
+.admin-payment-eyebrow {
+  display: block;
+
+  margin-bottom: 7px;
+
+  color: #eadada;
+
+  font-size: 9px;
+  font-weight: 800;
+
+  letter-spacing: 1.6px;
+
+  line-height: 1.2;
+}
+
+
+/* title */
+
+.admin-pending-payments-page
+.admin-payment-hero h1 {
+  margin: 0;
+
+  color: #ffffff;
+
+  font-size: 26px;
+  font-weight: 750;
+
+  line-height: 1.15;
+
+  letter-spacing: -0.4px;
+}
+
+
+/* subtitle */
+
+.admin-pending-payments-page
+.admin-payment-hero p {
+  margin: 8px 0 0;
+
+  color: rgba(255, 255, 255, 0.88);
+
+  font-size: 12px;
+
+  line-height: 1.4;
+}
+
+
+/* =========================================================
+   TOOLBAR
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-toolbar {
+  margin-bottom: 14px;
+
+  background: rgba(255, 255, 255, 0.93);
+
+  border:
+    1px solid rgba(213, 156, 197, 0.48);
+
+  box-shadow:
+    0 6px 18px rgba(77, 58, 77, 0.08);
+
+  border-radius: 10px;
+}
+
+
+/* Search input */
+
+.admin-pending-payments-page
+.admin-toolbar input {
+  border-color:
+    #d59cc5;
+
+  background: #ffffff;
+
+  color:
+    #4d3a4d;
+}
+
+
+/* Search focus */
+
+.admin-pending-payments-page
+.admin-toolbar input:focus {
+  border-color:
+    #be5ca9;
+
+  box-shadow:
+    0 0 0 3px rgba(190, 92, 169, 0.12);
+
+  outline: none;
+}
+
+
+/* Search placeholder */
+
+.admin-pending-payments-page
+.admin-toolbar input::placeholder {
+  color:
+    #9a8497;
+}
+
+
+/* =========================================================
+   KPI STRIP
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-stat-strip {
+  margin-bottom: 16px;
+}
+
+
+/* =========================================================
+   KPI BASE
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-stat {
+  position: relative;
+
+  min-height: 104px;
+
+  overflow: hidden;
+
+  box-sizing: border-box;
+
+  border-radius: 15px;
+
+  border: 1px solid
+    rgba(255, 255, 255, 0.7);
+
+  box-shadow:
+    0 9px 22px rgba(77, 58, 77, 0.10);
+
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+
+.admin-pending-payments-page
+.admin-stat:hover {
+  transform: translateY(-2px);
+
+  box-shadow:
+    0 13px 28px rgba(77, 58, 77, 0.14);
+}
+
+
+/* =========================================================
+   TOTAL OUTSTANDING
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-stat--danger {
+  background:
+    linear-gradient(
+      135deg,
+      #4d3a4d 0%,
+      #684361 58%,
+      #8c527e 100%
+    );
+
+  color: #ffffff;
+
+  box-shadow:
+    0 10px 24px rgba(77, 58, 77, 0.24);
+}
+
+
+/* Total Outstanding icon */
+
+.admin-pending-payments-page
+.admin-stat--danger::before {
+  content: "";
+
+  display: block;
+
+  width: 38px;
+  height: 38px;
+
+  margin-bottom: 9px;
+
+  border-radius: 10px;
+
+  background-image:
+    url("/pending payment/payment_total_outstanding_icon.png");
+
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+
+  box-shadow:
+    0 5px 12px rgba(35, 15, 35, 0.18);
+}
+
+
+/* =========================================================
+   UNPAID INVOICES
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-stat--info {
+  background:
+    linear-gradient(
+      135deg,
+      #be5ca9 0%,
+      #d06bb7 55%,
+      #e29bcd 100%
+    );
+
+  color: #ffffff;
+
+  box-shadow:
+    0 10px 24px rgba(190, 92, 169, 0.24);
+}
+
+
+/* Unpaid invoice icon */
+
+.admin-pending-payments-page
+.admin-stat--info::before {
+  content: "";
+
+  display: block;
+
+  width: 38px;
+  height: 38px;
+
+  margin-bottom: 9px;
+
+  border-radius: 10px;
+
+  background-image:
+    url("/pending payment/payment_unpaid_invoices_icon.png");
+
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+
+  box-shadow:
+    0 5px 12px rgba(95, 25, 78, 0.15);
+}
+
+
+/* =========================================================
+   KPI TEXT
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-stat--danger *,
+.admin-pending-payments-page
+.admin-stat--info * {
+  color: #ffffff;
+}
+
+
+/* KPI label */
+
+.admin-pending-payments-page
+.admin-stat--danger
+.admin-stat-label,
+.admin-pending-payments-page
+.admin-stat--info
+.admin-stat-label {
+  color:
+    rgba(255, 255, 255, 0.88) !important;
+}
+
+
+/* KPI value */
+
+.admin-pending-payments-page
+.admin-stat--danger
+.admin-stat-value,
+.admin-pending-payments-page
+.admin-stat--info
+.admin-stat-value {
+  color:
+    #ffffff !important;
+}
+
+
+/* =========================================================
+   PAYMENT TABLE CARD
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-card {
+  overflow: hidden;
+
+  padding: 0 !important;
+
+  border-radius: 17px;
+
+  border:
+    1px solid rgba(255, 255, 255, 0.78);
+
+  background:
+    rgba(255, 255, 255, 0.94);
+
+  box-shadow:
+    0 12px 28px rgba(77, 58, 77, 0.10);
+}
+
+
+/* =========================================================
+   TABLE CARD HEADER
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-payment-card-header {
+  min-height: 58px;
+
+  padding: 13px 16px 11px;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  box-sizing: border-box;
+
+  background:
+    linear-gradient(
+      135deg,
+      #fdf8fb 0%,
+      #f8eaf4 100%
+    );
+
+  border-bottom:
+    1px solid #eadada;
+}
+
+
+/* Table title */
+
+.admin-pending-payments-page
+.admin-payment-card-header h2 {
+  margin: 0;
+
+  color:
+    #4d3a4d !important;
+
+  font-size: 15px;
+
+  font-weight: 750;
+
+  line-height: 1.2;
+}
+
+
+/* Count */
+
+.admin-pending-payments-page
+.admin-payment-count {
+  display: inline-flex;
+
+  align-items: center;
+  justify-content: center;
+
+  min-width: 54px;
+
+  height: 26px;
+
+  padding: 0 10px;
+
+  box-sizing: border-box;
+
+  border-radius: 999px;
+
+  border:
+    1px solid #d59cc5;
+
+  background:
+    #ffffff;
+
+  color:
+    #be5ca9;
+
+  font-size: 10px;
+
+  font-weight: 700;
+
+  white-space: nowrap;
+}
+
+
+/* =========================================================
+   TABLE HEADER
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-data-table thead th {
+  background:
+    #4d3a4d !important;
+
+  color:
+    #ffffff !important;
+
+  border-color:
+    #4d3a4d !important;
+
+  font-size: 10px !important;
+
+  font-weight: 750 !important;
+
+  letter-spacing: 0.25px;
+
+  text-transform: uppercase;
+}
+
+
+/* Force all header text white */
+
+.admin-pending-payments-page
+.admin-data-table thead th,
+.admin-pending-payments-page
+.admin-data-table thead th *,
+.admin-pending-payments-page
+.admin-data-table thead th button {
+  color:
+    #ffffff !important;
+}
+
+
+/* =========================================================
+   TABLE BODY
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-data-table tbody tr {
+  background:
+    rgba(255, 255, 255, 0.96);
+
+  transition:
+    background 0.15s ease;
+}
+
+
+.admin-pending-payments-page
+.admin-data-table tbody tr:hover {
+  background:
+    #fcf2f8;
+}
+
+
+/* Cells */
+
+.admin-pending-payments-page
+.admin-data-table tbody td {
+  border-bottom:
+    1px solid #f0e0eb;
+
+  color:
+    #4d3a4d;
+}
+
+
+/* Primary cell */
+
+.admin-pending-payments-page
+.admin-data-table
+.admin-cell-primary {
+  color:
+    #4d3a4d !important;
+
+  font-weight: 600;
+}
+
+
+/* Invoice number */
+
+.admin-pending-payments-page
+.admin-data-table
+.admin-cell-primary.admin-cell-mono,
+.admin-pending-payments-page
+.admin-data-table
+.admin-cell-primary[style] {
+  color:
+    #4d3a4d !important;
+}
+
+
+/* =========================================================
+   OUTSTANDING AMOUNT
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-data-table
+.admin-amount {
+  color:
+    #be5ca9 !important;
+
+  font-weight: 750;
+
+  font-size: 12px;
+}
+
+
+/* =========================================================
+   TABLE FOOTER / RECORD COUNT
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-data-table tfoot,
+.admin-pending-payments-page
+.admin-data-table + * {
+  color:
+    #8d7588;
+}
+
+
+/* =========================================================
+   NOTE
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-payment-note {
+  margin:
+    10px 3px 0;
+
+  color:
+    #765f70;
+
+  font-size: 10px;
+
+  line-height: 1.5;
+
+  max-width: 900px;
+}
+
+
+/* =========================================================
+   LOADING / EMPTY / ERROR STATES
+   ========================================================= */
+
+.admin-pending-payments-page
+.admin-data-table
+.admin-empty,
+.admin-pending-payments-page
+.admin-data-table
+.admin-error {
+  color:
+    #4d3a4d;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 900px) {
+
+  .admin-pending-payments-page {
+    padding:
+      14px 16px 24px;
+  }
+
+  .admin-pending-payments-page
+  .admin-payment-hero {
+    min-height: 135px;
+
+    padding:
+      24px 26px;
+  }
+
+  .admin-pending-payments-page
+  .admin-payment-hero h1 {
+    font-size: 22px;
+  }
+
+}
+
+
+@media (max-width: 640px) {
+
+  .admin-pending-payments-page {
+    padding:
+      12px;
+  }
+
+  .admin-pending-payments-page
+  .admin-payment-hero {
+    min-height: 125px;
+
+    padding:
+      22px;
+  }
+
+  .admin-pending-payments-page
+  .admin-payment-hero h1 {
+    font-size: 20px;
+  }
+
+  .admin-pending-payments-page
+  .admin-payment-card-header {
+    padding:
+      12px;
+  }
+
+}
+
+/* =========================================================
+   FINAL FULL-BLEED BACKGROUND FIX
+   ========================================================= */
+
+.admin-pending-payments-page {
+  position: relative;
+
+  /*
+    Escape the padding of the Admin content area.
+  */
+  margin-top: -24px !important;
+  margin-left: -28px !important;
+  margin-right: -28px !important;
+  margin-bottom: -40px !important;
+
+  /*
+    Compensate for the negative horizontal margins.
+  */
+  width: calc(100% + 56px) !important;
+
+  min-height: calc(100% + 64px) !important;
+
+  box-sizing: border-box;
+
+  /*
+    Keep the actual page content aligned correctly.
+  */
+  padding:
+    24px 28px 40px !important;
+
+  background-image:
+    url("/pending payment/pending_payment_background.png");
+
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}

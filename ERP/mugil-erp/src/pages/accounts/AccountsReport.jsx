@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
+import ErrorState from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import "./AccountsReport.css";
@@ -20,29 +20,190 @@ const numericIdFromRowId = (rowId) => {
 };
 
 /* ============================================================
-   PRINT ENGINE LOADER (PO only for now)
+   PRINT ENGINE CONFIG
+   ------------------------------------------------------------
+   usesContainer: true  → the script renders its sheet INTO
+                          #print-container (Delivery Challan).
+   styleSrc             → stylesheet the script relies on. It is
+                          only attached while the overlay is open,
+                          because those stylesheets contain global
+                          rules (body, *, #print-container).
+   Engines that open their own tab (e.g. PurchaseOrderPrint.js)
+   don't need either flag.
    ============================================================ */
 
-let purchaseOrderPrintEnginePromise = null;
+const PRINT_ENGINES = {
+  PO: {
+    scriptSrc: "/PurchaseOrderPrint.js",
+    globalFn: "generatePurchaseOrderPrint",
+    datasetKey: "purchaseOrderPrintEngine",
+    label: "Purchase Order",
+  },
+  QO: {
+    scriptSrc: "/QuotationPrint.js",
+    globalFn: "generateQuotationPrint",
+    datasetKey: "quotationPrintEngine",
+    label: "Quotation",
+  },
+  TI: {
+    scriptSrc: "/TaxInvoicePrint.js",
+    globalFn: "generateTaxInvoicePrint",
+    datasetKey: "taxInvoicePrintEngine",
+    label: "Tax Invoice",
+  },
+  DC: {
+    scriptSrc: "/DeliveryChallanPrint.js",
+    styleSrc: "/DeliveryChallanPrint.css",
+    globalFn: "generateDeliveryChallanPrint",
+    datasetKey: "deliveryChallanPrintEngine",
+    label: "Delivery Challan",
+    usesContainer: true,
+  },
+  PI: {
+    scriptSrc: "/ProformaInvoicePrint.js",
+    globalFn: "generateProformaInvoicePrint",
+    datasetKey: "proformaInvoicePrintEngine",
+    label: "Proforma Invoice",
+  },
+};
 
-function loadPurchaseOrderPrintEngine() {
-  if (typeof window.generatePurchaseOrderPrint === "function") {
+/* Cache of in-flight / resolved loader promises, keyed by short code. */
+const printEnginePromises = {};
+
+/* ============================================================
+   PRINT CONTAINER / OVERLAY MANAGEMENT
+   ------------------------------------------------------------
+   DeliveryChallanPrint.js does, once, at load time:
+       const container = document.getElementById("print-container");
+   and its boot block immediately writes an "empty state" into
+   it. Consequences:
+
+   1. The container must exist BEFORE the script loads, and it
+      must be the SAME DOM node for the rest of the page's life
+      (the script keeps that reference forever). So it is created
+      once, lives on <body>, and is NEVER removed or re-created —
+      only hidden / emptied.
+   2. It is hidden (display:none) from the moment it is created,
+      so the boot-time empty state can never show inline. The
+      overlay is only revealed right before the sheet is rendered.
+   3. It is NOT rendered from JSX — React would fight with the
+      script over its contents.
+   ============================================================ */
+
+const PRINT_CONTAINER_ID = "print-container";
+const PRINT_OPEN_BODY_CLASS = "accounts-print-open";
+
+function onPrintOverlayClick(event) {
+  /* The DC toolbar's "Back" button calls history.back(), which would
+     leave the report page. Intercept it (capture phase) and just
+     close the overlay instead. */
+  const target = event.target;
+  if (
+    target &&
+    typeof target.closest === "function" &&
+    target.closest(".dc-back-button, [data-print-close]")
+  ) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    closePrintOverlay();
+  }
+}
+
+function onPrintOverlayKeydown(event) {
+  if (event.key === "Escape") closePrintOverlay();
+}
+
+function ensurePrintContainer() {
+  let el = document.getElementById(PRINT_CONTAINER_ID);
+  if (el) return el;
+
+  el = document.createElement("div");
+  el.id = PRINT_CONTAINER_ID;
+  el.className = "accounts-print-overlay";
+  el.style.display = "none"; /* hidden from the very first moment */
+  el.addEventListener("click", onPrintOverlayClick, true);
+  document.body.appendChild(el);
+  return el;
+}
+
+function openPrintOverlay() {
+  const el = ensurePrintContainer();
+  el.style.display = "flex";
+  document.body.classList.add(PRINT_OPEN_BODY_CLASS);
+  document.addEventListener("keydown", onPrintOverlayKeydown);
+}
+
+function removeEngineStylesheets() {
+  document
+    .querySelectorAll("link[data-print-engine-style]")
+    .forEach((link) => link.remove());
+}
+
+function closePrintOverlay() {
+  const el = document.getElementById(PRINT_CONTAINER_ID);
+  if (el) {
+    el.style.display = "none";
+    el.innerHTML = "";
+  }
+  document.body.classList.remove(PRINT_OPEN_BODY_CLASS);
+  document.removeEventListener("keydown", onPrintOverlayKeydown);
+  removeEngineStylesheets();
+}
+
+/* ============================================================
+   STYLESHEET LOADER (only for engines that declare styleSrc)
+   ============================================================ */
+
+function loadEngineStylesheet(cfg) {
+  if (!cfg.styleSrc) return Promise.resolve();
+
+  const selector = `link[data-print-engine-style="${cfg.datasetKey}"]`;
+  if (document.querySelector(selector)) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = cfg.styleSrc;
+    link.dataset.printEngineStyle = cfg.datasetKey;
+    link.onload = () => resolve();
+    link.onerror = () => {
+      console.warn(`${cfg.styleSrc} failed to load`);
+      resolve(); /* still try to print */
+    };
+    document.head.appendChild(link);
+  });
+}
+
+/* ============================================================
+   GENERIC PRINT ENGINE LOADER
+   ============================================================ */
+
+function loadPrintEngine(short) {
+  const cfg = PRINT_ENGINES[short];
+  if (!cfg) {
+    return Promise.reject(new Error(`No print engine configured for ${short}`));
+  }
+
+  /* Already registered? */
+  if (typeof window[cfg.globalFn] === "function") {
     return Promise.resolve();
   }
-  if (purchaseOrderPrintEnginePromise) return purchaseOrderPrintEnginePromise;
 
-  purchaseOrderPrintEnginePromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector(
-      'script[data-purchase-order-print-engine="true"]',
-    );
+  if (printEnginePromises[short]) {
+    return printEnginePromises[short];
+  }
+
+  printEnginePromises[short] = new Promise((resolve, reject) => {
+    const selector = `script[data-print-engine="${cfg.datasetKey}"]`;
+    const existing = document.querySelector(selector);
 
     if (existing) {
       existing.addEventListener("load", resolve, { once: true });
       existing.addEventListener(
         "error",
         () => {
-          purchaseOrderPrintEnginePromise = null;
-          reject(new Error("PurchaseOrderPrint.js failed to load"));
+          printEnginePromises[short] = null;
+          reject(new Error(`${cfg.scriptSrc} failed to load`));
         },
         { once: true },
       );
@@ -50,33 +211,81 @@ function loadPurchaseOrderPrintEngine() {
     }
 
     const script = document.createElement("script");
-    script.src = "/PurchaseOrderPrint.js";
+    script.src = cfg.scriptSrc;
     script.async = true;
-    script.dataset.purchaseOrderPrintEngine = "true";
+    script.dataset.printEngine = cfg.datasetKey;
 
     script.onload = () => {
-      if (typeof window.generatePurchaseOrderPrint === "function") {
+      if (typeof window[cfg.globalFn] === "function") {
         resolve();
       } else {
-        purchaseOrderPrintEnginePromise = null;
+        printEnginePromises[short] = null;
         reject(
           new Error(
-            "PurchaseOrderPrint.js loaded but did not register generatePurchaseOrderPrint",
+            `${cfg.scriptSrc} loaded but did not register ${cfg.globalFn}`,
           ),
         );
       }
     };
 
     script.onerror = () => {
-      purchaseOrderPrintEnginePromise = null;
-      reject(new Error("PurchaseOrderPrint.js failed to load"));
+      printEnginePromises[short] = null;
+      reject(new Error(`${cfg.scriptSrc} failed to load`));
     };
 
     document.head.appendChild(script);
   });
 
-  return purchaseOrderPrintEnginePromise;
+  return printEnginePromises[short];
 }
+
+/* ============================================================
+   HELPERS — final-state detection
+   ============================================================ */
+
+const isPaymentFinal = (record) =>
+  String(record?.payment_status || "").toUpperCase() === "PAID";
+
+const isDeliveryFinal = (record) =>
+  String(record?.delivery_status || "").toUpperCase() === "DELIVERED";
+
+/* ============================================================
+   HELPERS — print data normalisation
+   ============================================================ */
+
+const pickItems = (data) =>
+  Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.line_items)
+      ? data.line_items
+      : Array.isArray(data?.lineItems)
+        ? data.lineItems
+        : [];
+
+const pickGstPercent = (data) =>
+  Number(
+    data?.gstPercent ??
+      data?.gst_percent ??
+      data?.gstPercentage ??
+      data?.gst ??
+      0,
+  ) || 0;
+
+const pickInterState = (data) =>
+  Boolean(data?.interState ?? data?.inter_state ?? false);
+
+const pickColumns = (data) =>
+  Array.isArray(data?.columns) ? data.columns : [];
+
+const itemAmount = (item) => {
+  if (item == null) return 0;
+  const direct = item.amount ?? item.total ?? item.lineTotal ?? item.line_total;
+  if (direct != null) return Number(direct) || 0;
+
+  const qty = Number(item.qty ?? item.quantity ?? 0) || 0;
+  const rate = Number(item.rate ?? item.price ?? item.unitPrice ?? 0) || 0;
+  return qty * rate;
+};
 
 /* ============================================================
    COMPONENT
@@ -133,8 +342,18 @@ export default function AccountsReport() {
   }, [loadRecords]);
 
   /* ============================================================
-     VIEW — pass mode:"view" so destination form asks the
-     user "same number or new number?"
+     Cleanup: if the user navigates away while the print overlay
+     is open, close it. The container node itself is kept (the DC
+     script holds a reference to it) — it is just hidden + emptied.
+     ============================================================ */
+  useEffect(() => {
+    return () => {
+      closePrintOverlay();
+    };
+  }, []);
+
+  /* ============================================================
+     VIEW
      ============================================================ */
   const handleView = (record) => {
     navigate(record.path, {
@@ -154,7 +373,19 @@ export default function AccountsReport() {
 
     if (previousValue === newValue) return;
 
-    // Optimistic update
+    if (field === "payment_status" && isPaymentFinal(record)) {
+      setStatusError(
+        "Payment is already marked as Paid and can no longer be changed.",
+      );
+      return;
+    }
+    if (field === "delivery_status" && isDeliveryFinal(record)) {
+      setStatusError(
+        "Delivery is already marked as Delivered and can no longer be changed.",
+      );
+      return;
+    }
+
     setRecords((prev) =>
       prev.map((r) => (r.id === record.id ? { ...r, [field]: newValue } : r)),
     );
@@ -193,33 +424,44 @@ export default function AccountsReport() {
     } catch (error) {
       console.error("Status update failed:", error);
 
-      // Revert optimistic change
       setRecords((prev) =>
         prev.map((r) =>
           r.id === record.id ? { ...r, [field]: previousValue } : r,
         ),
       );
 
-      setStatusError(GENERIC_ERROR);
+      const serverMessage = error?.response?.data?.message;
+      setStatusError(serverMessage || GENERIC_ERROR);
     } finally {
       setStatusUpdatingId(null);
     }
   };
 
   /* ============================================================
-     PRINT
+     PRINT — generic, dispatches by record.short
      ============================================================ */
   const handlePrint = async (record) => {
-    if (record.short !== "PO") {
-      alert("Print is currently available for Purchase Orders.");
+    const short = String(record?.short || "").toUpperCase();
+    const cfg = PRINT_ENGINES[short];
+
+    if (!cfg) {
+      alert(`Print is not available for "${short || "this document"}".`);
       return;
     }
 
     try {
-      await loadPurchaseOrderPrintEngine();
+      /* Container first (hidden), then CSS, then script — the DC script
+         grabs #print-container the instant it loads. */
+      const container = ensurePrintContainer();
 
-      if (typeof window.generatePurchaseOrderPrint !== "function") {
-        alert("Purchase Order print system is not available.");
+      if (cfg.usesContainer) {
+        await loadEngineStylesheet(cfg);
+      }
+      await loadPrintEngine(short);
+
+      const generateFn = window[cfg.globalFn];
+      if (typeof generateFn !== "function") {
+        alert(`${cfg.label} print system is not available.`);
         return;
       }
 
@@ -228,12 +470,11 @@ export default function AccountsReport() {
         includeAmountDetails: true,
       };
 
-      const subtotal = (data.items || []).reduce(
-        (sum, item) => sum + (Number(item.amount) || 0),
-        0,
-      );
+      const items = pickItems(data);
 
-      const gstPercent = Number(data.gstPercent) || 0;
+      const subtotal = items.reduce((sum, item) => sum + itemAmount(item), 0);
+
+      const gstPercent = pickGstPercent(data);
       const gstAmount = (subtotal * gstPercent) / 100;
       const grandTotal = subtotal + gstAmount;
 
@@ -242,13 +483,34 @@ export default function AccountsReport() {
         totalGst: gstAmount,
         grandTotal,
         gstPercent,
-        interState: data.interState,
+        interState: pickInterState(data),
       };
 
-      window.generatePurchaseOrderPrint(data, summary, data.columns || []);
+      const columns = pickColumns(data);
+
+      if (short === "DC") {
+        data.includeAmountDetails = false;
+      }
+
+      if (cfg.usesContainer) {
+        /* Wipe whatever the script's boot block wrote (empty state or a
+           previous sheet), reveal the overlay, THEN render — the DC script
+           measures layout to size its filler row, so it must be visible. */
+        container.innerHTML = "";
+        openPrintOverlay();
+      }
+
+      generateFn(data, summary, columns);
+
+      /* Any other engine that happens to render into #print-container
+         gets the same overlay treatment. */
+      if (!cfg.usesContainer && container.childElementCount > 0) {
+        openPrintOverlay();
+      }
     } catch (error) {
-      console.error("Purchase Order print failed:", error);
-      alert("Unable to open Purchase Order print preview.");
+      console.error(`${short} print failed:`, error);
+      closePrintOverlay();
+      alert(`Unable to open ${cfg.label} print preview.`);
     }
   };
 
@@ -314,7 +576,7 @@ export default function AccountsReport() {
           {/* ---------- LOAD ERROR ---------- */}
           {!loading && loadError && (
             <div className="qt-customer-error">
-              <Error onRetry={loadRecords} />
+              <ErrorState onRetry={loadRecords} />
               <div style={{ marginTop: 8, fontSize: 13 }}>{loadError}</div>
             </div>
           )}
@@ -357,6 +619,13 @@ export default function AccountsReport() {
                     filteredRecords.map((record, index) => {
                       const isUpdating = statusUpdatingId === record.id;
 
+                      const paymentLocked = isPaymentFinal(record);
+                      const deliveryLocked = isDeliveryFinal(record);
+
+                      const printAvailable = Boolean(
+                        PRINT_ENGINES[String(record.short || "").toUpperCase()],
+                      );
+
                       return (
                         <tr key={record.id}>
                           <td>{index + 1}</td>
@@ -380,7 +649,12 @@ export default function AccountsReport() {
                                 .toLowerCase()
                                 .replace("/", "")}`}
                               value={record.payment_status}
-                              disabled={isUpdating}
+                              disabled={isUpdating || paymentLocked}
+                              title={
+                                paymentLocked
+                                  ? "Payment is already Paid and cannot be changed."
+                                  : undefined
+                              }
                               onChange={(e) =>
                                 handleStatusChange(
                                   record,
@@ -403,7 +677,12 @@ export default function AccountsReport() {
                                 .toLowerCase()
                                 .replace("/", "")}`}
                               value={record.delivery_status}
-                              disabled={isUpdating}
+                              disabled={isUpdating || deliveryLocked}
+                              title={
+                                deliveryLocked
+                                  ? "Delivery is already Delivered and cannot be changed."
+                                  : undefined
+                              }
                               onChange={(e) =>
                                 handleStatusChange(
                                   record,
@@ -434,7 +713,12 @@ export default function AccountsReport() {
                               type="button"
                               className="report-action-button report-print-button"
                               onClick={() => handlePrint(record)}
-                              disabled={isUpdating}
+                              disabled={isUpdating || !printAvailable}
+                              title={
+                                printAvailable
+                                  ? undefined
+                                  : `Print is not available for ${record.short}.`
+                              }
                             >
                               Print
                             </button>

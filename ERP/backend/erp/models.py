@@ -2,20 +2,21 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
+
 class User(AbstractUser):
 
     class UserType(models.TextChoices):
-        PRODUCTION = "production", "Production"
+        
         ADMIN = "admin", "Admin"
         HR = "hr", "HR"
         MATERIAL_PLANNING = "material-planning", "Material Planning"
-        SUPERVISOR = "supervisor", "Supervisor"
+        
         ACCOUNTS = "accounts", "Accounts"
 
     user_type = models.CharField(
         max_length=30,
         choices=UserType.choices,
-        default=UserType.PRODUCTION,
+        default=UserType.HR,
     )
 
     def __str__(self):
@@ -57,6 +58,15 @@ class UserProfile(models.Model):
         max_length=100,
         blank=True,
         null=True,
+    )
+    last_login = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    last_logout = models.DateTimeField(
+        null=True,
+        blank=True,
     )
 
     created_at = models.DateTimeField(
@@ -1974,13 +1984,7 @@ class Employee(models.Model):
         help_text="Linked User account. Set on first profile lookup.",
     )
 
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="created_employees",
-    )
+   
 
     # ---------------------------------------------------------
     # AUDIT
@@ -5552,6 +5556,8 @@ class ScrapNumberSettings(models.Model):
 
 from django.db import models
 
+from django.db import models
+
 
 class ContactRequest(models.Model):
 
@@ -5567,6 +5573,16 @@ class ContactRequest(models.Model):
         ("EMAIL_FAILED", "Email Failed"),
     ]
 
+    ISSUE_STATUS_CHOICES = [
+        ("OPEN", "Open"),
+        ("CLOSED", "Closed"),
+    ]
+
+    CLOSED_BY_CHOICES = [
+        ("ADMIN", "Admin"),
+        ("NXTGENZ", "NxtGenZ"),
+    ]
+
     employee_id = models.CharField(max_length=100)
     subject = models.CharField(max_length=255)
     message = models.TextField()
@@ -5574,19 +5590,41 @@ class ContactRequest(models.Model):
     priority = models.CharField(
         max_length=10,
         choices=PRIORITY_CHOICES,
-        default="MEDIUM"
+        default="MEDIUM",
     )
 
     inform_admin = models.BooleanField(default=False)
 
+    # Email delivery status
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default="PENDING"
+        default="PENDING",
     )
 
-    email_sent_at = models.DateTimeField(null=True, blank=True)
-    email_error = models.TextField(null=True, blank=True)
+    # Issue resolution status
+    issue_status = models.CharField(
+        max_length=10,
+        choices=ISSUE_STATUS_CHOICES,
+        default="OPEN",
+    )
+
+    closed_by = models.CharField(
+        max_length=10,
+        choices=CLOSED_BY_CHOICES,
+        null=True,
+        blank=True,
+    )
+
+    email_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    email_error = models.TextField(
+        null=True,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -5597,6 +5635,10 @@ class ContactRequest(models.Model):
 
     def __str__(self):
         return f"{self.employee_id} - {self.subject}"
+
+    @property
+    def bug_id(self):
+        return f"BUG-{self.id}" if self.id else None
 
 from django.db import models
 

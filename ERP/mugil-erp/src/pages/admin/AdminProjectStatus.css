@@ -1,0 +1,1255 @@
+/* =========================================================
+   MUGIL ERP
+   ADMIN PROJECT STATUS
+   FINAL CSS
+   ========================================================= */
+
+
+/* =========================================================
+   PAGE WRAPPER
+   ========================================================= */
+
+.admin-project-status-page {
+  --project-dark: #064e3b;
+  --project-dark-2: #065f46;
+  --project-emerald: #059669;
+  --project-green: #10b981;
+
+  --project-mint: #ecfdf5;
+  --project-mint-2: #d1fae5;
+
+  --project-text: #123c31;
+  --project-muted: #6b857c;
+
+  width: 100%;
+  min-height: calc(100vh - 72px);
+
+  margin: 0;
+  padding: 24px 28px 40px;
+
+  box-sizing: border-box;
+
+  position: relative;
+
+  color: var(--project-text);
+
+  /*
+    Light emerald/mint textured background.
+    Current image:
+    src/assets/projectstatus/progress_status_bg.png
+  */
+  background-image:
+    linear-gradient(
+      rgba(236, 253, 245, 0.72),
+      rgba(220, 252, 231, 0.78)
+    ),
+    url("/projectstatus/progress_status_bg.png");
+
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+
+  overflow: visible;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   MAKE PAGE FILL ADMIN CONTENT AREA
+   ========================================================= */
+
+.admin-content > .admin-project-status-page {
+  width: 100%;
+  min-height: calc(100vh - 72px);
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   HERO
+   ========================================================= */
+
+.admin-project-status-page .project-status-hero {
+  position: relative;
+
+  width: 100%;
+  min-height: 180px;
+
+  margin: 0 0 16px;
+  padding: 32px 38px;
+
+  display: flex;
+  align-items: center;
+
+  box-sizing: border-box;
+
+  border-radius: 17px;
+
+  border: 1px solid rgba(255, 255, 255, 0.20);
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(6, 95, 70, 0.98) 0%,
+      rgba(5, 150, 105, 0.96) 100%
+    );
+
+  box-shadow:
+    0 12px 30px rgba(6, 78, 59, 0.16);
+
+  overflow: hidden;
+}
+
+
+/* =========================================================
+   HERO DECORATION
+   ========================================================= */
+
+.admin-project-status-page .project-status-hero::before {
+  content: "";
+
+  position: absolute;
+
+  width: 300px;
+  height: 300px;
+
+  top: -155px;
+  right: -70px;
+
+  border-radius: 50%;
+
+  background: rgba(255, 255, 255, 0.08);
+
+  pointer-events: none;
+}
+
+
+.admin-project-status-page .project-status-hero::after {
+  content: "";
+
+  position: absolute;
+
+  width: 190px;
+  height: 190px;
+
+  right: 85px;
+  bottom: -130px;
+
+  border-radius: 50%;
+
+  background: rgba(255, 255, 255, 0.055);
+
+  pointer-events: none;
+}
+
+
+/* =========================================================
+   HERO CONTENT
+   ========================================================= */
+
+.admin-project-status-page .project-status-hero-content {
+  position: relative;
+
+  z-index: 2;
+
+  max-width: 720px;
+
+  color: #ffffff;
+}
+
+
+/* =========================================================
+   HERO EYEBROW
+   ========================================================= */
+
+.admin-project-status-page .project-status-eyebrow {
+  display: block;
+
+  margin: 0 0 8px;
+
+  font-size: 10px;
+  line-height: 1;
+
+  font-weight: 700;
+
+  letter-spacing: 1.5px;
+
+  text-transform: uppercase;
+
+  color: rgba(255, 255, 255, 0.78);
+}
+
+
+/* =========================================================
+   HERO TITLE
+   ========================================================= */
+
+.admin-project-status-page .project-status-hero h1 {
+  margin: 0;
+
+  font-size: 30px;
+  line-height: 1.15;
+
+  font-weight: 800;
+
+  letter-spacing: -0.4px;
+
+  color: #ffffff;
+}
+
+
+/* =========================================================
+   HERO DESCRIPTION
+   ========================================================= */
+
+.admin-project-status-page .project-status-hero p {
+  margin: 9px 0 0;
+
+  max-width: 650px;
+
+  font-size: 13px;
+  line-height: 1.5;
+
+  color: rgba(255, 255, 255, 0.88);
+}
+
+
+/* =========================================================
+   TOOLBAR
+   ========================================================= */
+
+.admin-project-status-page .admin-toolbar {
+  width: 100%;
+
+  min-height: 52px;
+
+  margin: 0 0 12px;
+  padding: 7px 10px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+
+  box-sizing: border-box;
+
+  border: 1px solid rgba(16, 185, 129, 0.16);
+
+  border-radius: 10px;
+
+  background: rgba(255, 255, 255, 0.90);
+
+  box-shadow:
+    0 5px 16px rgba(6, 78, 59, 0.07);
+
+  backdrop-filter: blur(6px);
+}
+
+
+/* =========================================================
+   SEARCH INPUT
+   ========================================================= */
+
+.admin-project-status-page .admin-toolbar input {
+  min-height: 34px;
+
+  border: 1px solid #cbded7;
+
+  border-radius: 6px;
+
+  background: #ffffff;
+
+  color: #173f33;
+
+  font-size: 12px;
+
+  outline: none;
+
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+
+.admin-project-status-page .admin-toolbar input:focus {
+  border-color: #10b981;
+
+  box-shadow:
+    0 0 0 3px rgba(16, 185, 129, 0.10);
+}
+
+
+.admin-project-status-page .admin-toolbar input::placeholder {
+  color: #91a69f;
+}
+
+
+/* =========================================================
+   STATUS FILTER
+   ========================================================= */
+
+.admin-project-status-page .admin-field {
+  display: inline-flex;
+  align-items: center;
+
+  gap: 8px;
+
+  margin: 0;
+
+  color: #426358;
+
+  font-size: 11px;
+  font-weight: 600;
+}
+
+
+.admin-project-status-page .admin-field select {
+  min-height: 34px;
+
+  padding: 0 30px 0 10px;
+
+  border: 1px solid #cbded7;
+
+  border-radius: 6px;
+
+  background: #ffffff;
+
+  color: #173f33;
+
+  font-size: 12px;
+
+  outline: none;
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+
+.admin-project-status-page .admin-field select:focus {
+  border-color: #10b981;
+
+  box-shadow:
+    0 0 0 3px rgba(16, 185, 129, 0.10);
+}
+
+
+/* =========================================================
+   ADMIN CARD
+   ========================================================= */
+
+.admin-project-status-page .admin-card {
+  width: 100%;
+
+  position: relative;
+
+  overflow: hidden;
+
+  box-sizing: border-box;
+
+  border: 1px solid rgba(16, 185, 129, 0.15);
+
+  border-radius: 14px;
+
+  background: rgba(255, 255, 255, 0.96);
+
+  box-shadow:
+    0 10px 28px rgba(6, 78, 59, 0.08);
+}
+
+
+/* =========================================================
+   TABLE HEADING
+   ========================================================= */
+
+.admin-project-status-page .project-table-heading {
+  width: 100%;
+
+  min-height: 66px;
+
+  padding: 13px 16px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 16px;
+
+  box-sizing: border-box;
+
+  border-bottom: 1px solid #e1eee9;
+
+  background:
+    linear-gradient(
+      180deg,
+      #ffffff 0%,
+      #f7fcfa 100%
+    );
+}
+
+
+/* =========================================================
+   TABLE HEADING TITLE
+   ========================================================= */
+
+.admin-project-status-page .project-table-heading h2 {
+  margin: 0;
+
+  font-size: 17px;
+  line-height: 1.2;
+
+  font-weight: 800;
+
+  color: #123c31;
+}
+
+
+/* =========================================================
+   TABLE HEADING DESCRIPTION
+   ========================================================= */
+
+.admin-project-status-page .project-table-heading p {
+  margin: 4px 0 0;
+
+  font-size: 11px;
+  line-height: 1.4;
+
+  color: #718980;
+}
+
+
+/* =========================================================
+   PROJECT COUNT
+   ========================================================= */
+
+.admin-project-status-page .project-count {
+  flex: 0 0 auto;
+
+  padding: 5px 10px;
+
+  border-radius: 999px;
+
+  border: 1px solid #bbf7d0;
+
+  background: #ecfdf5;
+
+  color: #047857;
+
+  font-size: 10px;
+  font-weight: 700;
+
+  white-space: nowrap;
+}
+
+
+/* =========================================================
+   DATA TABLE
+   ========================================================= */
+
+.admin-project-status-page .admin-data-table {
+  width: 100%;
+
+  min-width: 0;
+
+  border-collapse: collapse;
+
+  background: #ffffff;
+
+  table-layout: fixed;
+}
+
+
+/* =========================================================
+   TABLE HEADER
+   ========================================================= */
+
+.admin-project-status-page .admin-data-table thead {
+  background: #064e3b;
+}
+
+
+.admin-project-status-page .admin-data-table thead th {
+  height: 38px;
+
+  padding: 0 14px;
+
+  box-sizing: border-box;
+
+  background:
+    linear-gradient(
+      90deg,
+      #064e3b 0%,
+      #087f5b 100%
+    );
+
+  color: #ffffff !important;
+
+  border: none;
+
+  font-size: 9px;
+  line-height: 1;
+
+  font-weight: 700;
+
+  text-align: left;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.55px;
+
+  white-space: nowrap;
+}
+
+
+/* Force shared table header content white */
+
+.admin-project-status-page
+.admin-data-table
+thead
+th
+* {
+  color: #ffffff !important;
+}
+
+
+/* =========================================================
+   EXACTLY FOUR COLUMN WIDTHS
+   ========================================================= */
+
+/*
+   Project Name     = 36%
+   Project Code     = 18%
+   Status           = 18%
+   Current Process  = 28%
+*/
+
+.admin-project-status-page
+.admin-data-table
+thead
+th:nth-child(1),
+
+.admin-project-status-page
+.admin-data-table
+tbody
+td:nth-child(1) {
+  width: 36%;
+}
+
+
+.admin-project-status-page
+.admin-data-table
+thead
+th:nth-child(2),
+
+.admin-project-status-page
+.admin-data-table
+tbody
+td:nth-child(2) {
+  width: 18%;
+}
+
+
+.admin-project-status-page
+.admin-data-table
+thead
+th:nth-child(3),
+
+.admin-project-status-page
+.admin-data-table
+tbody
+td:nth-child(3) {
+  width: 18%;
+}
+
+
+.admin-project-status-page
+.admin-data-table
+thead
+th:nth-child(4),
+
+.admin-project-status-page
+.admin-data-table
+tbody
+td:nth-child(4) {
+  width: 28%;
+}
+
+
+/* =========================================================
+   TABLE BODY
+   ========================================================= */
+
+.admin-project-status-page .admin-data-table tbody tr {
+  height: 37px;
+
+  background: rgba(255, 255, 255, 0.98);
+
+  transition:
+    background-color 0.15s ease;
+}
+
+
+.admin-project-status-page .admin-data-table tbody tr:hover {
+  background: #f0fdf7;
+}
+
+
+/* =========================================================
+   TABLE CELLS
+   ========================================================= */
+
+.admin-project-status-page .admin-data-table tbody td {
+  padding: 6px 14px;
+
+  box-sizing: border-box;
+
+  border-bottom: 1px solid #e4eee9;
+
+  color: #24463c;
+
+  font-size: 11px;
+  line-height: 1.25;
+
+  vertical-align: middle;
+}
+
+
+/* =========================================================
+   PROJECT NAME
+   ========================================================= */
+
+.admin-project-status-page .project-name-cell {
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+
+  justify-content: center;
+
+  gap: 2px;
+}
+
+
+.admin-project-status-page .admin-cell-primary {
+  display: block;
+
+  overflow: hidden;
+
+  color: #173f33;
+
+  font-size: 11px;
+  line-height: 1.25;
+
+  font-weight: 700;
+
+  white-space: nowrap;
+
+  text-overflow: ellipsis;
+}
+
+
+.admin-project-status-page .admin-cell-secondary {
+  display: block;
+
+  overflow: hidden;
+
+  color: #81968f;
+
+  font-size: 9px;
+  line-height: 1.2;
+
+  white-space: nowrap;
+
+  text-overflow: ellipsis;
+}
+
+
+/* =========================================================
+   PROJECT CODE
+   ========================================================= */
+
+.admin-project-status-page .project-code {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 5px 8px;
+
+  border-radius: 6px;
+
+  background: #effcf5;
+
+  border: 1px solid #d5f5e4;
+
+  color: #16704f;
+
+  font-size: 9px;
+
+  font-weight: 700;
+
+  letter-spacing: 0.25px;
+
+  white-space: nowrap;
+}
+
+
+/* =========================================================
+   STATUS BADGE
+   ========================================================= */
+
+.admin-project-status-page .project-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 60px;
+
+  padding: 4px 8px;
+
+  border-radius: 999px;
+
+  font-size: 9px;
+
+  font-weight: 700;
+
+  line-height: 1;
+
+  white-space: nowrap;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   ACTIVE
+   ========================================================= */
+
+.admin-project-status-page
+.project-status-badge.active {
+  background: #e5f8eb;
+
+  border: 1px solid #c7ecd2;
+
+  color: #16803b;
+}
+
+
+/* =========================================================
+   ON HOLD
+   ========================================================= */
+
+.admin-project-status-page
+.project-status-badge.on-hold {
+  background: #fff5d9;
+
+  border: 1px solid #f8df9f;
+
+  color: #a96700;
+}
+
+
+/* =========================================================
+   COMPLETED
+   ========================================================= */
+
+.admin-project-status-page
+.project-status-badge.completed {
+  background: #e7efff;
+
+  border: 1px solid #d1def7;
+
+  color: #2056a4;
+}
+
+
+/* =========================================================
+   CURRENT PROCESS
+   ========================================================= */
+
+.admin-project-status-page .project-process {
+  display: inline-flex;
+  align-items: center;
+
+  gap: 7px;
+
+  color: #365f53;
+
+  font-size: 10px;
+
+  font-weight: 600;
+
+  white-space: nowrap;
+}
+
+
+.admin-project-status-page .project-process-dot {
+  width: 7px;
+  height: 7px;
+
+  flex: 0 0 7px;
+
+  border-radius: 50%;
+
+  background: #10b981;
+
+  box-shadow:
+    0 0 0 3px rgba(16, 185, 129, 0.10);
+}
+
+
+/* =========================================================
+   PROCESS COLORS
+   ========================================================= */
+
+.admin-project-status-page
+.project-process--welding
+.project-process-dot {
+  background: #f59e0b;
+}
+
+
+.admin-project-status-page
+.project-process--painting
+.project-process-dot {
+  background: #8b5cf6;
+}
+
+
+.admin-project-status-page
+.project-process--inspection
+.project-process-dot {
+  background: #3b82f6;
+}
+
+
+.admin-project-status-page
+.project-process--cutting
+.project-process-dot {
+  background: #ef4444;
+}
+
+
+.admin-project-status-page
+.project-process--assembly
+.project-process-dot {
+  background: #06b6d4;
+}
+
+
+.admin-project-status-page
+.project-process--completed
+.project-process-dot {
+  background: #10b981;
+}
+
+
+/* =========================================================
+   ADMIN DATA TABLE — EMPTY STATE
+   ========================================================= */
+
+.admin-project-status-page
+.admin-data-table
+.admin-empty-state {
+  min-height: 150px;
+
+  background: rgba(255, 255, 255, 0.96);
+}
+
+
+/* =========================================================
+   FOOTER NOTE
+   ========================================================= */
+
+.admin-project-status-page .admin-note {
+  margin: 8px 3px 0;
+
+  font-size: 9px;
+  line-height: 1.5;
+
+  color: #648078;
+}
+
+
+/* =========================================================
+   OLD PROGRESS ELEMENT SAFETY
+   ========================================================= */
+
+/*
+   The Progress column has been removed from JSX.
+
+   These rules make sure an old progress component cannot
+   accidentally appear if some cached/legacy markup remains.
+*/
+
+.admin-project-status-page .project-progress,
+.admin-project-status-page .project-progress-wrapper,
+.admin-project-status-page .progress-bar,
+.admin-project-status-page .progress-track,
+.admin-project-status-page .progress-fill,
+.admin-project-status-page .admin-progress-track,
+.admin-project-status-page .admin-progress-fill {
+  display: none !important;
+}
+
+
+/* =========================================================
+   TABLE WRAPPER / SCROLLBAR
+   ========================================================= */
+
+.admin-project-status-page
+.admin-data-table-wrapper {
+  width: 100%;
+
+  overflow-x: auto;
+
+  scrollbar-width: thin;
+}
+
+
+.admin-project-status-page
+.admin-data-table-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+
+
+.admin-project-status-page
+.admin-data-table-wrapper::-webkit-scrollbar-track {
+  background: #ecfdf5;
+}
+
+
+.admin-project-status-page
+.admin-data-table-wrapper::-webkit-scrollbar-thumb {
+  background: #86efac;
+
+  border-radius: 10px;
+}
+
+
+.admin-project-status-page
+.admin-data-table-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #4ade80;
+}
+
+
+/* =========================================================
+   TABLE SCROLL SAFETY
+   ========================================================= */
+
+@media (max-width: 1000px) {
+
+  .admin-project-status-page
+  .admin-data-table {
+    min-width: 760px;
+  }
+
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 900px) {
+
+  .admin-project-status-page {
+    min-height: calc(100vh - 64px);
+
+    padding: 20px 20px 32px;
+
+    background-attachment: scroll;
+  }
+
+
+  .admin-content > .admin-project-status-page {
+    min-height: calc(100vh - 64px);
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero {
+    min-height: 165px;
+
+    padding: 28px 30px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero h1 {
+    font-size: 27px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero p {
+    font-size: 12px;
+  }
+
+
+  .admin-project-status-page
+  .project-table-heading {
+    padding: 12px 15px;
+  }
+
+
+  .admin-project-status-page
+  .admin-data-table {
+    min-width: 760px;
+  }
+
+
+  .admin-project-status-page
+  .admin-data-table
+  thead
+  th {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+
+  .admin-project-status-page
+  .admin-data-table
+  tbody
+  td {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+  .admin-project-status-page {
+    min-height: calc(100vh - 64px);
+
+    padding: 14px 14px 28px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero {
+    min-height: 150px;
+
+    margin-bottom: 12px;
+
+    padding: 24px 22px;
+
+    border-radius: 14px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-eyebrow {
+    font-size: 9px;
+
+    letter-spacing: 1.3px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero h1 {
+    font-size: 23px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero p {
+    margin-top: 7px;
+
+    font-size: 11px;
+  }
+
+
+  .admin-project-status-page
+  .admin-toolbar {
+    min-height: 48px;
+
+    padding: 6px 8px;
+
+    align-items: flex-start;
+
+    flex-direction: column;
+
+    gap: 7px;
+  }
+
+
+  .admin-project-status-page
+  .admin-toolbar input {
+    width: 100%;
+  }
+
+
+  .admin-project-status-page
+  .admin-field {
+    width: 100%;
+
+    justify-content: space-between;
+  }
+
+
+  .admin-project-status-page
+  .admin-field select {
+    min-width: 130px;
+  }
+
+
+  .admin-project-status-page
+  .admin-card {
+    border-radius: 12px;
+  }
+
+
+  .admin-project-status-page
+  .project-table-heading {
+    min-height: 62px;
+
+    padding: 11px 13px;
+  }
+
+
+  .admin-project-status-page
+  .project-table-heading h2 {
+    font-size: 15px;
+  }
+
+
+  .admin-project-status-page
+  .project-table-heading p {
+    font-size: 10px;
+  }
+
+
+  .admin-project-status-page
+  .project-count {
+    font-size: 9px;
+  }
+
+
+  .admin-project-status-page
+  .admin-data-table {
+    min-width: 760px;
+  }
+
+
+  .admin-project-status-page
+  .admin-data-table
+  thead
+  th {
+    height: 36px;
+
+    padding: 0 11px;
+
+    font-size: 8px;
+  }
+
+
+  .admin-project-status-page
+  .admin-data-table
+  tbody
+  td {
+    padding: 6px 11px;
+
+    font-size: 10px;
+  }
+
+
+  .admin-project-status-page
+  .admin-cell-primary {
+    font-size: 10px;
+  }
+
+
+  .admin-project-status-page
+  .admin-cell-secondary {
+    font-size: 8px;
+  }
+
+
+  .admin-project-status-page
+  .project-code {
+    font-size: 8px;
+
+    padding: 4px 7px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-badge {
+    font-size: 8px;
+
+    padding: 4px 7px;
+  }
+
+
+  .admin-project-status-page
+  .project-process {
+    font-size: 9px;
+  }
+
+
+  .admin-project-status-page
+  .admin-note {
+    font-size: 8px;
+  }
+
+}
+
+
+/* =========================================================
+   VERY SMALL MOBILE
+   ========================================================= */
+
+@media (max-width: 420px) {
+
+  .admin-project-status-page {
+    padding: 10px 10px 24px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero {
+    min-height: 140px;
+
+    padding: 20px 18px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero h1 {
+    font-size: 21px;
+  }
+
+
+  .admin-project-status-page
+  .project-status-hero p {
+    font-size: 10px;
+  }
+
+
+  .admin-project-status-page
+  .project-table-heading {
+    align-items: flex-start;
+
+    flex-direction: column;
+
+    gap: 6px;
+  }
+
+
+  .admin-project-status-page
+  .project-count {
+    align-self: flex-start;
+  }
+
+}

@@ -95,6 +95,7 @@ from .models import (
     PurchaseOrder,
     PurchaseOrderNumberSettings,
     Customer,
+    UserProfile,
 )
 from .serializers import PurchaseOrderSerializer
 from .permissions import IsAccounts
@@ -117,11 +118,31 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
 from .models import User
 from .serializers import ChangePasswordSerializer, LoginSerializer, ProfileSerializer
-from .permissions import IsERPAdmin, IsMaterialPlanning
+from .permissions import IsERPAdmin, IsMaterialPlanning , IsAccounts, IsERPAdmin
 
 from .serializers import LoginSerializer
+from django.conf import settings
+from django.utils import timezone
+from django.middleware.csrf import get_token
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework import status
+
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+
+from .models import UserProfile
 
 
+def get_refresh_cookie_name(user_type):
+    """
+    Return the refresh-cookie name for a supported department.
+    """
+    cookie_names = getattr(settings, "REFRESH_COOKIE_NAMES", {})
+
+    return cookie_names.get(user_type)
 class LoginAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -140,6 +161,26 @@ class LoginAPIView(APIView):
 
         user = serializer.validated_data["user"]
 
+        # Select the cookie based on the authenticated user's
+        # actual department, not an unverified request value.
+        user_type = user.user_type
+        cookie_name = get_refresh_cookie_name(user_type)
+
+        if not cookie_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Unsupported user department.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Update the user's last-login time.
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.last_login = timezone.now()
+        profile.save(update_fields=["last_login", "updated_at"])
+
+        # Generate the tokens.
         refresh = RefreshToken.for_user(user)
         access = refresh.access_token
 
@@ -151,56 +192,168 @@ class LoginAPIView(APIView):
                 "user": {
                     "id": user.id,
                     "username": user.username,
-                    "user_type": user.user_type,
+                    "user_type": user_type,
                 },
             },
             status=status.HTTP_200_OK,
         )
 
-        # Refresh token goes ONLY into HttpOnly cookie
+        # Store the refresh token in a department-specific
+        # HttpOnly cookie.
         response.set_cookie(
-            key=settings.REFRESH_COOKIE_NAME,
+            key=cookie_name,
             value=str(refresh),
-            max_age=7 * 24 * 60 * 60,
+            max_age=settings.REFRESH_COOKIE_MAX_AGE,
             httponly=settings.REFRESH_COOKIE_HTTPONLY,
             secure=settings.REFRESH_COOKIE_SECURE,
             samesite=settings.REFRESH_COOKIE_SAMESITE,
             path=settings.REFRESH_COOKIE_PATH,
         )
 
-        # Creates Django CSRF cookie
+        # Preserve the existing CSRF-cookie behavior.
         get_token(request)
 
         return response
-    
-class RefreshTokenAPIView(APIView):
-    permission_classes = [AllowAny]
+from django.conf import settings
+from django.contrib.auth import get_user_model
 
-    def post(self, request):
-        refresh_token = request.COOKIES.get(
-            settings.REFRESH_COOKIE_NAME
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from rest_framework_simplejwt.exceptions import (
+    InvalidToken,
+    TokenError,
+)
+from rest_framework_simplejwt.tokens import (
+    RefreshToken,
+)
+
+User = get_user_model()
+
+
+class RefreshTokenAPIView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request, user_type):
+        valid_user_types = {
+            "admin",
+            "accounts",
+            "hr",
+            "material-planning",
+            "production",
+            "supervisor",
+        }
+
+        if user_type not in valid_user_types:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid department.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cookie_names = getattr(
+            settings,
+            "REFRESH_COOKIE_NAMES",
+            {},
         )
+
+        cookie_name = cookie_names.get(user_type)
+
+        if not cookie_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Refresh cookie is not configured.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        refresh_token = request.COOKIES.get(cookie_name)
 
         if not refresh_token:
             return Response(
                 {
                     "success": False,
-                    "message": "Refresh token not found.",
+                    "message": "Refresh token is missing.",
                 },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        serializer = TokenRefreshSerializer(
-            data={
-                "refresh": refresh_token
-            }
-        )
-
         try:
-            serializer.is_valid(raise_exception=True)
+            refresh = RefreshToken(refresh_token)
 
-        except Exception:
-            response = Response(
+            # Retrieve the user ID from the validated token.
+            user_id = refresh.get(
+                settings.SIMPLE_JWT.get(
+                    "USER_ID_CLAIM",
+                    "user_id",
+                )
+            )
+
+            if user_id is None:
+                raise InvalidToken("User ID is missing from token.")
+
+            user = User.objects.get(
+                **{
+                    settings.SIMPLE_JWT.get(
+                        "USER_ID_FIELD",
+                        "id",
+                    ): user_id
+                }
+            )
+
+            # Do not allow a department to restore another
+            # department's session.
+            if user.user_type != user_type:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Department mismatch.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            # Reject disabled accounts.
+            if not user.is_active:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "This account is inactive.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            # Create a new access token.
+            access_token = str(refresh.access_token)
+
+            return Response(
+                {
+                    "success": True,
+                    "access": access_token,
+                    "user": {
+                        "id": user.pk,
+                        "username": user.get_username(),
+                        "user_type": user.user_type,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except User.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "User not found.",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        except (TokenError, InvalidToken):
+            return Response(
                 {
                     "success": False,
                     "message": "Refresh token is invalid or expired.",
@@ -208,57 +361,42 @@ class RefreshTokenAPIView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-            response.delete_cookie(
-                settings.REFRESH_COOKIE_NAME,
-                path=settings.REFRESH_COOKIE_PATH,
-            )
 
-            return response
-
-        data = serializer.validated_data
-
-        new_access = data["access"]
-
-        response_data = {
-            "success": True,
-            "access": new_access,
-        }
-
-        response = Response(
-            response_data,
-            status=status.HTTP_200_OK,
-        )
-
-        
-        new_refresh = data.get("refresh")
-
-        if new_refresh:
-            response.set_cookie(
-                key=settings.REFRESH_COOKIE_NAME,
-                value=new_refresh,
-                max_age=7 * 24 * 60 * 60,
-                httponly=settings.REFRESH_COOKIE_HTTPONLY,
-                secure=settings.REFRESH_COOKIE_SECURE,
-                samesite=settings.REFRESH_COOKIE_SAMESITE,
-                path=settings.REFRESH_COOKIE_PATH,
-            )
-
-        return response
-
+            
 class LogoutAPIView(APIView):
     permission_classes = [AllowAny]
 
-    def post(self, request):
-        refresh_token = request.COOKIES.get(
-            settings.REFRESH_COOKIE_NAME
-        )
+    def post(self, request, user_type):
+        cookie_name = get_refresh_cookie_name(user_type)
 
+        if not cookie_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Unsupported user department.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        refresh_token = request.COOKIES.get(cookie_name)
+
+        # Revoke the refresh token when possible.
         if refresh_token:
             try:
                 token = RefreshToken(refresh_token)
                 token.blacklist()
             except Exception:
+                # Continue clearing the cookie even if the
+                # token is invalid or already expired.
                 pass
+
+        # Update logout time only for an authenticated request.
+        if request.user and request.user.is_authenticated:
+            profile, _ = UserProfile.objects.get_or_create(
+                user=request.user
+            )
+            profile.last_logout = timezone.now()
+            profile.save(update_fields=["last_logout", "updated_at"])
 
         response = Response(
             {
@@ -268,9 +406,11 @@ class LogoutAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+        # Clear only this department's refresh cookie.
         response.delete_cookie(
-            key=settings.REFRESH_COOKIE_NAME,
+            key=cookie_name,
             path=settings.REFRESH_COOKIE_PATH,
+            samesite=settings.REFRESH_COOKIE_SAMESITE,
         )
 
         return response
@@ -1465,6 +1605,8 @@ def validate_image_upload(upload):
     return None
 
 
+from .services import sync_purchase_order_items
+
 
 @method_decorator(csrf_protect, name="dispatch")
 class PurchaseOrderConfirmAPIView(APIView):
@@ -1473,195 +1615,21 @@ class PurchaseOrderConfirmAPIView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, po_number):
-
-        with transaction.atomic():
-
-            # ============================================================
-            # 1. Session check (HttpOnly refresh cookie)
-            # ============================================================
-
-            refresh_token = request.COOKIES.get(
-                settings.REFRESH_COOKIE_NAME
-            )
-
-            if not refresh_token:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Session not found. Please login again.",
-                    },
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            try:
-                token = RefreshToken(refresh_token)
-                user_id = token.get("user_id")
-            except Exception:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Session is invalid or expired.",
-                    },
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            try:
-                user = User.objects.get(id=user_id)
-            except User.DoesNotExist:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Session user no longer exists.",
-                    },
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            # ============================================================
-            # 2. Accounts-department check (same rule as IsAccounts)
-            # ============================================================
-
-            if user.user_type != User.UserType.ACCOUNTS:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Accounts access required.",
-                    },
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            # ============================================================
-            # 3. Locate the Purchase Order (locked)
-            # ============================================================
-
-            try:
-                purchase_order = (
-                    PurchaseOrder.objects
-                    .select_for_update()
-                    .get(po_number=po_number)
-                )
-            except PurchaseOrder.DoesNotExist:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Purchase Order not found.",
-                    },
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            # ============================================================
-            # 4. Read the uploaded PDF
-            # ============================================================
-
-            pdf_file = request.FILES.get("pdf")
-
-            if not pdf_file:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "No PDF file was uploaded.",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            pdf_error = validate_pdf_upload(pdf_file)
-            if pdf_error:
-                return Response(
-                    {"success": False, "message": pdf_error},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # ============================================================
-            # 5. Save PDF under MEDIA/PO/PDF/
-            # ============================================================
-
-            safe_po = (
-                str(po_number)
-                .replace("/", "-")
-                .replace("\\", "-")
-            )
-            filename = f"{safe_po}.pdf"
-
-            # Overwrite any previous file so re-printing stays clean.
-            if purchase_order.pdf_file:
-                try:
-                    purchase_order.pdf_file.delete(save=False)
-                except Exception:
-                    pass
-
-            purchase_order.pdf_file.save(
-                filename,
-                ContentFile(pdf_file.read()),
-                save=False,
-            )
-
-            # ============================================================
-            # 6. Flip status to confirmed
-            # ============================================================
-
-            was_already_confirmed = (
-                purchase_order.status
-                == PurchaseOrder.Status.CONFIRMED
-            )
-
-            purchase_order.status = PurchaseOrder.Status.CONFIRMED
-
-            purchase_order.save(
-                update_fields=[
-                    "pdf_file",
-                    "status",
-                    "updated_at",
-                ]
-            )
-
-            # ============================================================
-            # 7. Advance the PO number counter
-            # ------------------------------------------------------------
-            # Only on the first confirmation. Re-printing an
-            # already-confirmed PO must NOT consume another number.
-            # ============================================================
-
-            if not was_already_confirmed:
-
-                settings_obj = (
-                    PurchaseOrderNumberSettings.objects
-                    .select_for_update()
-                    .filter(is_active=True)
-                    .first()
-                )
-
-                if settings_obj:
-
-                    settings_obj.next_number += 1
-
-                    settings_obj.save(
-                        update_fields=[
-                            "next_number",
-                            "updated_at",
-                        ]
-                    )
-
-            # ============================================================
-            # 8. Response
-            # ============================================================
-
-            serializer = PurchaseOrderSerializer(purchase_order)
-
+        try:
+            po = PurchaseOrder.objects.get(po_number=po_number)
+        except PurchaseOrder.DoesNotExist:
             return Response(
-                {
-                    "success": True,
-                    "message": "Purchase Order confirmed and PDF saved.",
-                    "data": serializer.data,
-                    "pdf_url": (
-                        request.build_absolute_uri(
-                            purchase_order.pdf_file.url
-                        )
-                        if purchase_order.pdf_file
-                        else None
-                    ),
-                },
-                status=status.HTTP_200_OK,
+                {"detail": "Purchase Order not found."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
+        po.status = PurchaseOrder.Status.CONFIRMED
+        po.save(update_fields=["status", "updated_at"])
+
+        # Side effect runs exactly once per confirm, explicitly.
+        sync_purchase_order_items(po)
+
+        return Response(PurchaseOrderSerializer(po).data)
 
 # for quotation module
 class QuotationNextNumberAPIView(APIView):
@@ -4508,7 +4476,6 @@ from .serializers import (
     AccountsReportRowSerializer,
     StatusUpdateSerializer,
 )
-
 @method_decorator(csrf_protect, name="dispatch")
 class AccountsReportStatusAPIView(APIView):
     """
@@ -4583,6 +4550,32 @@ class AccountsReportStatusAPIView(APIView):
             )
 
         # ============================================================
+        # 4b. Final-state guard
+        #     Once payment is PAID and delivery is DELIVERED,
+        #     the document is locked and status can no longer change.
+        # ============================================================
+        payment_final = str(obj.payment_status or "").upper() == "PAID"
+        delivery_final = str(obj.delivery_status or "").upper() == "DELIVERED"
+
+        if payment_final and delivery_final:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "This document is already completed "
+                        "(payment: PAID, delivery: DELIVERED) "
+                        "and its status can no longer be changed."
+                    ),
+                    "data": {
+                        "id": f"{short_upper}-{obj.id}",
+                        "payment_status": obj.payment_status,
+                        "delivery_status": obj.delivery_status,
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # ============================================================
         # 5. Validate payload
         # ============================================================
         serializer = StatusUpdateSerializer(data=request.data)
@@ -4627,7 +4620,6 @@ class AccountsReportStatusAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 
 #for expense
 
@@ -9214,7 +9206,27 @@ from .models import (
 )
 
 
+from django.conf import settings
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
 
+
+class CompanyBankDetailsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        bank_details = settings.COMPANY_BANK_DETAILS
+
+        return Response(
+            {
+                "success": True,
+                "message": "Company bank details retrieved successfully",
+                "data": bank_details,
+            },
+            status=status.HTTP_200_OK,
+        )
 # =========================================================
 # PO ITEM CONSUMABLE ISSUE CHECK
 # =========================================================
@@ -18280,3 +18292,1494 @@ class ContactUsAPIView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+
+class AdminModulesAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        modules = [
+            {
+                "key": "dashboard",
+                "title": "Dashboard",
+                "description": "Overview of administrative activities.",
+                "path": "/admin/dashboard",
+            },
+            {
+                "key": "statistics",
+                "title": "Statistics",
+                "description": "View administrative statistics and reports.",
+                "path": "/admin/statistics",
+            },
+            {
+                "key": "attendance",
+                "title": "Attendance",
+                "description": "Monitor employee attendance records.",
+                "path": "/admin/attendance",
+            },
+            {
+                "key": "po-pending-grn",
+                "title": "PO Pending GRN",
+                "description": "Track purchase orders pending goods receipt.",
+                "path": "/admin/po-pending-grn",
+            },
+            {
+                "key": "pending-customer-payment",
+                "title": "Pending Customer Payments",
+                "description": "Monitor outstanding customer payments.",
+                "path": "/admin/pending-customer-payment",
+            },
+            {
+                "key": "project-status",
+                "title": "Project Status",
+                "description": "Track project progress and status.",
+                "path": "/admin/project-status",
+            },
+            {
+                "key": "document-number",
+                "title": "Document Number",
+                "description": "Manage document numbering information.",
+                "path": "/admin/document-number",
+            },
+            {
+                "key": "buffer-stock",
+                "title": "Buffer Stock",
+                "description": "Monitor buffer stock information.",
+                "path": "/admin/buffer-stock",
+            },
+        ]
+
+        return Response({
+            "success": True,
+            "count": len(modules),
+            "results": modules,
+        })
+
+
+
+
+from django.db.models import Q
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from .models import ContactRequest
+
+
+class AdminContactRequestsAPIView(APIView):
+
+    permission_classes = [IsAuthenticated , IsERPAdmin]
+
+    def get(self, request):
+        queryset = ContactRequest.objects.all()
+
+        # Search
+        search = request.query_params.get("search", "").strip()
+
+        if search:
+            search_query = (
+                Q(employee_id__icontains=search)
+                | Q(subject__icontains=search)
+            )
+
+            bug_id = search.upper()
+
+            if bug_id.startswith("BUG-"):
+                database_id = bug_id[4:]
+
+                if database_id.isdigit():
+                    search_query |= Q(id=int(database_id))
+
+            queryset = queryset.filter(search_query)
+
+        # Filter by issue status
+        issue_status = request.query_params.get("issue_status")
+
+        if issue_status:
+            issue_status = issue_status.upper()
+
+            if issue_status not in ["OPEN", "CLOSED"]:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "issue_status must be OPEN or CLOSED.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            queryset = queryset.filter(issue_status=issue_status)
+
+        # Filter by priority
+        priority = request.query_params.get("priority")
+
+        if priority:
+            priority = priority.upper()
+
+            if priority not in ["HIGH", "MEDIUM", "LOW"]:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Invalid priority.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            queryset = queryset.filter(priority=priority)
+
+        total_count = queryset.count()
+        open_count = queryset.filter(issue_status="OPEN").count()
+        closed_count = queryset.filter(issue_status="CLOSED").count()
+
+        results = [
+            {
+                "id": contact.id,
+                "bug_id": f"BUG-{contact.id}",
+                "employee_id": contact.employee_id,
+                "subject": contact.subject,
+                "message": contact.message,
+                "priority": contact.priority,
+                "inform_admin": contact.inform_admin,
+                "email_status": contact.status,
+                "is_open": contact.issue_status == "OPEN",
+                "issue_status": contact.issue_status,
+                "closed_by": contact.closed_by,
+                "email_sent_at": contact.email_sent_at,
+                "email_error": contact.email_error,
+                "created_at": contact.created_at,
+                "updated_at": contact.updated_at,
+            }
+            for contact in queryset
+        ]
+
+        return Response({
+            "success": True,
+            "request_count": total_count,
+            "open_count": open_count,
+            "closed_count": closed_count,
+            "results": results,
+        })
+
+    def post(self, request):
+        employee_id = request.data.get("employee_id")
+        subject = request.data.get("subject")
+        message = request.data.get("message")
+
+        priority = request.data.get("priority", "MEDIUM").upper()
+        inform_admin = request.data.get("inform_admin", False)
+
+        # Validate required fields
+        if not employee_id or not subject or not message:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "employee_id, subject, and message are required."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if priority not in ["HIGH", "MEDIUM", "LOW"]:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Priority must be HIGH, MEDIUM, or LOW.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(inform_admin, bool):
+            return Response(
+                {
+                    "success": False,
+                    "message": "inform_admin must be a boolean.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Create contact request
+        contact = ContactRequest.objects.create(
+            employee_id=employee_id,
+            subject=subject,
+            message=message,
+            priority=priority,
+            inform_admin=inform_admin,
+            issue_status="OPEN",
+            closed_by=None,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Contact request created successfully.",
+                "data": {
+                    "id": contact.id,
+                    "bug_id": f"BUG-{contact.id}",
+                    "employee_id": contact.employee_id,
+                    "subject": contact.subject,
+                    "message": contact.message,
+                    "priority": contact.priority,
+                    "inform_admin": contact.inform_admin,
+                    "email_status": contact.status,
+                    "is_open": contact.issue_status == "OPEN",
+                    "issue_status": contact.issue_status,
+                    "closed_by": contact.closed_by,
+                    "created_at": contact.created_at,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    def patch(self, request, pk):
+        try:
+            contact = ContactRequest.objects.get(pk=pk)
+        except ContactRequest.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Contact request not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        issue_status = str(request.data.get("issue_status", "")).upper()
+        closed_by = str(request.data.get("closed_by", "")).strip()
+
+        if issue_status != "CLOSED":
+            return Response(
+                {"success": False, "message": "issue_status must be CLOSED."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if closed_by not in ["ADMIN", "NXTGENZ"]:
+            return Response(
+                {"success": False, "message": "closed_by must be ADMIN or NXTGENZ."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        contact.issue_status = "CLOSED"
+        contact.closed_by = closed_by
+        contact.save(update_fields=["issue_status", "closed_by", "updated_at"])
+
+        return Response({
+            "success": True,
+            "message": "Request closed successfully.",
+            "data": {
+                "id": contact.id,
+                "bug_id": f"BUG-{contact.id}",
+                "issue_status": contact.issue_status,
+                "closed_by": contact.closed_by,
+                "updated_at": contact.updated_at,
+            },
+        })
+
+
+
+
+# ============================================================
+# ADMIN — ATTENDANCE
+# ------------------------------------------------------------
+# GET /erp/admin/attendance/
+#
+# Query params:
+#   date         YYYY-MM-DD            (anchor date, default today)
+#   period       day|week|month|quarter|year|custom   (default "day")
+#   from         YYYY-MM-DD            (only when period=custom)
+#   to           YYYY-MM-DD            (only when period=custom)
+#   department   <exact dept name>     (optional)
+#   status       PRESENT|HALF_DAY|WFH|ON_LEAVE   (optional)
+#
+# Response shape matches AdminAttendance.jsx exactly:
+#   { success, date, period, from, to, summary, present[], leave[] }
+# ============================================================
+"""
+Admin → Attendance API
+======================
+
+GET /erp/admin/attendance/
+
+Query params
+------------
+period       day | week | month | quarter | year | custom        (default: day)
+date         YYYY-MM-DD anchor date                              (default: today)
+month, year  only for period=month → explicit month (1-12) / year
+from, to     only for period=custom
+department   exact department name ("all" / empty = no filter)
+status       PRESENT | HALF_DAY | WFH | ON_LEAVE | PAID_LEAVE | UNPAID_LEAVE
+employee_id  Employee PK → returns that employee's day-by-day calendar for
+             the resolved window instead of the list payload
+
+Optional business-rule settings (django settings.py) — nothing is assumed:
+    ERP_ATTENDANCE_WEEKLY_OFF_WEEKDAYS = [6]                 # Monday=0 … Sunday=6
+    ERP_ATTENDANCE_HOLIDAYS = {"2026-10-20": "Deepavali"}    # ISO date → name
+    ERP_ATTENDANCE_AUTO_ABSENT = False                       # True → a past working
+                                                             # day with no record = Absent
+"""
+import calendar
+from collections import defaultdict
+from datetime import date as _date, timedelta
+
+from django.conf import settings
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Attendance, Employee
+from .permissions import IsERPAdmin  # ← keep whatever import path you already use
+
+
+# ------------------------------------------------------------
+# Attendance status groups (values stored in Attendance.status)
+# ------------------------------------------------------------
+ATTENDANCE_PRESENT_STATUSES = ["PRESENT", "HALF_DAY", "WFH"]
+ATTENDANCE_LEAVE_STATUSES = ["PAID_LEAVE", "UNPAID_LEAVE"]
+ATTENDANCE_OFF_STATUSES = ["ABSENT", "HOLIDAY", "WEEKLY_OFF"]
+
+STATUS_LABELS = {
+    "PRESENT": "Present",
+    "HALF_DAY": "Half Day",
+    "WFH": "Work From Home",
+    "PAID_LEAVE": "Paid Leave",
+    "UNPAID_LEAVE": "Unpaid Leave",
+    "ON_LEAVE": "On Leave",
+    "ABSENT": "Absent",
+    "HOLIDAY": "Holiday",
+    "WEEKLY_OFF": "Weekly Off",
+    "NOT_MARKED": "Not Marked",
+}
+
+VALID_PERIODS = ("day", "week", "month", "quarter", "year", "custom")
+WEEKDAY_NAMES = [
+    "Monday", "Tuesday", "Wednesday", "Thursday",
+    "Friday", "Saturday", "Sunday",
+]
+
+MAX_WINDOW_DAYS = 3700       # protects list/summary queries
+MAX_DETAIL_DAYS = 400        # protects the day-by-day calendar
+
+# The pasted code never referenced a logout field, so it is detected at
+# import time instead of assumed. Add your real field name here if it differs.
+_ATTENDANCE_FIELD_NAMES = {f.name for f in Attendance._meta.get_fields()}
+LOGOUT_FIELD = next(
+    (
+        name
+        for name in ("logout_time", "logout", "check_out_time", "check_out")
+        if name in _ATTENDANCE_FIELD_NAMES
+    ),
+    None,
+)
+
+ATTENDANCE_VALUE_FIELDS = [
+    "id", "employee_id", "date", "status",
+    "login_time", "working_hours", "daily_wage",
+] + ([LOGOUT_FIELD] if LOGOUT_FIELD else [])
+
+
+# ------------------------------------------------------------
+# Small helpers
+# ------------------------------------------------------------
+def _parse_iso_date(value, default=None):
+    if not value:
+        return default
+    try:
+        return _date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _iter_days(start, end):
+    current = start
+    while current <= end:
+        yield current
+        current += timedelta(days=1)
+
+
+def _status_label(code):
+    return STATUS_LABELS.get(code) or str(code or "").replace("_", " ").title()
+
+
+def _format_time_12h(value):
+    if not value or not hasattr(value, "strftime"):
+        return ""
+    return value.strftime("%I:%M %p").lstrip("0")
+
+
+def _employee_meta(employee):
+    """Fields every row carries so the frontend needs no second lookup."""
+    return {
+        "employee_name": employee.full_name or employee.employee_id,
+        "employee_code": employee.employee_id,
+        "designation": employee.designation or "",
+        "department": employee.department or "",
+    }
+
+
+def _resolve_attendance_window(anchor, period, from_date, to_date):
+    """Return (start, end) inclusive dates for the requested period."""
+    period = (period or "day").lower()
+
+    if period == "custom":
+        start = from_date or anchor
+        end = to_date or anchor
+        if end < start:
+            start, end = end, start
+        return start, end
+
+    if period == "day":
+        return anchor, anchor
+
+    if period == "week":  # Monday → Sunday
+        start = anchor - timedelta(days=anchor.weekday())
+        return start, start + timedelta(days=6)
+
+    if period == "month":
+        start = anchor.replace(day=1)
+        last_day = calendar.monthrange(anchor.year, anchor.month)[1]
+        return start, anchor.replace(day=last_day)
+
+    if period == "quarter":
+        q_start_month = ((anchor.month - 1) // 3) * 3 + 1
+        q_end_month = q_start_month + 2
+        last_day = calendar.monthrange(anchor.year, q_end_month)[1]
+        return (
+            _date(anchor.year, q_start_month, 1),
+            _date(anchor.year, q_end_month, last_day),
+        )
+
+    if period == "year":
+        return _date(anchor.year, 1, 1), _date(anchor.year, 12, 31)
+
+    return anchor, anchor
+
+
+def _resolve_request_window(params, today):
+    """
+    Validate query params and return (anchor, period, start, end).
+    Raises ValueError with a user-safe message on bad input — invalid
+    dates are rejected instead of silently falling back to today.
+    """
+    period = (params.get("period") or "day").lower()
+    if period not in VALID_PERIODS:
+        raise ValueError("Invalid period.")
+
+    raw_date = params.get("date")
+    anchor = _parse_iso_date(raw_date) if raw_date else today
+    if anchor is None:
+        raise ValueError("Invalid date. Use YYYY-MM-DD.")
+
+    # Explicit month + year picker (period=month)
+    if period == "month":
+        month_raw, year_raw = params.get("month"), params.get("year")
+        if month_raw or year_raw:
+            try:
+                month_i = int(month_raw) if month_raw else anchor.month
+                year_i = int(year_raw) if year_raw else anchor.year
+                if not 1900 <= year_i <= 2200:
+                    raise ValueError
+                anchor = _date(year_i, month_i, 1)
+            except (TypeError, ValueError):
+                raise ValueError("Invalid month or year.")
+
+    from_date = to_date = None
+    if period == "custom":
+        if params.get("from"):
+            from_date = _parse_iso_date(params.get("from"))
+            if from_date is None:
+                raise ValueError("Invalid 'from' date. Use YYYY-MM-DD.")
+        if params.get("to"):
+            to_date = _parse_iso_date(params.get("to"))
+            if to_date is None:
+                raise ValueError("Invalid 'to' date. Use YYYY-MM-DD.")
+
+    start, end = _resolve_attendance_window(anchor, period, from_date, to_date)
+
+    if (end - start).days + 1 > MAX_WINDOW_DAYS:
+        raise ValueError("Date range is too large.")
+
+    return anchor, period, start, end
+
+
+# ------------------------------------------------------------
+# Company calendar rules (settings-driven, nothing invented)
+# ------------------------------------------------------------
+def _weekly_off_weekdays():
+    raw = getattr(settings, "ERP_ATTENDANCE_WEEKLY_OFF_WEEKDAYS", ()) or ()
+    out = set()
+    for item in raw:
+        try:
+            value = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= value <= 6:
+            out.add(value)
+    return out
+
+
+def _configured_holidays(start, end):
+    raw = getattr(settings, "ERP_ATTENDANCE_HOLIDAYS", {}) or {}
+    out = {}
+    for key, name in raw.items():
+        day = key if isinstance(key, _date) else _parse_iso_date(key)
+        if day and start <= day <= end:
+            out[day] = str(name or "Holiday")
+    return out
+
+
+def _auto_absent_enabled():
+    return bool(getattr(settings, "ERP_ATTENDANCE_AUTO_ABSENT", False))
+
+
+def _build_day_rules(start, end):
+    """{date: (status_code, note)} for configured holidays / weekly offs."""
+    holidays = _configured_holidays(start, end)
+    weekly_off = _weekly_off_weekdays()
+    rules = {}
+    for day in _iter_days(start, end):
+        if day in holidays:
+            rules[day] = ("HOLIDAY", holidays[day])
+        elif day.weekday() in weekly_off:
+            rules[day] = ("WEEKLY_OFF", "")
+    return rules
+
+
+def _rules_config():
+    return {
+        "weekly_off_weekdays": sorted(_weekly_off_weekdays()),
+        "holidays_configured": bool(getattr(settings, "ERP_ATTENDANCE_HOLIDAYS", None)),
+        "auto_absent": _auto_absent_enabled(),
+        "rules_configured": bool(
+            _weekly_off_weekdays()
+            or getattr(settings, "ERP_ATTENDANCE_HOLIDAYS", None)
+            or _auto_absent_enabled()
+        ),
+        "supports_logout": LOGOUT_FIELD is not None,
+    }
+
+
+def _classify_day(day, record, rules, auto_absent, today):
+    """
+    One place that decides what a calendar day is.
+    Returns (status_code, source, note).
+
+      1. A stored attendance record always wins.
+      2. Configured holiday / weekly off.
+      3. Auto-absent (only if enabled in settings, only for past days).
+      4. Otherwise NOT_MARKED — a missing record is NOT an absence.
+    """
+    if record is not None:
+        return record["status"], "record", ""
+    rule = rules.get(day)
+    if rule:
+        return rule[0], "rule", rule[1]
+    if auto_absent and day < today:
+        return "ABSENT", "rule", ""
+    return "NOT_MARKED", "none", ""
+
+
+# ------------------------------------------------------------
+# Tallies — used by BOTH the monthly list and the daily modal,
+# so totals can never disagree with the daily rows.
+# ------------------------------------------------------------
+def _empty_tally():
+    return {
+        "days_worked": 0,
+        "present_days": 0,
+        "half_days": 0,
+        "wfh_days": 0,
+        "leave_days": 0,
+        "absent_days": 0,
+        "holiday_days": 0,
+        "weekly_off_days": 0,
+        "not_marked_days": 0,   # elapsed days only
+        "upcoming_days": 0,     # future days with nothing recorded
+        "other_days": 0,
+        "total_hours": 0.0,
+        "total_wage": 0.0,
+        "latest_working_status": "",
+        "latest_leave_status": "",
+    }
+
+
+_WORKING_KEY = {
+    "PRESENT": "present_days",
+    "HALF_DAY": "half_days",
+    "WFH": "wfh_days",
+}
+
+
+def _tally_day(tally, day, code, record, today):
+    if code in ATTENDANCE_PRESENT_STATUSES:
+        tally["days_worked"] += 1
+        tally[_WORKING_KEY[code]] += 1
+        tally["latest_working_status"] = code
+        if record is not None:
+            tally["total_hours"] += float(record.get("working_hours") or 0)
+            tally["total_wage"] += float(record.get("daily_wage") or 0)
+    elif code in ATTENDANCE_LEAVE_STATUSES:
+        tally["leave_days"] += 1
+        tally["latest_leave_status"] = code
+    elif code == "ABSENT":
+        tally["absent_days"] += 1
+    elif code == "HOLIDAY":
+        tally["holiday_days"] += 1
+    elif code == "WEEKLY_OFF":
+        tally["weekly_off_days"] += 1
+    elif code == "NOT_MARKED":
+        if day > today:
+            tally["upcoming_days"] += 1
+        else:
+            tally["not_marked_days"] += 1
+    else:
+        tally["other_days"] += 1
+
+
+def _public_tally(tally):
+    out = dict(tally)
+    out["total_hours"] = round(out["total_hours"], 2)
+    out["total_wage"] = round(out["total_wage"], 2)
+    out.pop("latest_working_status", None)
+    out.pop("latest_leave_status", None)
+    return out
+
+
+def _headline_status(tally):
+    """Single status shown in the monthly list for one employee."""
+    if tally["latest_working_status"]:
+        return tally["latest_working_status"]
+    if tally["latest_leave_status"]:
+        return tally["latest_leave_status"]
+    if tally["absent_days"]:
+        return "ABSENT"
+    if tally["not_marked_days"]:
+        return "NOT_MARKED"
+    if tally["holiday_days"]:
+        return "HOLIDAY"
+    if tally["weekly_off_days"]:
+        return "WEEKLY_OFF"
+    return "NOT_MARKED"
+
+
+def _record_matches_filter(record, status_filter):
+    if status_filter in ("", "ALL"):
+        return True
+    if status_filter == "ON_LEAVE":
+        return record["status"] in ATTENDANCE_LEAVE_STATUSES
+    return record["status"] == status_filter
+
+
+class AdminAttendanceAPIView(APIView):
+    """
+    Single endpoint driving the Admin → Attendance page.
+
+    The frontend sends period + date (or month/year, or from/to for custom)
+    plus optional department / status filters. The window is resolved
+    server-side and echoed back as from / to.
+    """
+
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        params = request.query_params
+        today = timezone.localdate()
+
+        # ======================================================
+        # 1. RESOLVE + VALIDATE WINDOW
+        # ======================================================
+        try:
+            anchor, period, start, end = _resolve_request_window(params, today)
+        except ValueError as exc:
+            return Response(
+                {"success": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        department = (params.get("department") or "").strip()
+        status_filter = (params.get("status") or "").strip().upper()
+
+        base_employees = Employee.objects.filter(
+            archived=False,
+            employment_status="Active",
+        )
+
+        rules = _build_day_rules(start, end)
+        auto_absent = _auto_absent_enabled()
+        config = _rules_config()
+
+        # ======================================================
+        # 2. EMPLOYEE DAILY DETAIL (Eye button)
+        # ======================================================
+        employee_pk_raw = params.get("employee_id")
+        if employee_pk_raw:
+            try:
+                employee_pk = int(employee_pk_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {"success": False, "message": "Invalid employee_id."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if (end - start).days + 1 > MAX_DETAIL_DAYS:
+                return Response(
+                    {"success": False, "message": "Date range is too large for daily view."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Department filter is intentionally NOT applied here.
+            employee = base_employees.filter(id=employee_pk).first()
+            if not employee:
+                return Response(
+                    {"success": False, "message": "Employee not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            record_map = {
+                row["date"]: row
+                for row in (
+                    Attendance.objects
+                    .filter(employee_id=employee.id, date__gte=start, date__lte=end)
+                    .order_by("id")  # if duplicates exist, the newest row wins
+                    .values(*ATTENDANCE_VALUE_FIELDS)
+                )
+            }
+
+            tally = _empty_tally()
+            daily = []
+            for day in _iter_days(start, end):
+                record = record_map.get(day)
+                code, source, note = _classify_day(
+                    day, record, rules, auto_absent, today
+                )
+                _tally_day(tally, day, code, record, today)
+                daily.append({
+                    "date": day.isoformat(),
+                    "day_name": WEEKDAY_NAMES[day.weekday()],
+                    "status": code,
+                    "status_label": _status_label(code),
+                    "source": source,          # record | rule | none
+                    "note": note,
+                    "is_future": day > today,
+                    "login_time": _format_time_12h(record["login_time"]) if record else "",
+                    "logout_time": (
+                        _format_time_12h(record.get(LOGOUT_FIELD))
+                        if record and LOGOUT_FIELD else ""
+                    ),
+                    "working_hours": float(record["working_hours"] or 0) if record else 0,
+                    "daily_wage": float(record["daily_wage"] or 0) if record else 0,
+                })
+
+            return Response(
+                {
+                    "success": True,
+                    "date": anchor.isoformat(),
+                    "period": period,
+                    "from": start.isoformat(),
+                    "to": end.isoformat(),
+                    "employee": {"id": employee.id, **_employee_meta(employee)},
+                    "supports_logout": LOGOUT_FIELD is not None,
+                    "config": config,
+                    "totals": _public_tally(tally),
+                    "daily_attendance": daily,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # ======================================================
+        # 3. ACTIVE EMPLOYEES + ONE ATTENDANCE QUERY (no N+1)
+        # ======================================================
+        employees_qs = base_employees
+        if department and department.lower() != "all":
+            employees_qs = employees_qs.filter(department=department)
+
+        employees = list(employees_qs.order_by("employee_id"))
+        total_active = len(employees)
+
+        by_employee = defaultdict(dict)   # {emp_pk: {date: record}}
+        records = (
+            Attendance.objects
+            .filter(
+                employee_id__in=employees_qs.order_by().values("id"),
+                date__gte=start,
+                date__lte=end,
+            )
+            .order_by("id")               # later rows overwrite duplicates
+            .values(*ATTENDANCE_VALUE_FIELDS)
+        )
+        for row in records:
+            by_employee[row["employee_id"]][row["date"]] = row
+
+        # ======================================================
+        # 4. PER-EMPLOYEE TALLY OVER EVERY CALENDAR DAY
+        # ======================================================
+        all_days = list(_iter_days(start, end))
+        tallies = {}
+        for emp in employees:
+            emp_records = by_employee.get(emp.id, {})
+            tally = _empty_tally()
+            for day in all_days:
+                record = emp_records.get(day)
+                code, _source, _note = _classify_day(
+                    day, record, rules, auto_absent, today
+                )
+                _tally_day(tally, day, code, record, today)
+            tallies[emp.id] = tally
+
+        # ======================================================
+        # 5. SUMMARY (employee counts — match the table rows)
+        # ======================================================
+        summary = {
+            "present": sum(1 for e in employees if tallies[e.id]["days_worked"] > 0),
+            "on_leave": sum(1 for e in employees if tallies[e.id]["leave_days"] > 0),
+            "not_marked": sum(
+                1 for e in employees
+                if not by_employee.get(e.id) and tallies[e.id]["not_marked_days"] > 0
+            ),
+            "total_active": total_active,
+        }
+
+        day_totals = {
+            key: sum(tallies[e.id][key] for e in employees)
+            for key in (
+                "days_worked", "leave_days", "absent_days", "holiday_days",
+                "weekly_off_days", "not_marked_days", "upcoming_days",
+            )
+        }
+
+        # ======================================================
+        # 6. PRESENT ROWS
+        # ======================================================
+        present_rows = []
+
+        if status_filter in ("", "ALL", "PRESENT", "HALF_DAY", "WFH"):
+            wanted = (
+                [status_filter]
+                if status_filter in ATTENDANCE_PRESENT_STATUSES
+                else ATTENDANCE_PRESENT_STATUSES
+            )
+
+            for emp in employees:
+                emp_records = sorted(
+                    (
+                        r for r in by_employee.get(emp.id, {}).values()
+                        if r["status"] in wanted
+                    ),
+                    key=lambda r: r["date"],
+                )
+                if not emp_records:
+                    continue
+
+                meta = _employee_meta(emp)
+
+                if period == "day":
+                    rec = emp_records[0]
+                    present_rows.append({
+                        "id": rec["id"],
+                        **meta,
+                        "status": rec["status"],
+                        "login_time": _format_time_12h(rec["login_time"]),
+                        "working_hours": float(rec["working_hours"] or 0),
+                        "daily_wage": float(rec["daily_wage"] or 0),
+                        "days_worked": 1,
+                        "from_date": rec["date"].isoformat(),
+                        "to_date": rec["date"].isoformat(),
+                        "date": rec["date"].isoformat(),
+                    })
+                else:
+                    present_rows.append({
+                        "id": emp.id,
+                        **meta,
+                        "status": emp_records[-1]["status"],   # most recent
+                        "login_time": "",
+                        "working_hours": round(
+                            sum(float(r["working_hours"] or 0) for r in emp_records), 2
+                        ),
+                        "daily_wage": round(
+                            sum(float(r["daily_wage"] or 0) for r in emp_records), 2
+                        ),
+                        "days_worked": len(emp_records),
+                        "from_date": emp_records[0]["date"].isoformat(),
+                        "to_date": emp_records[-1]["date"].isoformat(),
+                    })
+
+        # ======================================================
+        # 7. LEAVE ROWS
+        # ======================================================
+        leave_rows = []
+
+        if status_filter in ("", "ALL", "ON_LEAVE", "PAID_LEAVE", "UNPAID_LEAVE"):
+            wanted_leave = (
+                [status_filter]
+                if status_filter in ATTENDANCE_LEAVE_STATUSES
+                else ATTENDANCE_LEAVE_STATUSES
+            )
+
+            for emp in employees:
+                emp_records = sorted(
+                    (
+                        r for r in by_employee.get(emp.id, {}).values()
+                        if r["status"] in wanted_leave
+                    ),
+                    key=lambda r: r["date"],
+                )
+                if not emp_records:
+                    continue
+
+                meta = _employee_meta(emp)
+
+                if period == "day":
+                    rec = emp_records[0]
+                    leave_rows.append({
+                        "id": rec["id"],
+                        **meta,
+                        "reason": _status_label(rec["status"]),
+                        "leave_days": 1,
+                        "from_date": rec["date"].isoformat(),
+                        "to_date": rec["date"].isoformat(),
+                    })
+                else:
+                    leave_rows.append({
+                        "id": emp.id,
+                        **meta,
+                        "reason": _status_label(emp_records[-1]["status"]),
+                        "leave_days": len(emp_records),
+                        "from_date": emp_records[0]["date"].isoformat(),
+                        "to_date": emp_records[-1]["date"].isoformat(),
+                    })
+
+        # ======================================================
+        # 8. MONTHLY LIST — every active employee, exactly once
+        # ======================================================
+        employee_rows = []
+
+        if period == "month":
+            for emp in employees:
+                emp_records = by_employee.get(emp.id, {})
+
+                if status_filter not in ("", "ALL") and not any(
+                    _record_matches_filter(r, status_filter)
+                    for r in emp_records.values()
+                ):
+                    continue
+
+                tally = tallies[emp.id]
+                headline = _headline_status(tally)
+
+                employee_rows.append({
+                    "id": emp.id,                  # Employee PK → used by the Eye button
+                    **_employee_meta(emp),
+                    "status": headline,
+                    "status_label": _status_label(headline),
+                    "days_worked": tally["days_worked"],
+                    "present_days": tally["present_days"],
+                    "half_days": tally["half_days"],
+                    "wfh_days": tally["wfh_days"],
+                    "leave_days": tally["leave_days"],
+                    "absent_days": tally["absent_days"],
+                    "holiday_days": tally["holiday_days"],
+                    "weekly_off_days": tally["weekly_off_days"],
+                    "not_marked_days": tally["not_marked_days"],
+                    "upcoming_days": tally["upcoming_days"],
+                    "working_hours": round(tally["total_hours"], 2),
+                    "daily_wage": round(tally["total_wage"], 2),
+                    "from_date": start.isoformat(),
+                    "to_date": end.isoformat(),
+                })
+
+        # ======================================================
+        # 9. RESPONSE
+        # ======================================================
+        return Response(
+            {
+                "success": True,
+                "date": anchor.isoformat(),
+                "period": period,
+                "from": start.isoformat(),
+                "to": end.isoformat(),
+                "summary": summary,
+                "day_totals": day_totals,
+                "config": config,
+                "present": present_rows,
+                "leave": leave_rows,
+                "employees": employee_rows,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+# =====================================================================
+# ADMIN — PO PENDING GRN
+# -----------------------------------------------------------------
+# GET /erp/admin/po-pending-grn/
+#
+# Returns every CONFIRMED real PO line that is not yet fully
+# received — where "received" is the COMBINED total from both:
+#
+#     MaterialGRN.received_qty          (Material Planning)
+#     ConsumableGRN.received_quantity   (Consumable module)
+#
+# Rules:
+#   - Only CONFIRMED PurchaseOrders.
+#   - Dummy POs are ALWAYS treated as received → never appear here.
+#   - balance = poQty - (materialReceived + consumableReceived)
+#   - Rows with balance <= 0 are dropped (fully received).
+#
+# Row shape:
+#   id, poItemId, sourceType, poNumber, poType, supplier,
+#   description, poQty,
+#   materialReceived, consumableReceived, received,
+#   balance, unit, grnStatus
+# =====================================================================
+# =====================================================================
+# ADMIN — PO PENDING GRN
+# -----------------------------------------------------------------
+# GET /erp/admin/po-pending-grn/
+#
+# Every CONFIRMED real PO line that is not yet fully received.
+#
+# "received" = MaterialGRN.received_qty
+#            + ConsumableGRN.received_quantity
+#
+# Rules:
+#   - Only CONFIRMED PurchaseOrders.
+#   - Dummy POs are ALWAYS treated as received → never appear here.
+#   - balance = poQty - received
+#   - Rows with balance <= 0 are dropped.
+#
+# Row carries the full PurchaseOrderItem snapshot so the frontend
+# does not need any second lookup.
+# =====================================================================
+
+
+class AdminPoPendingGRnAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+
+        # ---- Real confirmed PO items ----
+        real_items = list(
+            PurchaseOrderItem.objects
+            .select_related("purchase_order")
+            .filter(
+                purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+            )
+            .order_by(
+                "purchase_order__po_number",
+                "id",
+            )
+        )
+
+        if not real_items:
+            return Response(
+                {"success": True, "count": 0, "data": []},
+                status=status.HTTP_200_OK,
+            )
+
+        # ---- MaterialGRN receipts per PO item ----
+        material_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                MaterialGRN.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_qty"))
+            )
+        }
+
+        # ---- ConsumableGRN receipts per PO item ----
+        consumable_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                ConsumableGRN.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_quantity"))
+            )
+        }
+
+        rows = []
+
+        for pi in real_items:
+            po_qty = pi.quantity or Decimal("0")
+
+            material_received = material_map.get(pi.id, Decimal("0"))
+            consumable_received = consumable_map.get(pi.id, Decimal("0"))
+
+            received = material_received + consumable_received
+            balance = po_qty - received
+
+            # Fully received → skip
+            if balance <= 0:
+                continue
+
+            grn_status = (
+                "Not Received" if received <= 0
+                else "Partially Received"
+            )
+
+            po = pi.purchase_order
+
+            # PurchaseOrder.vendor is a JSONField → resolve a readable name
+            supplier = _material_grn_supplier(po.vendor)
+
+            rows.append({
+                # ---- row identity ----
+                "id": f"real-{pi.id}",
+                "poItemId": pi.id,
+                "sourceType": "real",
+                "poType": "Regular PO",
+
+                # ---- PO header ----
+                "poNumber": pi.po_number or po.po_number,
+                "poDate": (
+                    po.po_date.isoformat()
+                    if po.po_date else ""
+                ),
+                "supplier": supplier,
+
+                # ---- PO item snapshot ----
+                "itemCode": pi.item_code or "",
+                "description": pi.description or "",
+                "material": pi.material or "",
+                "materialCode": pi.material_code or "",
+                "materialSpec": pi.material_spec or "",
+                "thickness": pi.thickness or "",
+                "length": pi.length or "",
+                "width": pi.width or "",
+
+                # ---- quantities ----
+                "unit": pi.unit or "",
+                "poQty": float(po_qty),
+
+                "materialReceived": float(material_received),
+                "consumableReceived": float(consumable_received),
+                "received": float(received),
+                "balance": float(balance),
+
+                # ---- status ----
+                "grnStatus": grn_status,
+            })
+
+        return Response(
+            {"success": True, "count": len(rows), "data": rows},
+            status=status.HTTP_200_OK,
+        )
+
+# =====================================================================
+# ADMIN — DOCUMENT NUMBER CONTROL
+# -----------------------------------------------------------------
+# GET   /erp/admin/document-numbers/            → 5 rows
+# PATCH /erp/admin/document-numbers/<key>/      → update one
+# GET   /erp/admin/document-numbers/<key>/used/ → list issued numbers
+#
+# Keys: po, quotation, dc, tax-invoice, proforma
+#
+# currentNumber = next_number - 1   (derived; nothing extra stored)
+# =====================================================================
+
+from .models import (
+    PurchaseOrderNumberSettings,
+    QuotationNumberSettings,
+    DeliveryChallanNumberSettings,
+    TaxInvoiceNumberSettings,
+    ProformaInvoiceNumberSettings,
+)
+
+
+DOCUMENT_NUMBER_REGISTRY = {
+    "po":          (PurchaseOrderNumberSettings,   "Purchase Order"),
+    "quotation":   (QuotationNumberSettings,       "Quotation"),
+    "dc":          (DeliveryChallanNumberSettings, "Delivery Challan"),
+    "tax-invoice": (TaxInvoiceNumberSettings,      "Tax Invoice"),
+    "proforma":    (ProformaInvoiceNumberSettings, "Proforma Invoice"),
+}
+
+
+def _format_number(prefix, value, padding):
+    return f"{prefix}{value:0{padding}d}"
+
+
+def _serialize_docnum(key, model, label):
+    obj = (
+        model.objects.filter(is_active=True).first()
+        or model.objects.order_by("id").first()
+    )
+
+    if obj is None:
+        return {
+            "key": key,
+            "label": label,
+            "exists": False,
+            "prefix": "",
+            "nextNumber": 1,
+            "numberPadding": 3,
+            "isActive": False,
+            "currentNumber": "—",
+            "nextNumberFormatted": "—",
+        }
+
+    current_value = max(obj.next_number - 1, 0)
+
+    return {
+        "key": key,
+        "label": label,
+        "exists": True,
+        "id": obj.id,
+        "prefix": obj.prefix,
+        "nextNumber": obj.next_number,
+        "numberPadding": obj.number_padding,
+        "isActive": obj.is_active,
+        "currentNumber": (
+            _format_number(obj.prefix, current_value, obj.number_padding)
+            if current_value > 0
+            else "—"
+        ),
+        "nextNumberFormatted": _format_number(
+            obj.prefix, obj.next_number, obj.number_padding
+        ),
+    }
+
+
+class AdminDocumentNumberListAPIView(APIView):
+    """GET /erp/admin/document-numbers/"""
+
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        rows = [
+            _serialize_docnum(key, model, label)
+            for key, (model, label) in DOCUMENT_NUMBER_REGISTRY.items()
+        ]
+
+        return Response(
+            {"success": True, "count": len(rows), "data": rows},
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminDocumentNumberDetailAPIView(APIView):
+    """
+    PATCH /erp/admin/document-numbers/<key>/
+
+    Body (all optional):
+        {
+          "prefix": "PO",
+          "nextNumber": 42,
+          "numberPadding": 4,
+          "isActive": true
+        }
+    """
+
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    @transaction.atomic
+    def patch(self, request, key):
+
+        entry = DOCUMENT_NUMBER_REGISTRY.get(key)
+
+        if not entry:
+            return Response(
+                {"success": False, "message": f"Unknown document type: {key}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        model, label = entry
+
+        obj = (
+            model.objects
+            .select_for_update()
+            .filter(is_active=True)
+            .first()
+        )
+
+        if obj is None:
+            obj = (
+                model.objects
+                .select_for_update()
+                .order_by("id")
+                .first()
+            )
+
+        # ---- First-time create ----
+        if obj is None:
+            try:
+                prefix = str(request.data.get("prefix", "DOC")).strip() or "DOC"
+                next_number = int(request.data.get("nextNumber", 1))
+                padding = int(request.data.get("numberPadding", 3))
+            except (TypeError, ValueError):
+                return Response(
+                    {"success": False, "message": "Invalid numeric value."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            obj = model.objects.create(
+                prefix=prefix,
+                next_number=next_number,
+                number_padding=padding,
+                is_active=bool(request.data.get("isActive", True)),
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Settings created.",
+                    "data": _serialize_docnum(key, model, label),
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        updated_fields = []
+
+        # ---- Prefix ----
+        if "prefix" in request.data:
+            new_prefix = str(request.data["prefix"]).strip()
+            if not new_prefix:
+                return Response(
+                    {"success": False, "message": "Prefix cannot be empty."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if len(new_prefix) > 20:
+                return Response(
+                    {"success": False, "message": "Prefix cannot exceed 20 characters."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            obj.prefix = new_prefix
+            updated_fields.append("prefix")
+
+        # ---- Next Number ----
+        if "nextNumber" in request.data:
+            try:
+                new_number = int(request.data["nextNumber"])
+            except (TypeError, ValueError):
+                return Response(
+                    {"success": False, "message": "nextNumber must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if new_number < 1:
+                return Response(
+                    {"success": False, "message": "nextNumber must be at least 1."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            obj.next_number = new_number
+            updated_fields.append("next_number")
+
+        # ---- Padding ----
+        if "numberPadding" in request.data:
+            try:
+                new_pad = int(request.data["numberPadding"])
+            except (TypeError, ValueError):
+                return Response(
+                    {"success": False, "message": "numberPadding must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not (1 <= new_pad <= 10):
+                return Response(
+                    {"success": False, "message": "numberPadding must be between 1 and 10."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            obj.number_padding = new_pad
+            updated_fields.append("number_padding")
+
+        # ---- Active ----
+        if "isActive" in request.data:
+            new_active = bool(request.data["isActive"])
+
+            if new_active and not obj.is_active:
+                model.objects.exclude(pk=obj.pk).update(is_active=False)
+                obj.is_active = True
+                updated_fields.append("is_active")
+
+            elif not new_active and obj.is_active:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "This document type must always have one "
+                            "active settings row."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if updated_fields:
+            updated_fields.append("updated_at")
+            obj.save(update_fields=updated_fields)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Document number updated.",
+                "data": _serialize_docnum(key, model, label),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminDocumentNumberUsedAPIView(APIView):
+    """
+    GET /erp/admin/document-numbers/<key>/used/
+
+    Returns every document number actually issued for that type.
+    """
+
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request, key):
+
+        if key not in DOCUMENT_NUMBER_REGISTRY:
+            return Response(
+                {"success": False, "message": f"Unknown document type: {key}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        rows = []
+
+        if key == "po":
+            rows = [
+                {"number": p.po_number, "createdAt": p.created_at}
+                for p in PurchaseOrder.objects.order_by("-created_at")
+                if p.po_number
+            ]
+
+        elif key == "quotation":
+            rows = [
+                {"number": q.quotation_number, "createdAt": q.created_at}
+                for q in Quotation.objects.order_by("-created_at")
+                if q.quotation_number
+            ]
+
+        elif key == "dc":
+            rows = [
+                {"number": d.dc_number, "createdAt": d.created_at}
+                for d in DeliveryChallan.objects.order_by("-created_at")
+                if d.dc_number
+            ]
+
+        elif key == "tax-invoice":
+            rows = [
+                {"number": t.invoice_number, "createdAt": t.created_at}
+                for t in TaxInvoice.objects.order_by("-created_at")
+                if t.invoice_number
+            ]
+
+        elif key == "proforma":
+            rows = [
+                {"number": p.proforma_no, "createdAt": p.created_at}
+                for p in ProformaInvoice.objects.order_by("-created_at")
+                if p.proforma_no
+            ]
+
+        return Response(
+            {
+                "success": True,
+                "key": key,
+                "count": len(rows),
+                "data": rows,
+            },
+            status=status.HTTP_200_OK,
+        )

@@ -162,11 +162,24 @@ REST_FRAMEWORK = {
 # ============================================================
 # JWT
 # ============================================================
-REFRESH_COOKIE_NAME = "erp_refresh_token"
+# ==========================================================
+# DEPARTMENT-SPECIFIC REFRESH COOKIE CONFIGURATION
+# ==========================================================
+
+REFRESH_COOKIE_NAMES = {
+    "admin": "erp_admin_refresh",
+    "accounts": "erp_accounts_refresh",
+    "hr": "erp_hr_refresh",
+    "material-planning": "erp_material_planning_refresh",
+    "production": "erp_production_refresh",
+    "supervisor": "erp_supervisor_refresh",
+}
+
 REFRESH_COOKIE_PATH = "/api/erp/"
 REFRESH_COOKIE_SECURE = not DEBUG
 REFRESH_COOKIE_HTTPONLY = True
 REFRESH_COOKIE_SAMESITE = "Lax"
+REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=10),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
@@ -411,3 +424,12 @@ CONTACT_ADMIN_EMAIL = os.getenv(
 
 
 COMPANY_NAME       = os.getenv("COMPANY_NAME", "ERP")
+from decouple import config
+
+COMPANY_BANK_DETAILS = {
+    "bank_name": config("COMPANY_BANK_NAME"),
+    "account_holder_name": config("COMPANY_ACCOUNT_HOLDER"),
+    "account_number": config("COMPANY_ACCOUNT_NUMBER"),
+    "branch": config("COMPANY_BANK_BRANCH"),
+    "ifsc": config("COMPANY_BANK_IFSC"),
+}

@@ -1,0 +1,1079 @@
+/* ==========================================================================
+   ADMIN MODULE STYLES
+   --------------------------------------------------------------------------
+   Scope rule: every selector starts with `.admin-` (or is the keyframes
+   `admin-*`). Design tokens are defined on `.admin-layout`, not :root, so
+   nothing here can affect other ERP modules.
+   ========================================================================== */
+
+.admin-layout {
+  /* Surfaces */
+  --admin-bg: #f3f5f9;
+  --admin-surface: #ffffff;
+  --admin-surface-muted: #f8f9fc;
+  --admin-border: #e2e6ee;
+  --admin-border-strong: #cdd4e0;
+
+  /* Text */
+  --admin-text: #1b2333;
+  --admin-text-secondary: #556075;
+  --admin-text-muted: #8590a3;
+
+  /* Brand (navy sidebar, amber accent — matches login / welcome pages) */
+  --admin-navy: #0d1526;
+  --admin-navy-hover: rgba(255, 255, 255, 0.07);
+  --admin-navy-active: rgba(255, 255, 255, 0.11);
+  --admin-sidebar-text: #aeb9d0;
+  --admin-accent: #e8980f;
+  --admin-primary: #1b4b91;
+
+  /* Semantic */
+  --admin-success: #1f7a3d;
+  --admin-success-bg: #e6f4ea;
+  --admin-warning: #9a5b00;
+  --admin-warning-bg: #fdf0d5;
+  --admin-danger: #b3261e;
+  --admin-danger-bg: #fbe9e7;
+  --admin-info: #1b4b91;
+  --admin-info-bg: #e8effa;
+  --admin-neutral: #4b5568;
+  --admin-neutral-bg: #eceff4;
+
+  /* Geometry */
+  --admin-sidebar-w: 248px;
+  --admin-sidebar-w-collapsed: 64px;
+  --admin-radius: 8px;
+  --admin-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --admin-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  min-height: 100vh;
+  background: var(--admin-bg);
+  color: var(--admin-text);
+  font-family: var(--font-body, "Inter", system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.admin-layout *,
+.admin-layout *::before,
+.admin-layout *::after {
+  box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------- shell */
+
+.admin-shell {
+  display: flex;
+  align-items: stretch;
+  min-height: calc(100vh - 76px); /* existing ERP header is 76px */
+}
+
+.admin-content {
+  flex: 1 1 0;
+  min-width: 0; /* lets the content shrink instead of overflowing the page */
+  padding: 24px 28px 40px;
+}
+
+/* -------------------------------------------------------------- sidebar */
+
+/* -------------------------------------------------------------- sidebar */
+.admin-sidebar {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--admin-sidebar-w);
+  min-height: 100%;
+  z-index: 20;
+  overflow: hidden;
+
+  color: #ffffff;
+
+  background-image:
+    linear-gradient(
+      rgba(0, 0, 0, 0.16),
+      rgba(0, 0, 0, 0.16)
+    ),
+    var(--dashboard-side-image);
+
+  background-size: auto 100%, auto 100%;
+  background-position: 18% center, 18% center;
+  background-repeat: no-repeat, no-repeat;
+
+  transition: width 0.22s var(--admin-ease);
+}
+.admin-sidebar.is-collapsed {
+  width: 64px;
+
+  background-image: var(--dashboard-side-image);
+  background-size: cover;
+  background-position: 35% center;
+  background-repeat: no-repeat;
+}
+/* Inner column sticks while the page scrolls; the aside itself stretches. */
+.admin-sidebar-inner {
+  position: relative;
+  z-index: 1;
+
+  display: flex;
+  flex-direction: column;
+
+  max-height: 100vh;
+  padding: 14px 10px;
+
+  overflow: hidden;
+}
+.admin-sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  margin-bottom: 10px;
+  padding: 0 4px 0 10px;
+}
+
+.admin-sidebar.is-collapsed .admin-sidebar-top {
+  justify-content: center;
+  padding: 0;
+}
+
+.admin-sidebar-heading {
+  overflow: hidden;
+  color: #7e8aa6;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: opacity 0.15s var(--admin-ease);
+}
+
+.admin-sidebar.is-collapsed .admin-sidebar-heading {
+  display: none;
+}
+
+.admin-sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--admin-sidebar-text);
+  cursor: pointer;
+  transition:
+    background 0.15s var(--admin-ease),
+    color 0.15s var(--admin-ease);
+}
+
+.admin-sidebar-toggle:hover {
+  background: var(--admin-navy-hover);
+  color: #fff;
+}
+
+.admin-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-sidebar-item {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  height: 40px;
+  padding: 0 12px;
+
+  border: 1px solid transparent;
+  border-radius: 8px;
+
+  color: rgba(174, 185, 208, 0.88);
+
+  font-size: 13.5px;
+  font-weight: 500;
+
+  text-decoration: none;
+  white-space: nowrap;
+
+  background: transparent;
+
+  transition:
+    background 0.18s var(--admin-ease),
+    border-color 0.18s var(--admin-ease),
+    color 0.18s var(--admin-ease),
+    transform 0.18s var(--admin-ease);
+}
+
+.admin-sidebar-item:hover {
+  background: var(--admin-navy-hover);
+  color: #fff;
+}
+
+/* ACTIVE — driven by <NavLink>'s isActive, i.e. the real URL */
+.admin-sidebar-item.is-active {
+  background: var(--admin-navy-active);
+  color: #fff;
+  font-weight: 600;
+}
+
+.admin-sidebar-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--admin-accent);
+}
+
+.admin-sidebar-item.is-active .admin-sidebar-icon {
+  color: var(--admin-accent);
+}
+
+.admin-sidebar-icon {
+  flex: 0 0 18px;
+}
+
+.admin-sidebar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.15s var(--admin-ease);
+}
+
+.admin-sidebar.is-collapsed .admin-sidebar-item {
+  justify-content: center;
+  padding: 0;
+}
+
+.admin-sidebar.is-collapsed .admin-sidebar-label {
+  display: none;
+}
+
+.admin-sidebar-item:focus-visible,
+.admin-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: -2px;
+}
+
+/* position: fixed so the tooltip is never clipped by the sidebar */
+.admin-sidebar-tooltip {
+  position: fixed;
+  z-index: 1100;
+  transform: translateY(-50%);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #1b2333;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
+  animation: admin-fade-in 0.12s var(--admin-ease);
+}
+
+/* ---------------------------------------------------------- page header */
+
+.admin-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.admin-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  color: var(--admin-text-muted);
+  font-size: 12.5px;
+}
+
+.admin-breadcrumb-link {
+  color: var(--admin-text-muted);
+  text-decoration: none;
+}
+
+.admin-breadcrumb-link:hover {
+  color: var(--admin-primary);
+}
+
+.admin-breadcrumb-current {
+  color: var(--admin-text-secondary);
+  font-weight: 500;
+}
+
+.admin-page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--admin-text);
+}
+
+.admin-page-subtitle {
+  margin: 4px 0 0;
+  color: var(--admin-text-secondary);
+  font-size: 13.5px;
+}
+
+.admin-page-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* page body (fade replays on route change) */
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: admin-page-in 0.2s var(--admin-ease);
+}
+
+/* -------------------------------------------------------------- toolbar */
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 260px;
+  max-width: 380px;
+  color: var(--admin-text-muted);
+}
+
+.admin-search svg {
+  position: absolute;
+  left: 11px;
+  pointer-events: none;
+}
+
+.admin-search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--admin-border-strong);
+  border-radius: 6px;
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  font: inherit;
+  transition:
+    border-color 0.15s var(--admin-ease),
+    box-shadow 0.15s var(--admin-ease);
+}
+
+.admin-search input:focus {
+  outline: none;
+  border-color: var(--admin-primary);
+  box-shadow: 0 0 0 3px rgba(27, 75, 145, 0.14);
+}
+
+.admin-toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--admin-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.admin-field select,
+.admin-field input {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--admin-border-strong);
+  border-radius: 6px;
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  font: inherit;
+  transition:
+    border-color 0.15s var(--admin-ease),
+    box-shadow 0.15s var(--admin-ease);
+}
+
+.admin-field select:focus,
+.admin-field input:focus {
+  outline: none;
+  border-color: var(--admin-primary);
+  box-shadow: 0 0 0 3px rgba(27, 75, 145, 0.14);
+}
+
+.admin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--admin-border-strong);
+  border-radius: 6px;
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s var(--admin-ease),
+    border-color 0.15s var(--admin-ease);
+}
+
+.admin-btn:hover {
+  background: var(--admin-surface-muted);
+  border-color: var(--admin-text-muted);
+}
+
+/* ---------------------------------------------------------- stat strip */
+
+.admin-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.admin-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border: 1px solid var(--admin-border);
+  border-left-width: 3px;
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+}
+
+.admin-stat--success { border-left-color: var(--admin-success); }
+.admin-stat--warning { border-left-color: var(--admin-accent); }
+.admin-stat--danger { border-left-color: var(--admin-danger); }
+.admin-stat--info { border-left-color: var(--admin-primary); }
+.admin-stat--neutral { border-left-color: var(--admin-border-strong); }
+
+.admin-stat-label {
+  color: var(--admin-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.admin-stat-value {
+  font-size: 20px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------------- card */
+
+.admin-card {
+  min-width: 0;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+  overflow: hidden;
+}
+
+.admin-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.admin-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--admin-border-strong);
+}
+
+.admin-card--success .admin-card-dot { background: var(--admin-success); }
+.admin-card--warning .admin-card-dot { background: var(--admin-accent); }
+
+.admin-card--success { border-top: 3px solid var(--admin-success); }
+.admin-card--warning { border-top: 3px solid var(--admin-accent); }
+
+.admin-card-title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 650;
+}
+
+.admin-card-count {
+  min-width: 22px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--admin-neutral-bg);
+  color: var(--admin-neutral);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-card-subtitle {
+  margin: 0;
+  color: var(--admin-text-muted);
+  font-size: 12.5px;
+}
+
+/* ---------------------------------------------------------------- table */
+
+.admin-table-scroll {
+  width: 100%;
+  overflow-x: auto; /* the TABLE scrolls on small screens, never the page */
+}
+
+.admin-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.admin-data-table thead th {
+  position: sticky;
+  top: 0;
+  padding: 0 16px;
+  height: 38px;
+  border-bottom: 1px solid var(--admin-border-strong);
+  background: var(--admin-surface-muted);
+  color: var(--admin-text-secondary);
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-data-table tbody td {
+  height: 44px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--admin-border);
+  vertical-align: middle;
+}
+
+.admin-data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-data-table tbody tr {
+  transition: background 0.12s var(--admin-ease);
+}
+
+.admin-data-table tbody tr:hover {
+  background: #f5f8fe;
+}
+
+.admin-align-left { text-align: left; }
+.admin-align-right { text-align: right; }
+.admin-align-center { text-align: center; }
+
+.admin-mono {
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: 13px;
+}
+
+.admin-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.admin-sort svg {
+  opacity: 0.45;
+}
+
+.admin-sort:hover svg,
+.admin-sort.is-active svg {
+  opacity: 1;
+}
+
+.admin-sort.is-active {
+  color: var(--admin-text);
+}
+
+.admin-sort:focus-visible {
+  outline: 2px solid var(--admin-primary);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* cell helpers */
+.admin-cell-primary {
+  font-weight: 600;
+  color: var(--admin-text);
+}
+
+.admin-cell-secondary {
+  display: block;
+  margin-top: 1px;
+  color: var(--admin-text-muted);
+  font-size: 12px;
+}
+
+.admin-cell-muted {
+  color: var(--admin-text-muted);
+}
+
+.admin-cell-wrap {
+  max-width: 360px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* The key number on the Pending Payment page */
+.admin-amount {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--admin-text);
+}
+
+.admin-table-footer {
+  padding: 9px 16px;
+  border-top: 1px solid var(--admin-border);
+  background: var(--admin-surface-muted);
+  color: var(--admin-text-muted);
+  font-size: 12px;
+}
+
+/* skeleton loading */
+.admin-skeleton {
+  display: block;
+  width: 70%;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eceff4 25%, #f6f7fa 50%, #eceff4 75%);
+  background-size: 200% 100%;
+  animation: admin-shimmer 1.3s linear infinite;
+}
+
+/* empty / error */
+.admin-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 40px 20px;
+  color: var(--admin-text-muted);
+  text-align: center;
+}
+
+.admin-state svg {
+  margin-bottom: 6px;
+}
+
+.admin-state-title {
+  margin: 0;
+  color: var(--admin-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.admin-state-text {
+  max-width: 420px;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.admin-state--error svg {
+  color: var(--admin-danger);
+}
+
+/* --------------------------------------------------------------- badges */
+
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.admin-badge--neutral { background: var(--admin-neutral-bg); color: var(--admin-neutral); }
+.admin-badge--info { background: var(--admin-info-bg); color: var(--admin-info); }
+.admin-badge--success { background: var(--admin-success-bg); color: var(--admin-success); }
+.admin-badge--warning { background: var(--admin-warning-bg); color: var(--admin-warning); }
+.admin-badge--danger { background: var(--admin-danger-bg); color: var(--admin-danger); }
+
+/* ------------------------------------------------------------- progress */
+
+.admin-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 170px;
+}
+
+.admin-progress-track {
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--admin-neutral-bg);
+  overflow: hidden;
+}
+
+.admin-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--admin-primary);
+  transition: width 0.7s var(--admin-ease);
+}
+
+.admin-progress-fill.is-complete {
+  background: var(--admin-success);
+}
+
+.admin-progress-value {
+  flex: 0 0 40px;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------ dashboard */
+
+.admin-module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.admin-module-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color 0.15s var(--admin-ease),
+    transform 0.15s var(--admin-ease);
+}
+
+.admin-module-card:hover {
+  border-color: var(--admin-primary);
+  transform: translateY(-1px);
+}
+
+.admin-module-card:focus-visible {
+  outline: 2px solid var(--admin-primary);
+  outline-offset: 2px;
+}
+
+.admin-module-icon {
+  display: inline-flex;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: var(--admin-info-bg);
+  color: var(--admin-primary);
+}
+
+.admin-module-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.admin-module-desc {
+  margin: 2px 0 0;
+  color: var(--admin-text-secondary);
+  font-size: 12.5px;
+}
+
+.admin-placeholder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.admin-placeholder-body {
+  display: flex;
+  min-height: 140px;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: var(--admin-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.admin-section-label {
+  margin: 4px 0 -4px;
+  color: var(--admin-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.admin-note {
+  margin: 0;
+  color: var(--admin-text-muted);
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------ animation */
+
+@keyframes admin-page-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes admin-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes admin-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar,
+  .admin-page,
+  .admin-progress-fill,
+  .admin-skeleton,
+  .admin-sidebar-tooltip {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ----------------------------------------------------------- responsive */
+
+@media (max-width: 900px) {
+  .admin-content {
+    padding: 18px 16px 32px;
+  }
+
+  .admin-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-search {
+    max-width: none;
+  }
+
+  .admin-page-title {
+    font-size: 19px;
+  }
+}
+
+/* =========================================================
+   SIDEBAR — ALWAYS WHITE TEXT
+   ========================================================= */
+
+.admin-sidebar-item {
+  color: #ffffff;
+}
+
+.admin-sidebar-item .admin-sidebar-label {
+  color: #ffffff;
+}
+
+.admin-sidebar-item .admin-sidebar-icon {
+  color: #ffffff;
+}
+
+/* Keep white even when hovering */
+.admin-sidebar-item:hover {
+  color: #ffffff;
+}
+
+.admin-sidebar-item:hover .admin-sidebar-label,
+.admin-sidebar-item:hover .admin-sidebar-icon {
+  color: #ffffff;
+}
+
+/* Active item */
+.admin-sidebar-item.is-active {
+  color: #ffffff;
+}
+
+.admin-sidebar-item.is-active .admin-sidebar-label,
+.admin-sidebar-item.is-active .admin-sidebar-icon {
+  color: #ffffff;
+} 
+
+/* =========================================================
+   ADMIN LAYOUT
+   ========================================================= */
+
+.admin-layout {
+  width: 100%;
+  min-height: 100vh;
+
+  margin: 0;
+  padding: 0;
+
+  box-sizing: border-box;
+
+  overflow: hidden;
+}
+
+
+/* =========================================================
+   ADMIN SHELL
+   ========================================================= */
+
+.admin-shell {
+  display: flex;
+
+  width: 100%;
+
+  /*
+   * Header occupies the top portion.
+   * The shell occupies everything below it.
+   */
+  min-height: calc(100vh - 60px);
+
+  margin: 0;
+  padding: 0;
+
+  box-sizing: border-box;
+
+  overflow: hidden;
+}
+
+
+/* =========================================================
+   ADMIN CONTENT
+   ========================================================= */
+
+.admin-content {
+  flex: 1 1 auto;
+
+  min-width: 0;
+  min-height: calc(100vh - 60px);
+
+  margin: 0;
+  padding: 0;
+
+  box-sizing: border-box;
+
+  overflow: hidden;
+}
+
+
+/* =========================================================
+   ADMIN PAGE
+   ========================================================= */
+
+.admin-page {
+  width: 100%;
+  min-width: 0;
+
+  min-height: calc(100vh - 60px);
+
+  margin: 0;
+  padding: 0;
+
+  box-sizing: border-box;
+
+  overflow: hidden;
+}
+
+/* ============================================================
+   ADMIN SIDEBAR — FIXED VIEWPORT HEIGHT
+   Prevent sidebar image from extending with long pages
+   ============================================================ */
+
+.admin-layout {
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.admin-shell {
+  height: calc(100vh - 76px);
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.admin-sidebar {
+  height: calc(100vh - 76px);
+  min-height: 0;
+  max-height: calc(100vh - 76px);
+  flex-shrink: 0;
+
+  position: relative;
+  overflow: hidden;
+
+  align-self: flex-start;
+}
+
+.admin-sidebar-inner {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.admin-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+
+  overflow-x: hidden;
+  overflow-y: auto;
+}
