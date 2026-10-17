@@ -1,413 +1,574 @@
-import { useMemo, useState } from "react";
-
-import AdminCard from "./components/AdminCard";
-import AdminDataTable from "./components/AdminDataTable";
-import AdminStatusBadge from "./components/AdminStatusBadge";
-import AdminToolbar from "./components/AdminToolbar";
-import useAdminResource from "./useAdminResource";
-
-import { fetchAdminProjects } from "./adminApi";
-import { matchesQuery } from "./adminUtils";
-
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Eye, X, ChevronDown, ChevronRight, RefreshCw, Search } from "lucide-react";
+import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
 import "./AdminProjectStatus.css";
 
-// =========================================================
-// PROJECT STATUS VALUES
-// =========================================================
+const PROJECT_STATUS_ENDPOINT = "/erp/admin/project-status/";
+const assemblyDetailEndpoint = (assemblyId) =>
+  `/erp/admin/project-status/${encodeURIComponent(assemblyId)}/`;
 
-const PROJECT_STATUSES = [
-  "Active",
-  "On Hold",
-  "Completed",
-];
+const PROJECT_STATUSES = ["Active", "On Hold", "Completed"];
+const PROCESS_CLASS = {
+  "Not Started": "not-started",
+  "Ready to Start": "ready",
+  "In Progress": "in-progress",
+  "Awaiting QC": "awaiting-qc",
+  "In Rework": "in-rework",
+  Outsourced: "outsourced",
+  Completed: "completed",
+  Cancelled: "cancelled",
+  Pending: "pending",
+};
 
-// =========================================================
-// CURRENT PROCESS
-// =========================================================
+const text = (value, fallback = "—") =>
+  value === null || value === undefined || value === "" ? fallback : value;
 
-function getCurrentProcess(row) {
-  if (row.current_process) {
-    return row.current_process;
-  }
-
-  const progress = Number(row.progress ?? 0);
-
-  if (progress >= 100) return "Completed";
-  if (progress >= 80) return "Inspection";
-  if (progress >= 60) return "Painting";
-  if (progress >= 40) return "Assembly";
-  if (progress >= 20) return "Welding";
-
-  return "Cutting";
+function formatDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
 }
 
-// =========================================================
-// CURRENT PROCESS COMPONENT
-// =========================================================
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
 
-function CurrentProcess({ row }) {
-  const process = getCurrentProcess(row);
+function statusClass(value) {
+  const key = String(value || "Pending").trim();
+  return PROCESS_CLASS[key] || "pending";
+}
 
-  const processClass = process
-    .toLowerCase()
-    .replace(/\s+/g, "-");
-
+function StatusPill({ label, process }) {
+  const safeLabel = label || "Pending";
   return (
-    <div
-      className={`project-process project-process--${processClass}`}
-    >
-      <span className="project-process-dot" />
+    <span className={`aps-process aps-process--${statusClass(safeLabel)}`}>
+      <span className="aps-process-dot" />
+      <span>{process || safeLabel}</span>
+      {process && process !== safeLabel && (
+        <span className="aps-process-label">{safeLabel}</span>
+      )}
+    </span>
+  );
+}
 
-      <span className="project-process-name">
-        {process}
-      </span>
+function Quantity({ label, value }) {
+  return (
+    <div className="aps-quantity">
+      <span>{label}</span>
+      <strong>{value ?? 0}</strong>
     </div>
   );
 }
 
-// =========================================================
-// TABLE COLUMNS
-// =========================================================
+function AssemblyDetailModal({ assemblyId, accessToken, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-const COLUMNS = [
-  {
-    key: "name",
-    header: "Project Name",
+  const loadDetail = useCallback(async () => {
+    if (!assemblyId) return;
+    if (!accessToken) {
+      setError("Your session has expired. Please sign in again.");
+      setLoading(false);
+      return;
+    }
 
-    render: (row) => (
-      <div className="project-name-cell">
-        <span className="admin-cell-primary">
-          {row.name || "—"}
-        </span>
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.get(assemblyDetailEndpoint(assemblyId), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || "Unable to load assembly details.");
+      }
+      setData(response.data.data || null);
+    } catch (err) {
+      console.error("Failed to load assembly details:", err);
+      setError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Unable to load assembly details. Please try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [assemblyId, accessToken]);
 
-        {row.customer_name && (
-          <span className="admin-cell-secondary">
-            {row.customer_name}
-          </span>
-        )}
-      </div>
-    ),
-  },
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
 
-  {
-    key: "code",
-    header: "Project Code",
-    mono: true,
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
 
-    render: (row) => (
-      <span className="project-code">
-        {row.code || "—"}
-      </span>
-    ),
-  },
+  const assembly = data?.assembly;
+  const stages = Array.isArray(data?.stages) ? data.stages : [];
+  const events = Array.isArray(data?.events) ? data.events : [];
+  const currentStage = data?.currentStage;
 
-  {
-    key: "status",
-    header: "Status",
+  return (
+    <div className="aps-modal-backdrop" onMouseDown={(e) => {
+      if (e.target === e.currentTarget) onClose();
+    }}>
+      <section
+        className="aps-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="aps-modal-title"
+      >
+        <header className="aps-modal-header">
+          <div>
+            <span className="aps-eyebrow">ASSEMBLY PROCESS TRACKER</span>
+            <h2 id="aps-modal-title">{assemblyId}</h2>
+            <p>
+              {assembly?.projectName || ""}
+              {assembly?.projectCode ? ` · ${assembly.projectCode}` : ""}
+              {assembly?.dwgDescription ? ` · ${assembly.dwgDescription}` : ""}
+            </p>
+          </div>
+          <button className="aps-close" type="button" onClick={onClose} aria-label="Close assembly details">
+            <X size={20} />
+          </button>
+        </header>
 
-    render: (row) => (
-      <AdminStatusBadge
-        status={row.status}
-      />
-    ),
-  },
+        <div className="aps-modal-content">
+          {loading ? (
+            <div className="aps-state">
+              <span className="aps-spinner" />
+              <p>Loading assembly process details…</p>
+            </div>
+          ) : error ? (
+            <div className="aps-state aps-state-error">
+              <p>{error}</p>
+              <button type="button" className="aps-btn" onClick={loadDetail}>
+                <RefreshCw size={15} /> Retry
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="aps-detail-summary">
+                <div>
+                  <span className="aps-summary-label">Assembly status</span>
+                  <strong>{text(assembly?.status)}</strong>
+                </div>
+                <div>
+                  <span className="aps-summary-label">Execution status</span>
+                  <strong>{text(assembly?.executionStatus)}</strong>
+                </div>
+                <div>
+                  <span className="aps-summary-label">Started</span>
+                  <strong>{formatDate(assembly?.startedAt)}</strong>
+                </div>
+                <div>
+                  <span className="aps-summary-label">Completed</span>
+                  <strong>{formatDate(assembly?.completedAt)}</strong>
+                </div>
+              </div>
 
-  {
-    key: "current_process",
-    header: "Current Process",
+              <div className="aps-current-stage">
+                <div>
+                  <span className="aps-summary-label">CURRENT PROCESS</span>
+                  <h3>{text(currentStage?.name, "No current process")}</h3>
+                  {currentStage?.processId && (
+                    <span className="aps-process-id">{currentStage.processId}</span>
+                  )}
+                </div>
+                <StatusPill
+                  label={currentStage?.label || "Not Started"}
+                  process={currentStage?.name}
+                />
+              </div>
 
-    sortValue: (row) =>
-      getCurrentProcess(row),
+              <div className="aps-section-heading">
+                <div>
+                  <h3>Assembly process route</h3>
+                  <p>Stages are displayed in planned sequence order.</p>
+                </div>
+                <span className="aps-count">{stages.length} stages</span>
+              </div>
 
-    render: (row) => (
-      <CurrentProcess row={row} />
-    ),
-  },
-];
+              {stages.length === 0 ? (
+                <div className="aps-empty">No process stages have been configured for this assembly.</div>
+              ) : (
+                <ol className="aps-stage-list">
+                  {stages.map((stage, index) => {
+                    const movements = Array.isArray(stage.movements) ? stage.movements : [];
+                    const sequence = stage.sequence ?? index + 1;
+                    return (
+                      <li className={`aps-stage aps-stage--${statusClass(stage.status)}`} key={stage.id ?? `${sequence}-${stage.processId || stage.name}`}>
+                        <div className="aps-stage-number">{sequence}</div>
+                        <div className="aps-stage-main">
+                          <div className="aps-stage-heading">
+                            <div>
+                              <h4>{text(stage.name, "Unnamed process")}</h4>
+                              <p>
+                                {stage.processId ? `${stage.processId} · ` : ""}
+                                {text(stage.executionType, "Execution type not specified")}
+                                {stage.executionUnit ? ` · ${stage.executionUnit}` : ""}
+                              </p>
+                            </div>
+                            <StatusPill label={stage.status} />
+                          </div>
 
-// =========================================================
-// PREVIEW DATA
-// =========================================================
-//
-// Set to false when you want to use the API.
-// =========================================================
+                          <div className="aps-stage-tags">
+                            {stage.qcRequired && <span className="aps-tag aps-tag-qc">QC required</span>}
+                            {stage.started && <span className="aps-tag aps-tag-started">Started</span>}
+                            {stage.executionType === "Outsourcing" && stage.vendor && (
+                              <span className="aps-tag">Vendor: {stage.vendor}</span>
+                            )}
+                            {stage.expectedReturnDate && (
+                              <span className="aps-tag">Expected return: {formatDate(stage.expectedReturnDate)}</span>
+                            )}
+                          </div>
 
-const PREVIEW_MODE = true;
+                          <div className="aps-quantities">
+                            <Quantity label="Available" value={stage.availableQty} />
+                            <Quantity label="Pending" value={stage.pendingOperationQty} />
+                            <Quantity label="Sent" value={stage.sentQty} />
+                            <Quantity label="Received" value={stage.receivedQty} />
+                            <Quantity label="Awaiting QC" value={stage.awaitingQcQty} />
+                            <Quantity label="Rework" value={stage.reworkQty} />
+                            <Quantity label="Released" value={stage.releasedQty} />
+                          </div>
 
-const SAMPLE_PROJECTS = [
-  {
-    id: 1,
-    name: "Industrial Control Panel",
-    code: "MEI-PRJ-026",
-    customer_name: "ABC Industrial Supplies",
-    status: "Active",
-    progress: 46,
-    current_process: "Welding",
-  },
+                          {movements.length > 0 && (
+                            <details className="aps-movements">
+                              <summary>{movements.length} movement{movements.length === 1 ? "" : "s"} · View movement history</summary>
+                              <div className="aps-table-scroll">
+                                <table className="aps-movement-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Date / time</th>
+                                      <th>Movement</th>
+                                      <th>Quantity</th>
+                                      <th>Performed by</th>
+                                      <th>Supervised by</th>
+                                      <th>DC reference</th>
+                                      <th>Remarks</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {movements.map((movement, movementIndex) => (
+                                      <tr key={movement.id ?? `${sequence}-movement-${movementIndex}`}>
+                                        <td>{formatDateTime(movement.createdAt)}</td>
+                                        <td>{text(movement.movement)}</td>
+                                        <td>{movement.quantity ?? 0}</td>
+                                        <td>{text(movement.performedBy)}</td>
+                                        <td>{text(movement.supervisedBy)}</td>
+                                        <td>{text(movement.dcRef)}</td>
+                                        <td>{text(movement.remarks)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
 
-  {
-    id: 2,
-    name: "Electrical Distribution Unit",
-    code: "MEI-PRJ-025",
-    customer_name: "Metro Electricals",
-    status: "Active",
-    progress: 68,
-    current_process: "Painting",
-  },
+              {events.length > 0 && (
+                <section className="aps-events">
+                  <div className="aps-section-heading">
+                    <div>
+                      <h3>Production history</h3>
+                      <p>Assembly-level events returned by Production Operation.</p>
+                    </div>
+                    <span className="aps-count">{events.length} events</span>
+                  </div>
+                  <ul>
+                    {events.map((event, index) => (
+                      <li key={event.id ?? `event-${index}`}>
+                        <time>{formatDateTime(event.createdAt || event.date)}</time>
+                        <span>{text(event.text, "Production event")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
-  {
-    id: 3,
-    name: "MCC Panel Fabrication",
-    code: "MEI-PRJ-024",
-    customer_name: "Classic Electricals",
-    status: "Active",
-    progress: 31,
-    current_process: "Cutting",
-  },
+              {assembly?.notes && (
+                <div className="aps-notes">
+                  <strong>Assembly notes</strong>
+                  <p>{assembly.notes}</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
 
-  {
-    id: 4,
-    name: "Power Distribution Panel",
-    code: "MEI-PRJ-023",
-    customer_name: "Sri Balaji Hardware",
-    status: "On Hold",
-    progress: 54,
-    current_process: "Assembly",
-  },
+function AssemblyRows({ project, onViewAssembly }) {
+  const [expanded, setExpanded] = useState(false);
+  const assemblies = Array.isArray(project.assemblies) ? project.assemblies : [];
 
-  {
-    id: 5,
-    name: "Automation Control Cabinet",
-    code: "MEI-PRJ-022",
-    customer_name: "Kaveri Enterprises",
-    status: "Active",
-    progress: 82,
-    current_process: "Inspection",
-  },
+  return (
+    <>
+      <tr className="aps-project-row">
+        <td>
+          <div className="aps-project-cell">
+            <button
+              type="button"
+              className="aps-expand-btn"
+              onClick={() => setExpanded((value) => !value)}
+              disabled={assemblies.length === 0}
+              aria-expanded={expanded}
+              aria-label={expanded ? "Collapse assemblies" : "Expand assemblies"}
+              title={assemblies.length ? (expanded ? "Collapse assemblies" : "Expand assemblies") : "No assemblies"}
+            >
+              {expanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+            </button>
+            <div className="aps-project-name">
+              <strong>{text(project.name)}</strong>
+              <span>{text(project.code, "No project code")}</span>
+            </div>
+          </div>
+        </td>
+        <td><span className={`aps-project-status aps-project-status--${String(project.status || "").toLowerCase().replace(/\s+/g, "-")}`}>{text(project.status)}</span></td>
+        <td>
+          <div className="aps-assembly-counts">
+            <span>{project.totalAssemblies ?? assemblies.length} total</span>
+            <span className="aps-count-done">{project.completedAssemblies ?? 0} completed</span>
+          </div>
+        </td>
+        <td>{formatDate(project.startDate)}</td>
+        <td>{formatDate(project.endDate)}</td>
+      </tr>
 
-  {
-    id: 6,
-    name: "LT Panel Manufacturing",
-    code: "MEI-PRJ-021",
-    customer_name: "Trichy Steel Mart",
-    status: "Completed",
-    progress: 100,
-    current_process: "Completed",
-  },
-
-  {
-    id: 7,
-    name: "Motor Control Centre",
-    code: "MEI-PRJ-020",
-    customer_name: "Vijay Hardware",
-    status: "Active",
-    progress: 57,
-    current_process: "Assembly",
-  },
-
-  {
-    id: 8,
-    name: "Industrial Feeder Panel",
-    code: "MEI-PRJ-019",
-    customer_name: "Sri Murugan Steels",
-    status: "On Hold",
-    progress: 24,
-    current_process: "Welding",
-  },
-];
-
-// =========================================================
-// PAGE
-// =========================================================
+      {expanded && assemblies.length > 0 && assemblies.map((assembly, index) => (
+        <tr className="aps-assembly-row" key={assembly.id ?? assembly.assemblyId ?? index}>
+          <td>
+            <div className="aps-assembly-identity">
+              <span className="aps-subrow-label">ASSEMBLY</span>
+              <strong>{text(assembly.assemblyId)}</strong>
+              <span>{text(assembly.dwgDescription, "No drawing description")}</span>
+            </div>
+          </td>
+          <td><span className="aps-muted">{text(assembly.status)}</span></td>
+          <td><span className="aps-muted">—</span></td>
+          <td><span className="aps-muted">—</span></td>
+          <td className="aps-action-cell">
+            <button
+              type="button"
+              className="aps-eye-btn"
+              onClick={() => onViewAssembly(assembly.assemblyId)}
+              disabled={!assembly.assemblyId}
+              aria-label={`View process details for ${assembly.assemblyId || "assembly"}`}
+              title="View assembly process and history"
+            >
+              <Eye size={18} />
+              <span>View</span>
+            </button>
+          </td>
+        </tr>
+      ))}
+      {expanded && assemblies.length === 0 && (
+        <tr className="aps-assembly-row">
+          <td colSpan={5}><div className="aps-empty-inline">No assemblies linked to this project.</div></td>
+        </tr>
+      )}
+    </>
+  );
+}
 
 export default function AdminProjectStatus() {
+  const { accessToken } = useAuth();
+  const [projects, setProjects] = useState([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [activeAssemblyId, setActiveAssemblyId] = useState(null);
 
-  const {
-    data,
-    loading,
-    error,
-    reload,
-  } = useAdminResource(fetchAdminProjects);
+  const loadProjects = useCallback(async () => {
+    if (!accessToken) {
+      setProjects([]);
+      setLoading(false);
+      setError("You are not authenticated. Please sign in again.");
+      return;
+    }
 
-  // =======================================================
-  // DATA SOURCE
-  // =======================================================
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.get(PROJECT_STATUS_ENDPOINT, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || "Invalid project status response.");
+      }
+      const result = Array.isArray(response.data.data) ? response.data.data : [];
+      setProjects(result);
+    } catch (err) {
+      console.error("Failed to load project status:", err);
+      setProjects([]);
+      setError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Unable to load project status. Please try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken]);
 
-  const all = PREVIEW_MODE
-    ? SAMPLE_PROJECTS
-    : data?.data ?? [];
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
 
-  // =======================================================
-  // FILTER
-  // =======================================================
+  const filteredProjects = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return projects.filter((project) => {
+      const matchesStatus = status === "all" || project.status === status;
+      const matchesSearch =
+        !query ||
+        String(project.name || "").toLowerCase().includes(query) ||
+        String(project.code || "").toLowerCase().includes(query) ||
+        (Array.isArray(project.assemblies) &&
+          project.assemblies.some((assembly) =>
+            String(assembly.assemblyId || "").toLowerCase().includes(query),
+          ));
+      return matchesStatus && matchesSearch;
+    });
+  }, [projects, search, status]);
 
-  const rows = useMemo(
-    () =>
-      all.filter(
-        (project) =>
-          (status === "all" ||
-            project.status === status) &&
-          matchesQuery(
-            search,
-            project.name,
-            project.code,
-            project.customer_name,
-            project.current_process
-          )
-      ),
-    [all, search, status]
+  const totalAssemblies = projects.reduce(
+    (sum, project) => sum + Number(project.totalAssemblies ?? project.assemblies?.length ?? 0),
+    0,
   );
-
-  // =======================================================
-  // PAGE STATES
-  // =======================================================
-
-  const pageLoading = PREVIEW_MODE
-    ? false
-    : loading;
-
-  const pageError = PREVIEW_MODE
-    ? null
-    : error;
-
-  // =======================================================
-  // RENDER
-  // =======================================================
+  const completedProjects = projects.filter((project) => project.status === "Completed").length;
 
   return (
-    <div className="admin-project-status-page">
-
-      {/* =================================================
-          HERO
-      ================================================= */}
-
-      <section className="project-status-hero">
-
-        <div className="project-status-hero-content">
-
-          <span className="project-status-eyebrow">
-            PROJECT CONTROL
-          </span>
-
-          <h1>
-            Project Status
-          </h1>
-
-          <p>
-            Monitor manufacturing progress and current
-            production stages across active projects.
-          </p>
-
+    <main className="admin-project-status-page">
+      <section className="aps-hero">
+        <div>
+          <span className="aps-hero-kicker">MUGIL ERP · PROJECT CONTROL</span>
+          <h1>Project Status</h1>
+          <p>Track every project, assembly, current production process, quantities, quality checks, and movement history.</p>
         </div>
-
+        {/* <button type="button" className="aps-refresh-btn" onClick={loadProjects} disabled={loading}>
+          <RefreshCw size={16} className={loading ? "aps-spin-icon" : ""} />
+          Refresh
+        </button> */}
       </section>
 
-      {/* =================================================
-          TOOLBAR
-      ================================================= */}
+      <section className="aps-stats">
+        <div className="aps-stat-card"><span>Total projects</span><strong>{projects.length}</strong></div>
+        <div className="aps-stat-card"><span>Total assemblies</span><strong>{totalAssemblies}</strong></div>
+        <div className="aps-stat-card"><span>Completed projects</span><strong>{completedProjects}</strong></div>
+      </section>
 
-      <AdminToolbar
-        search={search}
-        onSearchChange={setSearch}
-        placeholder="Search project name or code"
-      >
-
-        <label className="admin-field">
-
-          Status
-
-          <select
-            value={status}
-            onChange={(event) =>
-              setStatus(event.target.value)
-            }
-          >
-
-            <option value="all">
-              All statuses
-            </option>
-
-            {PROJECT_STATUSES.map((item) => (
-              <option
-                key={item}
-                value={item}
-              >
-                {item}
-              </option>
-            ))}
-
-          </select>
-
-        </label>
-
-      </AdminToolbar>
-
-      {/* =================================================
-          TABLE
-      ================================================= */}
-
-      <AdminCard>
-
-        <div className="project-table-heading">
-
+      <section className="aps-table-card">
+        <div className="aps-table-header">
           <div>
-
-            <h2>
-              Project Status
-            </h2>
-
-            <p>
-              Current manufacturing progress and production stage
-            </p>
-
+            <h2>Projects &amp; Assemblies</h2>
+            <p>Expand a project, then select the eye button to inspect the assembly route.</p>
           </div>
-
-          <span className="project-count">
-
-            {rows.length}{" "}
-
-            {rows.length === 1
-              ? "project"
-              : "projects"}
-
-          </span>
-
+          <span className="aps-result-count">{filteredProjects.length} project{filteredProjects.length === 1 ? "" : "s"}</span>
         </div>
 
-        <AdminDataTable
-          columns={COLUMNS}
-          rows={rows}
-          totalCount={all.length}
-          rowKey="id"
-          loading={pageLoading}
-          error={pageError}
-          onRetry={reload}
-          emptyTitle="No projects"
-          emptyMessage={
-            all.length
-              ? "No projects match your filters."
-              : "No projects have been created yet."
-          }
-          minWidth={980}
-          defaultSort={{
-            key: "name",
-            direction: "asc",
-          }}
-        />
+        <div className="aps-toolbar">
+          <label className="aps-search">
+            <Search size={17} />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search project, project code, or assembly"
+            />
+          </label>
+          <label className="aps-filter">
+            <span>Status</span>
+            <select value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="all">All statuses</option>
+              {PROJECT_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        </div>
 
-      </AdminCard>
+        {loading ? (
+          <div className="aps-page-state"><span className="aps-spinner" /><p>Loading project status…</p></div>
+        ) : error ? (
+          <div className="aps-page-state aps-state-error">
+            <p>{error}</p>
+            <button type="button" className="aps-btn" onClick={loadProjects}><RefreshCw size={15} /> Try again</button>
+          </div>
+        ) : filteredProjects.length === 0 ? (
+          <div className="aps-page-state">
+            <p>{projects.length ? "No projects match your search or status filter." : "No projects have been created yet."}</p>
+          </div>
+        ) : (
+          <div className="aps-table-scroll">
+            <table className="aps-project-table">
+              <thead>
+                <tr>
+                  <th>Project / Assembly</th>
+                  <th>Status</th>
+                  <th>Assembly count</th>
+                  <th>Start date / Assembly status</th>
+                  <th>End date / Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredProjects.map((project) => (
+                  <AssemblyRows
+                    key={project.id ?? project.code}
+                    project={project}
+                    onViewAssembly={setActiveAssemblyId}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-      {/* =================================================
-          FOOTER NOTE
-      ================================================= */}
-
-      <p className="admin-note">
-        Current process represents the latest
-        manufacturing stage recorded for each project.
+      <p className="aps-footnote">
+        Current process and stage quantities are read from the assembly execution data returned by Production Operation.
       </p>
 
-    </div>
+      {activeAssemblyId && (
+        <AssemblyDetailModal
+          assemblyId={activeAssemblyId}
+          accessToken={accessToken}
+          onClose={() => setActiveAssemblyId(null)}
+        />
+      )}
+    </main>
   );
 }

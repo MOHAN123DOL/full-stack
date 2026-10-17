@@ -232,6 +232,7 @@ from rest_framework_simplejwt.tokens import (
 User = get_user_model()
 
 
+
 class RefreshTokenAPIView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -278,7 +279,7 @@ class RefreshTokenAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Refresh token is missing.",
+                    "message": "Refresh token is missing. Please log in again.",
                 },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
@@ -286,38 +287,25 @@ class RefreshTokenAPIView(APIView):
         try:
             refresh = RefreshToken(refresh_token)
 
-            # Retrieve the user ID from the validated token.
-            user_id = refresh.get(
-                settings.SIMPLE_JWT.get(
-                    "USER_ID_CLAIM",
-                    "user_id",
-                )
+            user_id_claim = settings.SIMPLE_JWT.get(
+                "USER_ID_CLAIM",
+                "user_id",
             )
+
+            user_id_field = settings.SIMPLE_JWT.get(
+                "USER_ID_FIELD",
+                "id",
+            )
+
+            user_id = refresh.get(user_id_claim)
 
             if user_id is None:
                 raise InvalidToken("User ID is missing from token.")
 
             user = User.objects.get(
-                **{
-                    settings.SIMPLE_JWT.get(
-                        "USER_ID_FIELD",
-                        "id",
-                    ): user_id
-                }
+                **{user_id_field: user_id}
             )
 
-            # Do not allow a department to restore another
-            # department's session.
-            if user.user_type != user_type:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Department mismatch.",
-                    },
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            # Reject disabled accounts.
             if not user.is_active:
                 return Response(
                     {
@@ -327,10 +315,25 @@ class RefreshTokenAPIView(APIView):
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
 
-            # Create a new access token.
-            access_token = str(refresh.access_token)
+            if user.user_type != user_type:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Department mismatch.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
-            return Response(
+            serializer = TokenRefreshSerializer(
+                data={"refresh": refresh_token}
+            )
+
+            serializer.is_valid(raise_exception=True)
+
+            token_data = serializer.validated_data
+            access_token = token_data["access"]
+
+            response = Response(
                 {
                     "success": True,
                     "access": access_token,
@@ -342,6 +345,22 @@ class RefreshTokenAPIView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
+            # Save the rotated refresh token when rotation is enabled.
+            rotated_refresh = token_data.get("refresh")
+
+            if rotated_refresh:
+                response.set_cookie(
+                    key=cookie_name,
+                    value=rotated_refresh,
+                    max_age=settings.REFRESH_COOKIE_MAX_AGE,
+                    httponly=settings.REFRESH_COOKIE_HTTPONLY,
+                    secure=settings.REFRESH_COOKIE_SECURE,
+                    samesite=settings.REFRESH_COOKIE_SAMESITE,
+                    path=settings.REFRESH_COOKIE_PATH,
+                )
+
+            return response
 
         except User.DoesNotExist:
             return Response(
@@ -2115,9 +2134,18 @@ class QuotationConfirmAPIView(APIView):
             # 1. Session check (HttpOnly refresh cookie)
             # ============================================================
 
-            refresh_token = request.COOKIES.get(
-                settings.REFRESH_COOKIE_NAME
-            )
+            cookie_name = get_refresh_cookie_name("accounts")
+
+            if not cookie_name:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accounts refresh-cookie configuration is missing.",
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            refresh_token = request.COOKIES.get(cookie_name)
 
             if not refresh_token:
                 return Response(
@@ -2768,9 +2796,18 @@ class DeliveryChallanConfirmAPIView(APIView):
             # 1. Session check (HttpOnly refresh cookie)
             # ============================================================
 
-            refresh_token = request.COOKIES.get(
-                settings.REFRESH_COOKIE_NAME
-            )
+            cookie_name = get_refresh_cookie_name("accounts")
+
+            if not cookie_name:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accounts refresh-cookie configuration is missing.",
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            refresh_token = request.COOKIES.get(cookie_name)
 
             if not refresh_token:
                 return Response(
@@ -3377,9 +3414,18 @@ class TaxInvoiceConfirmAPIView(APIView):
             # 1. Session check (HttpOnly refresh cookie)
             # ============================================================
 
-            refresh_token = request.COOKIES.get(
-                settings.REFRESH_COOKIE_NAME
-            )
+            cookie_name = get_refresh_cookie_name("accounts")
+
+            if not cookie_name:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accounts refresh-cookie configuration is missing.",
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            refresh_token = request.COOKIES.get(cookie_name)
 
             if not refresh_token:
                 return Response(
@@ -3959,9 +4005,18 @@ class ProformaInvoiceConfirmAPIView(APIView):
             # 1. Session check (HttpOnly refresh cookie)
             # ============================================================
 
-            refresh_token = request.COOKIES.get(
-                settings.REFRESH_COOKIE_NAME
-            )
+            cookie_name = get_refresh_cookie_name("accounts")
+
+            if not cookie_name:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accounts refresh-cookie configuration is missing.",
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            refresh_token = request.COOKIES.get(cookie_name)
 
             if not refresh_token:
                 return Response(
@@ -4214,7 +4269,18 @@ class AccountsReportAPIView(APIView):
         # ============================================================
         # 1. Session check (HttpOnly refresh cookie)
         # ============================================================
-        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+        cookie_name = get_refresh_cookie_name("accounts")
+
+        if not cookie_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accounts refresh-cookie configuration is missing.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        refresh_token = request.COOKIES.get(cookie_name)
 
         if not refresh_token:
             return Response(
@@ -4489,7 +4555,18 @@ class AccountsReportStatusAPIView(APIView):
         # ============================================================
         # 1. Session check (same as report view)
         # ============================================================
-        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+        cookie_name = get_refresh_cookie_name("accounts")
+
+        if not cookie_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accounts refresh-cookie configuration is missing.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        refresh_token = request.COOKIES.get(cookie_name)
 
         if not refresh_token:
             return Response(
@@ -4630,10 +4707,7 @@ from .serializers import JournalEntrySerializer
 
 
 def _generate_journal_number(entry_type):
-    """
-    EXP1001, EXP1002, ...
-    INC1001, INC1002, ...
-    """
+   
     prefix = "EXP" if entry_type == JournalEntry.EntryType.EXPENSE else "INC"
 
     # Find the highest existing suffix for this prefix
@@ -4657,70 +4731,55 @@ def _generate_journal_number(entry_type):
     return f"{prefix}{suffix + 1}"
 
 
+from decimal import Decimal
+
+from django.db import models
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect
+
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+# Keep your existing project imports for:
+# IsAccounts, JournalEntry, JournalEntrySerializer,
+# and _generate_journal_number.
+
+
 @method_decorator(csrf_protect, name="dispatch")
 class JournalAPIView(APIView):
     """
-    GET  /erp/journal/  → list entries + totals
-    POST /erp/journal/  → create one entry
+    GET  /api/erp/journal/ -> list entries and totals
+    POST /api/erp/journal/ -> create one entry
     """
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsAccounts]
 
     # ========================================================
-    # AUTH HELPERS (same pattern as the rest of the app)
-    # ========================================================
-    def _get_user(self, request):
-        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
-        if not refresh_token:
-            return None, Response(
-                {"success": False, "message": "Session not found. Please login again."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        try:
-            token = RefreshToken(refresh_token)
-            user_id = token.get("user_id")
-        except Exception:
-            return None, Response(
-                {"success": False, "message": "Session is invalid or expired."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return None, Response(
-                {"success": False, "message": "Session user no longer exists."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        if user.user_type != User.UserType.ACCOUNTS:
-            return None, Response(
-                {"success": False, "message": "Accounts access required."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        return user, None
-
-    # ========================================================
-    # GET — list + totals
+    # GET — list entries and totals
     # ========================================================
     def get(self, request):
-        user, err = self._get_user(request)
-        if err:
-            return err
+        # IsAuthenticated and IsAccounts handle authorization.
+        # request.user is the authenticated Accounts user.
 
-        # Optional filters
-        entry_type = request.query_params.get("type")  # "Expense" | "Income"
-        qs = JournalEntry.objects.all().order_by("-date", "-created_at")
+        entry_type = request.query_params.get("type")
+
+        qs = JournalEntry.objects.all().order_by(
+            "-date",
+            "-created_at",
+        )
 
         if entry_type in ("Expense", "Income"):
             qs = qs.filter(type=entry_type)
 
-        serializer = JournalEntrySerializer(qs, many=True)
+        serializer = JournalEntrySerializer(
+            qs,
+            many=True,
+        )
 
-        # Compute totals over the *unfiltered* set so the page
-        # always shows overall income/expense/profit.
+        # Calculate totals across all journal entries,
+        # regardless of the selected type filter.
         total_expense = (
             JournalEntry.objects
             .filter(type=JournalEntry.EntryType.EXPENSE)
@@ -4752,14 +4811,12 @@ class JournalAPIView(APIView):
         )
 
     # ========================================================
-    # POST — create
+    # POST — create journal entry
     # ========================================================
     def post(self, request):
-        user, err = self._get_user(request)
-        if err:
-            return err
-
-        serializer = JournalEntrySerializer(data=request.data)
+        serializer = JournalEntrySerializer(
+            data=request.data,
+        )
 
         if not serializer.is_valid():
             return Response(
@@ -4772,25 +4829,32 @@ class JournalAPIView(APIView):
             )
 
         validated = serializer.validated_data
-        entry_type = validated.get("type", JournalEntry.EntryType.EXPENSE)
 
-        record_number = _generate_journal_number(entry_type)
+        entry_type = validated.get(
+            "type",
+            JournalEntry.EntryType.EXPENSE,
+        )
+
+        record_number = _generate_journal_number(
+            entry_type,
+        )
 
         entry = JournalEntry.objects.create(
             record_number=record_number,
             **validated,
         )
 
-        out = JournalEntrySerializer(entry)
+        output_serializer = JournalEntrySerializer(entry)
 
         return Response(
             {
                 "success": True,
                 "message": "Journal entry created.",
-                "data": out.data,
+                "data": output_serializer.data,
             },
             status=status.HTTP_201_CREATED,
         )
+
 
 # ============================================================
 # DELETE A JOURNAL ENTRY
@@ -4804,13 +4868,24 @@ class JournalDetailAPIView(APIView):
     DELETE /erp/journal/<pk>/   → delete an entry
     """
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsAccounts]
 
     # ========================================================
     # AUTH HELPER — same pattern as JournalAPIView
     # ========================================================
     def _get_user(self, request):
-        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+        cookie_name = get_refresh_cookie_name("accounts")
+
+        if not cookie_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accounts refresh-cookie configuration is missing.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        refresh_token = request.COOKIES.get(cookie_name)
 
         if not refresh_token:
             return None, Response(
@@ -4933,10 +5008,22 @@ class JournalPOOptionsAPIView(APIView):
     POs should not be selectable for financial linkage.
     """
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsAccounts]
 
     def _get_user(self, request):
-        refresh_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
+        cookie_name = get_refresh_cookie_name("accounts")
+
+        if not cookie_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accounts refresh-cookie configuration is missing.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        refresh_token = request.COOKIES.get(cookie_name)
+
         if not refresh_token:
             return None, Response(
                 {"success": False, "message": "Session not found. Please login again."},
@@ -19780,6 +19867,912 @@ class AdminDocumentNumberUsedAPIView(APIView):
                 "key": key,
                 "count": len(rows),
                 "data": rows,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+# =====================================================================
+# ADMIN — PROJECT STATUS
+# -----------------------------------------------------------------
+# GET /erp/admin/project-status/
+#
+# Query params:
+#   ?search=<text>          matches project name OR project code
+#   ?status=Active|On Hold|Completed
+#
+# Returns one row per PROJECT, each with a nested `assemblies` list.
+# For every assembly we compute:
+#   - currentProcess     → live stage name from AssemblyStageExecution
+#   - currentProcessId   → that stage's process_id
+#   - currentStageLabel  → Not Started / Ready to Start / In Progress /
+#                          Awaiting QC / In Rework / Outsourced /
+#                          Completed / Pending
+#   - currentSequence    → sequence number of that stage
+#   - totalStages        → how many stages the planned route has
+#
+# The stage data comes from AssemblyExecution + AssemblyStageExecution,
+# which Production Operation writes — no manual "current_process" field.
+# =====================================================================
+
+from .models import (
+    Project,
+    Assembly,
+    AssemblyExecution,
+)
+
+
+def _resolve_current_stage(execution):
+    """
+    Return (stage, label) for the assembly's live stage.
+
+    Rules (match how _release_to_next_stage in ProductionOperation works):
+
+      - No execution yet               → (None, "Not Started")
+      - Execution is COMPLETED         → (None, "Completed")
+      - Execution CANCELLED            → (None, "Cancelled")
+
+      Otherwise walk the stages in sequence order. The first stage
+      that is still "busy" is the current one. Busy = any of:
+
+          available_qty > 0
+          pending_operation_qty > 0
+          awaiting_qc_qty > 0
+          rework_qty > 0
+          sent_qty > received_qty   (sitting at an outsourcing vendor)
+
+      Label is derived from which counter is non-zero, in that order.
+    """
+    if execution is None:
+        return None, "Not Started"
+
+    if execution.status == AssemblyExecution.Status.COMPLETED:
+        return None, "Completed"
+
+    if execution.status == AssemblyExecution.Status.CANCELLED:
+        return None, "Cancelled"
+
+    stages = list(execution.stages.order_by("sequence"))
+
+    if not stages:
+        return None, "Not Started"
+
+    for stage in stages:
+        available  = stage.available_qty or 0
+        pending    = stage.pending_operation_qty or 0
+        awaiting_qc = stage.awaiting_qc_qty or 0
+        rework     = stage.rework_qty or 0
+        sent       = stage.sent_qty or 0
+        received   = stage.received_qty or 0
+
+        outsourced_pending = sent - received
+
+        busy = (
+            available > 0
+            or pending > 0
+            or awaiting_qc > 0
+            or rework > 0
+            or outsourced_pending > 0
+        )
+
+        if not busy:
+            continue
+
+        if outsourced_pending > 0:
+            label = "Outsourced"
+        elif awaiting_qc > 0:
+            label = "Awaiting QC"
+        elif rework > 0:
+            label = "In Rework"
+        elif stage.started and pending > 0:
+            label = "In Progress"
+        elif pending > 0:
+            label = "Ready to Start"
+        else:
+            label = "Pending"
+
+        return stage, label
+
+    # Every stage finished but execution.status not yet flipped
+    return None, "Completed"
+
+
+class AdminProjectStatusAPIView(APIView):
+    """
+    GET /erp/admin/project-status/
+    """
+
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+
+        search        = (request.query_params.get("search") or "").strip()
+        status_filter = (request.query_params.get("status") or "").strip()
+
+        projects = (
+            Project.objects
+            .all()
+            .order_by("-created_at")
+        )
+
+        if search:
+            projects = projects.filter(
+                Q(name__icontains=search)
+                | Q(code__icontains=search)
+            )
+
+        if status_filter and status_filter.lower() != "all":
+            projects = projects.filter(status=status_filter)
+
+        rows = []
+
+        for project in projects:
+
+            # ---- Assemblies for this project ----
+            assemblies_qs = (
+                Assembly.objects
+                .filter(project=project)
+                .select_related("execution")
+                .prefetch_related(
+                    "execution__stages",
+                    "processes",
+                )
+                .order_by("-created_at")
+            )
+
+            assembly_rows = []
+
+            for asm in assemblies_qs:
+
+                execution = getattr(asm, "execution", None)
+                stage, stage_label = _resolve_current_stage(execution)
+
+                # ---- Resolve what to display as "current process" ----
+                if stage is not None:
+                    current_process    = stage.name
+                    current_process_id = stage.process_id
+                    current_sequence   = stage.sequence
+
+                elif stage_label == "Completed":
+                    current_process    = "Completed"
+                    current_process_id = ""
+                    current_sequence   = None
+
+                elif stage_label == "Cancelled":
+                    current_process    = "Cancelled"
+                    current_process_id = ""
+                    current_sequence   = None
+
+                else:
+                    # Nothing started yet → show the FIRST planned process
+                    first = asm.processes.order_by("sequence").first()
+                    current_process    = first.name if first else "—"
+                    current_process_id = first.process_id if first else ""
+                    current_sequence   = first.sequence if first else None
+
+                assembly_rows.append({
+                    "id":                  asm.id,
+                    "assemblyId":          asm.assembly_id,
+                    "status":              asm.status,
+                    "currentProcess":      current_process,
+                    "currentProcessId":    current_process_id,
+                    "currentStageLabel":   stage_label,
+                    "currentSequence":     current_sequence,
+                    "totalStages":         asm.processes.count(),
+                    "dwgDescription":      asm.dwg_description or "",
+                    "notes":               asm.notes or "",
+                    "createdAt":           asm.created_at,
+                })
+
+            # ---- Project-level rollup ----
+            total       = len(assembly_rows)
+            completed   = sum(1 for a in assembly_rows
+                              if a["status"] == Assembly.Status.COMPLETED)
+            in_progress = sum(1 for a in assembly_rows
+                              if a["status"] == Assembly.Status.IN_PROGRESS)
+            planned     = sum(1 for a in assembly_rows
+                              if a["status"] == Assembly.Status.PLANNED)
+            cancelled   = sum(1 for a in assembly_rows
+                              if a["status"] == Assembly.Status.CANCELLED)
+
+            rows.append({
+                "id":                    project.id,
+                "name":                  project.name,
+                "code":                  project.code,
+                "status":                project.status,
+                "startDate":             project.start_date,
+                "endDate":               project.end_date,
+                "totalAssemblies":       total,
+                "completedAssemblies":   completed,
+                "inProgressAssemblies":  in_progress,
+                "plannedAssemblies":     planned,
+                "cancelledAssemblies":   cancelled,
+                "assemblies":            assembly_rows,
+            })
+
+        return Response(
+            {
+                "success": True,
+                "count":   len(rows),
+                "data":    rows,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =====================================================================
+# ADMIN — ASSEMBLY STAGE DETAIL (Eye button on Project Status page)
+# -----------------------------------------------------------------
+# GET /erp/admin/project-status/<assembly_id>/
+#
+# Returns the full stage-by-stage state of one assembly:
+#   - every stage in sequence order
+#   - its quantity counters
+#   - its status label (Not Started / Ready to Start / In Progress /
+#     Awaiting QC / In Rework / Outsourced / Completed)
+#   - its movement log (who did what, when)
+#   - the assembly-level events feed
+#
+# <assembly_id> is the Assembly.assembly_id string (e.g. "ASM007").
+# =====================================================================
+
+def _stage_status_label(stage):
+    """
+    Derive a single status label for one stage from its counters.
+    Mirrors the logic in _resolve_current_stage.
+    """
+    sent = stage.sent_qty or 0
+    received = stage.received_qty or 0
+    outsourced_pending = sent - received
+
+    if outsourced_pending > 0:
+        return "Outsourced"
+
+    if (stage.awaiting_qc_qty or 0) > 0:
+        return "Awaiting QC"
+
+    if (stage.rework_qty or 0) > 0:
+        return "In Rework"
+
+    if stage.started and (stage.pending_operation_qty or 0) > 0:
+        return "In Progress"
+
+    if (stage.pending_operation_qty or 0) > 0:
+        return "Ready to Start"
+
+    # Nothing left to do on this stage but the execution isn't completed
+    # → it's fully released
+    if (stage.released_qty or 0) > 0 or (stage.received_qty or 0) > 0:
+        return "Completed"
+
+    return "Not Started"
+
+
+class AdminAssemblyStageDetailAPIView(APIView):
+    """
+    GET /erp/admin/project-status/<assembly_id>/
+    """
+
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request, assembly_id):
+
+        try:
+            asm = (
+                Assembly.objects
+                .select_related("project", "execution")
+                .prefetch_related(
+                    "execution__stages",
+                    "execution__stages__movements",
+                    "execution__events",
+                    "processes",
+                )
+                .get(assembly_id=assembly_id)
+            )
+        except Assembly.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Assembly not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        execution = getattr(asm, "execution", None)
+
+        # ---------------------------------------------------------
+        # Assembly header
+        # ---------------------------------------------------------
+        header = {
+            "id": asm.id,
+            "assemblyId": asm.assembly_id,
+            "projectId": asm.project_id,
+            "projectName": asm.project.name if asm.project else "",
+            "projectCode": asm.project.code if asm.project else "",
+            "status": asm.status,
+            "dwgDescription": asm.dwg_description or "",
+            "notes": asm.notes or "",
+            "createdAt": asm.created_at,
+            "executionStatus": execution.status if execution else "Pending",
+            "startedAt": execution.started_at if execution else None,
+            "completedAt": execution.completed_at if execution else None,
+        }
+
+        # ---------------------------------------------------------
+        # Stages
+        # ---------------------------------------------------------
+        if execution is not None:
+            stage_qs = execution.stages.order_by("sequence")
+        else:
+            # No execution yet — fall back to the planned route so the
+            # modal still renders something useful.
+            stage_qs = []
+
+        stages_payload = []
+
+        if execution is not None:
+
+            for stage in stage_qs:
+
+                label = _stage_status_label(stage)
+
+                movements = list(
+                    stage.movements.order_by("-created_at")[:50]
+                )
+
+                stages_payload.append({
+                    "id": stage.id,
+                    "sequence": stage.sequence,
+                    "name": stage.name,
+                    "processId": stage.process_id,
+                    "status": label,
+                    "qcRequired": stage.qc_required,
+                    "executionType": stage.execution_type,
+                    "executionUnit": stage.execution_unit or "",
+                    "vendor": stage.vendor or "",
+                    "vendorContact": stage.vendor_contact or "",
+                    "vendorLocation": stage.vendor_location or "",
+                    "expectedReturnDate": stage.expected_return_date,
+                    "started": stage.started,
+
+                    "availableQty": float(stage.available_qty or 0),
+                    "pendingOperationQty": float(stage.pending_operation_qty or 0),
+                    "sentQty": float(stage.sent_qty or 0),
+                    "receivedQty": float(stage.received_qty or 0),
+                    "awaitingQcQty": float(stage.awaiting_qc_qty or 0),
+                    "reworkQty": float(stage.rework_qty or 0),
+                    "releasedQty": float(stage.released_qty or 0),
+
+                    "movements": [
+                        {
+                            "id": mv.id,
+                            "movement": mv.movement,
+                            "quantity": float(mv.quantity or 0),
+                            "performedBy": mv.performed_by or "",
+                            "supervisedBy": mv.supervised_by or "",
+                            "remarks": mv.remarks or "",
+                            "dcRef": mv.dc_ref or "",
+                            "createdAt": mv.created_at,
+                        }
+                        for mv in movements
+                    ],
+                })
+
+        else:
+            # Planned-only fallback
+            for proc in asm.processes.order_by("sequence"):
+                stages_payload.append({
+                    "id": None,
+                    "sequence": proc.sequence,
+                    "name": proc.name,
+                    "processId": proc.process_id,
+                    "status": "Not Started",
+                    "qcRequired": proc.qc_required,
+                    "executionType": proc.execution_type,
+                    "executionUnit": proc.execution_unit or "",
+                    "vendor": proc.vendor or "",
+                    "vendorContact": proc.vendor_contact or "",
+                    "vendorLocation": proc.vendor_location or "",
+                    "expectedReturnDate": proc.expected_return_date,
+                    "started": False,
+                    "availableQty": 0,
+                    "pendingOperationQty": 0,
+                    "sentQty": 0,
+                    "receivedQty": 0,
+                    "awaitingQcQty": 0,
+                    "reworkQty": 0,
+                    "releasedQty": 0,
+                    "movements": [],
+                })
+
+        # ---------------------------------------------------------
+        # Events feed
+        # ---------------------------------------------------------
+        events_payload = []
+        if execution is not None:
+            events_payload = [
+                {
+                    "id": ev.id,
+                    "date": ev.event_date,
+                    "text": ev.event_text,
+                    "createdAt": ev.created_at,
+                }
+                for ev in execution.events.order_by("created_at")
+            ]
+
+        # ---------------------------------------------------------
+        # Current stage (for the header pill)
+        # ---------------------------------------------------------
+        stage, stage_label = _resolve_current_stage(execution)
+
+        current_payload = None
+        if stage is not None:
+            current_payload = {
+                "sequence": stage.sequence,
+                "name": stage.name,
+                "processId": stage.process_id,
+                "label": stage_label,
+            }
+        elif stage_label:
+            current_payload = {
+                "sequence": None,
+                "name": stage_label,
+                "processId": "",
+                "label": stage_label,
+            }
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "assembly": header,
+                    "currentStage": current_payload,
+                    "stages": stages_payload,
+                    "events": events_payload,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+# =====================================================================
+# ADMIN — STATISTICS DASHBOARD
+# -----------------------------------------------------------------
+# GET /erp/admin/statistics/
+#
+# Query params:
+#   ?period=day|week|month|quarter|year|custom
+#   ?from=YYYY-MM-DD  (only for period=custom)
+#   ?to=YYYY-MM-DD    (only for period=custom)
+#
+# Returns data perfectly shaped for the React charts.
+# =====================================================================
+
+from datetime import date, timedelta
+from decimal import Decimal
+import calendar
+
+from django.db.models import Sum, Q, Count
+from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
+
+from .models import (
+    JournalEntry,
+    Project,
+    PurchaseOrder,
+    TaxInvoice,
+    ProformaInvoice,
+    DeliveryChallan,
+)
+
+
+def _get_statistics_date_range(period, from_date, to_date):
+    """
+    Resolves the requested period into a concrete (start_date, end_date).
+    """
+    today = date.today()
+
+    if period == "day":
+        return today, today
+
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+        return start, start + timedelta(days=6)
+
+    if period == "month":
+        start = today.replace(day=1)
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        return start, today.replace(day=last_day)
+
+    if period == "quarter":
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        q_end_month = q_start_month + 2
+        last_day = calendar.monthrange(today.year, q_end_month)[1]
+        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
+
+    if period == "year":
+        return date(today.year, 1, 1), date(today.year, 12, 31)
+
+    if period == "custom":
+        if from_date and to_date:
+            try:
+                start = date.fromisoformat(from_date)
+                end = date.fromisoformat(to_date)
+                if end < start:
+                    start, end = end, start
+                return start, end
+            except ValueError:
+                pass
+        # Fallback if invalid custom dates
+        start = today.replace(day=1)
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        return start, today.replace(day=last_day)
+
+    # Default to this month
+    start = today.replace(day=1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    return start, today.replace(day=last_day)
+from datetime import date, timedelta
+from decimal import Decimal
+import calendar
+
+from django.db.models import Sum, Q, Count
+from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
+
+from .models import (
+    JournalEntry,
+    Project,
+    PurchaseOrder,
+    TaxInvoice,
+    ProformaInvoice,
+    SalaryPayment,
+    Advance,
+)
+
+def _get_statistics_date_range(period, from_date, to_date):
+    today = date.today()
+
+    if period == "day":
+        return today, today
+
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+        return start, start + timedelta(days=6)
+
+    if period == "month":
+        start = today.replace(day=1)
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        return start, today.replace(day=last_day)
+
+    if period == "quarter":
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        q_end_month = q_start_month + 2
+        last_day = calendar.monthrange(today.year, q_end_month)[1]
+        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
+
+    if period == "year":
+        return date(today.year, 1, 1), date(today.year, 12, 31)
+
+    if period == "custom":
+        if from_date and to_date:
+            try:
+                start = date.fromisoformat(from_date)
+                end = date.fromisoformat(to_date)
+                if end < start:
+                    start, end = end, start
+                return start, end
+            except ValueError:
+                pass
+        start = today.replace(day=1)
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        return start, today.replace(day=last_day)
+
+    start = today.replace(day=1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    return start, today.replace(day=last_day)
+
+from datetime import date, timedelta
+from decimal import Decimal
+import calendar
+
+from django.db.models import Sum, Q, Count
+from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
+
+from .models import (
+    JournalEntry,
+    Project,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    TaxInvoice,
+    ProformaInvoice,
+    SalaryPayment,
+    Advance,
+    MaterialGRN,
+    ConsumableGRN,
+)
+
+def _get_statistics_date_range(period, from_date, to_date):
+    today = date.today()
+
+    if period == "day":
+        return today, today
+
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+        return start, start + timedelta(days=6)
+
+    if period == "month":
+        start = today.replace(day=1)
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        return start, today.replace(day=last_day)
+
+    if period == "quarter":
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        q_end_month = q_start_month + 2
+        last_day = calendar.monthrange(today.year, q_end_month)[1]
+        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
+
+    if period == "year":
+        return date(today.year, 1, 1), date(today.year, 12, 31)
+
+    if period == "custom":
+        if from_date and to_date:
+            try:
+                start = date.fromisoformat(from_date)
+                end = date.fromisoformat(to_date)
+                if end < start:
+                    start, end = end, start
+                return start, end
+            except ValueError:
+                pass
+        start = today.replace(day=1)
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        return start, today.replace(day=last_day)
+
+    start = today.replace(day=1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    return start, today.replace(day=last_day)
+
+
+class AdminStatisticsAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        period = request.query_params.get("period", "month")
+        from_date = request.query_params.get("from")
+        to_date = request.query_params.get("to")
+
+        start_date, end_date = _get_statistics_date_range(period, from_date, to_date)
+
+        # -----------------------------------------------------------------
+        # 1. REVENUE, EXPENSES, SALARY & ADVANCE
+        # -----------------------------------------------------------------
+        journal_qs = JournalEntry.objects.filter(
+            date__gte=start_date,
+            date__lte=end_date
+        )
+
+        income_agg = journal_qs.filter(type=JournalEntry.EntryType.INCOME).aggregate(total=Sum("amount"))
+        expense_agg = journal_qs.filter(type=JournalEntry.EntryType.EXPENSE).aggregate(total=Sum("amount"))
+
+        total_revenue = float(income_agg["total"] or 0)
+        journal_expenses = float(expense_agg["total"] or 0)
+
+        salary_agg = SalaryPayment.objects.filter(
+            payment_status="PAID",
+            paid_date__gte=start_date,
+            paid_date__lte=end_date
+        ).aggregate(total=Sum("net_salary"))
+        total_salary_paid = float(salary_agg["total"] or 0)
+
+        advance_agg = Advance.objects.filter(
+            advance_date__gte=start_date,
+            advance_date__lte=end_date
+        ).aggregate(total=Sum("amount"))
+        total_advances = float(advance_agg["total"] or 0)
+
+        total_expenses = journal_expenses + total_salary_paid + total_advances
+
+        # -----------------------------------------------------------------
+        # 2. CHART GROUPING (Timeline)
+        # -----------------------------------------------------------------
+        if period == "day":
+            trunc_func = TruncDay("date")
+        elif period == "week":
+            trunc_func = TruncWeek("date")
+        elif period == "quarter":
+            trunc_func = TruncQuarter("date")
+        elif period == "year":
+            trunc_func = TruncYear("date")
+        else:
+            trunc_func = TruncMonth("date")
+
+        timeline_qs = (
+            journal_qs
+            .annotate(bucket=trunc_func)
+            .values("bucket", "type")
+            .annotate(total=Sum("amount"))
+            .order_by("bucket")
+        )
+
+        timeline_map = {}
+
+        def get_label(dt, p):
+            if not dt: return ""
+            if p == "day": return dt.strftime("%d %b")
+            if p == "week": return f"Wk {dt.strftime('%d %b')}"
+            if p == "month": return dt.strftime("%b %y")
+            if p == "quarter":
+                quarter = (dt.month - 1) // 3 + 1
+                return f"{dt.year}-Q{quarter}"
+            if p == "year": return str(dt.year)
+            return dt.strftime("%d %b")
+
+        for row in timeline_qs:
+            bucket = row["bucket"]
+            if not bucket: continue
+                
+            if hasattr(bucket, "date"):
+                bucket = bucket.date()
+                
+            key = bucket.isoformat()
+            
+            if key not in timeline_map:
+                timeline_map[key] = {
+                    "key": key,
+                    "label": get_label(bucket, period),
+                    "revenue": 0.0,
+                    "expenses": 0.0
+                }
+
+            if row["type"] == JournalEntry.EntryType.INCOME:
+                timeline_map[key]["revenue"] += float(row["total"])
+            else:
+                timeline_map[key]["expenses"] += float(row["total"])
+
+        chart_data = sorted(timeline_map.values(), key=lambda x: x["key"])
+
+        # -----------------------------------------------------------------
+        # 3. EXPENSE BREAKDOWN (All Categories + Dynamic Salary)
+        # -----------------------------------------------------------------
+        category_qs = (
+            journal_qs.filter(type=JournalEntry.EntryType.EXPENSE)
+            .values("category")
+            .annotate(total=Sum("amount"))
+        )
+        
+        breakdown_map = {row["category"]: float(row["total"]) for row in category_qs if row["category"]}
+        breakdown_map["Salary"] = breakdown_map.get("Salary", 0.0) + total_salary_paid + total_advances
+
+        expected_categories = [
+            "Purchase", "Transport", "Salary", "Rent", "Electricity",
+            "Maintenance", "Office", "Sales", "Other"
+        ]
+
+        expense_breakdown = []
+        for cat in expected_categories:
+            amount = breakdown_map.get(cat, 0.0)
+            expense_breakdown.append({"category": cat, "amount": amount})
+
+        for cat, amount in breakdown_map.items():
+            if cat not in expected_categories:
+                expense_breakdown.append({"category": cat, "amount": amount})
+
+        expense_breakdown = sorted(expense_breakdown, key=lambda x: x["amount"], reverse=True)
+
+        # -----------------------------------------------------------------
+        # 4. PURCHASE ORDER STATUS (Matched to Admin Po Pending GRN logic)
+        # -----------------------------------------------------------------
+        # We evaluate all confirmed PO items created within the date range
+        real_items = (
+            PurchaseOrderItem.objects
+            .select_related("purchase_order")
+            .filter(
+                purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+                purchase_order__created_at__date__gte=start_date,
+                purchase_order__created_at__date__lte=end_date,
+            )
+        )
+
+        # Fetch aggregates
+        material_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                MaterialGRN.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_qty"))
+            )
+        }
+
+        consumable_map = {
+            row["purchase_order_item_id"]: row["total"]
+            for row in (
+                ConsumableGRN.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_quantity"))
+            )
+        }
+
+        # Build status counts based on exact logic from AdminPoPendingGRnAPIView
+        counts = {
+            "Pending": 0,
+            "Partially Received": 0,
+            "Outstanding": 0, # We will use this for "Not Received"
+            "Fully Received": 0
+        }
+
+        for pi in real_items:
+            po_qty = pi.quantity or Decimal("0")
+            material_received = material_map.get(pi.id, Decimal("0"))
+            consumable_received = consumable_map.get(pi.id, Decimal("0"))
+            received = material_received + consumable_received
+            balance = po_qty - received
+
+            if balance <= 0:
+                counts["Fully Received"] += 1
+            elif received <= 0:
+                counts["Pending"] += 1
+            else:
+                # Partially received (some received, some balance)
+                counts["Partially Received"] += 1
+
+        # The frontend expects an array of {status, count}
+        po_status_array = [
+            {"status": "Pending", "count": counts["Pending"]},
+            {"status": "Partially Received", "count": counts["Partially Received"]},
+            {"status": "Outstanding", "count": 0},  # Not used in this logic, but kept for chart consistency
+            {"status": "Fully Received", "count": counts["Fully Received"]},
+        ]
+
+        # -----------------------------------------------------------------
+        # 5. OUTSTANDING AMOUNT
+        # -----------------------------------------------------------------
+        unpaid_invoices_ti = TaxInvoice.objects.filter(
+            invoice_date__gte=start_date,
+            invoice_date__lte=end_date,
+            payment_status=TaxInvoice.PaymentStatus.PENDING
+        )
+        unpaid_invoices_pi = ProformaInvoice.objects.filter(
+            date__gte=start_date,
+            date__lte=end_date,
+            payment_status=ProformaInvoice.PaymentStatus.PENDING
+        )
+
+        outstanding_ti = unpaid_invoices_ti.aggregate(total=Sum("grand_total"))["total"] or 0
+        outstanding_pi = unpaid_invoices_pi.aggregate(total=Sum("grand_total"))["total"] or 0
+        
+        total_outstanding = float(outstanding_ti + outstanding_pi)
+
+        # -----------------------------------------------------------------
+        # 6. TOTAL PROJECTS
+        # -----------------------------------------------------------------
+        total_projects = Project.objects.filter(
+            Q(start_date__gte=start_date, start_date__lte=end_date) |
+            Q(start_date__isnull=True, created_at__date__gte=start_date, created_at__date__lte=end_date)
+        ).distinct().count()
+
+        # -----------------------------------------------------------------
+        # 7. RESPONSE
+        # -----------------------------------------------------------------
+        return Response(
+            {
+                "success": True,
+                "period": period,
+                "range": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat(),
+                },
+                "data": {
+                    "kpis": {
+                        "revenue": total_revenue,
+                        "expenses": total_expenses,
+                        "outstanding": total_outstanding,
+                        "projects": total_projects,
+                    },
+                    "chart_data": chart_data,
+                    "expense_breakdown": expense_breakdown,
+                    "po_status": po_status_array,
+                },
             },
             status=status.HTTP_200_OK,
         )

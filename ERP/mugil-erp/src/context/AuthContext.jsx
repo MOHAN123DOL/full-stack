@@ -1,3 +1,4 @@
+
 import {
   createContext,
   useCallback,
@@ -18,12 +19,6 @@ import {
 
 const AuthContext = createContext(null);
 
-/*
-|--------------------------------------------------------------------------
-| Supported departments
-|--------------------------------------------------------------------------
-*/
-
 const VALID_USER_TYPES = [
   "admin",
   "accounts",
@@ -33,35 +28,18 @@ const VALID_USER_TYPES = [
   "supervisor",
 ];
 
-/*
-|--------------------------------------------------------------------------
-| Prevent duplicate refresh requests for the same department
-|--------------------------------------------------------------------------
-*/
-
+// Avoid duplicate refresh requests for the same department.
 const refreshPromises = new Map();
 
 function isValidUserType(userType) {
   return VALID_USER_TYPES.includes(userType);
 }
 
-/*
-|--------------------------------------------------------------------------
-| Extract backend error messages
-|--------------------------------------------------------------------------
-*/
-
-function extractBackendErrorMessage(
-  responseData,
-  fallbackStatus
-) {
-  if (
-    !responseData ||
-    typeof responseData !== "object"
-  ) {
+function extractBackendErrorMessage(responseData, fallbackStatus) {
+  if (!responseData || typeof responseData !== "object") {
     return fallbackStatus
-      ? `Login failed (${fallbackStatus}).`
-      : "Unable to sign in. Please try again.";
+      ? `Request failed (${fallbackStatus}).`
+      : "Unable to complete the request.";
   }
 
   if (
@@ -78,62 +56,40 @@ function extractBackendErrorMessage(
     return responseData.detail;
   }
 
-  if (
-    responseData.errors &&
-    typeof responseData.errors === "object"
-  ) {
-    return Object.entries(responseData.errors)
-      .map(([field, messages]) => {
-        const message = Array.isArray(messages)
-          ? messages.join(", ")
-          : String(messages);
+  const errors = responseData.errors || responseData;
+
+  if (typeof errors === "object") {
+    const messages = Object.entries(errors)
+      .map(([field, value]) => {
+        const message = Array.isArray(value)
+          ? value.join(", ")
+          : String(value);
 
         return `${field}: ${message}`;
       })
       .join(" | ");
+
+    if (messages) {
+      return messages;
+    }
   }
 
-  return (
-    `Unable to sign in${
-      fallbackStatus
-        ? ` (${fallbackStatus})`
-        : ""
-    }.`
-  );
+  return fallbackStatus
+    ? `Request failed (${fallbackStatus}).`
+    : "Unable to complete the request.";
 }
 
-/*
-|--------------------------------------------------------------------------
-| Auth Provider
-|--------------------------------------------------------------------------
-*/
-
 export function AuthProvider({ children }) {
-  const [isAuthenticated, setIsAuthenticated] =
-    useState(false);
-
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
-
-  const [accessToken, setAccessToken] =
-    useState(null);
-
-  // Used for login and session restoration requests.
-  const [authLoading, setAuthLoading] =
-    useState(false);
-
-  const [authError, setAuthError] =
-    useState(false);
+  const [accessToken, setAccessToken] = useState(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState(false);
 
   /*
-  |--------------------------------------------------------------------------
-  | Synchronize Axios authentication callbacks
-  |--------------------------------------------------------------------------
-  |
-  | When Axios refreshes an expired access token, it notifies
-  | this context so React state remains synchronized.
-  |
-  */
-
+   * Keep Axios and React authentication state synchronized
+   * when the Axios interceptor refreshes an access token.
+   */
   useEffect(() => {
     setAuthHandlers({
       onRefresh: (newAccessToken, refreshedUser) => {
@@ -142,6 +98,7 @@ export function AuthProvider({ children }) {
 
         if (refreshedUser) {
           setUser(refreshedUser);
+          setActiveUserType(refreshedUser.user_type);
         }
 
         setIsAuthenticated(true);
@@ -165,35 +122,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   /*
-  |--------------------------------------------------------------------------
-  | RESTORE SESSION
-  |--------------------------------------------------------------------------
-  |
-  | Called by ProtectedRoute after a browser refresh.
-  |
-  | The access token is stored in memory, so it disappears
-  | when the page reloads.
-  |
-  | The backend must use the department-specific HttpOnly
-  | refresh cookie to issue a new access token.
-  |
-  */
-
+   * Restore a department-specific session using its HttpOnly
+   * refresh cookie.
+   */
   const restoreSession = useCallback(
     async (userType) => {
       if (!isValidUserType(userType)) {
-        console.error(
-          "Invalid department passed to restoreSession:",
-          userType
-        );
-
+        console.error("Invalid department:", userType);
         return false;
       }
-
-      /*
-       * If this department is already authenticated,
-       * do not make another refresh request.
-       */
 
       if (
         isAuthenticated &&
@@ -203,11 +140,7 @@ export function AuthProvider({ children }) {
         return true;
       }
 
-      /*
-       * Avoid simultaneous refresh requests for the
-       * same department.
-       */
-
+      // Reuse an in-progress refresh for this department.
       if (refreshPromises.has(userType)) {
         return refreshPromises.get(userType);
       }
@@ -216,82 +149,58 @@ export function AuthProvider({ children }) {
         try {
           setAuthLoading(true);
           setAuthError(false);
-
           setActiveUserType(userType);
 
-          const response =
-            await refreshDepartmentSession(userType);
-
+          const response = await refreshDepartmentSession(userType);
           const data = response?.data;
 
-          if (
-            !data?.success ||
-            !data?.access ||
-            !data?.user
-          ) {
+          if (!data?.success || !data?.access || !data?.user) {
             throw new Error(
-              "The refresh endpoint must return success, access, and user."
+              "The refresh response must contain success, access, and user."
             );
           }
 
-          const authenticatedUser = data.user;
-
-          /*
-           * Never accept a session belonging to another
-           * department.
-           */
-
-          if (
-            authenticatedUser.user_type !== userType
-          ) {
+          if (data.user.user_type !== userType) {
             throw new Error(
               "The authenticated department does not match the requested department."
             );
           }
 
-          /*
-           * Restore the access token and user in React
-           * and Axios.
-           */
-
           setActiveUserType(userType);
           setAxiosAccessToken(data.access);
 
           setAccessToken(data.access);
-          setUser(authenticatedUser);
-
+          setUser(data.user);
           setIsAuthenticated(true);
           setAuthError(false);
 
           return true;
         } catch (error) {
+          const status = error?.response?.status;
+
           console.error(
             `Session restoration failed for ${userType}:`,
             error
           );
 
-          setAxiosAccessToken(null);
-          setAccessToken(null);
-
-          setUser(null);
-          setIsAuthenticated(false);
+          /*
+           * A 401/403 normally means this department has no
+           * valid session. A network/server error is different.
+           */
+          if (!status || (status !== 401 && status !== 403)) {
+            setAuthError(true);
+          }
 
           /*
-           * A missing or expired refresh cookie means
-           * the user must log in again.
-           *
-           * Other server errors are exposed through
-           * authError for troubleshooting.
+           * Clear authentication only if the current state belongs
+           * to the department whose refresh failed. A failed attempt
+           * for another department must not erase a valid session.
            */
-
-          if (
-            error.response &&
-            error.response.status !== 401 &&
-            error.response.status !== 403
-          ) {
-            setAuthError(true);
-          } else if (!error.response) {
-            setAuthError(true);
+          if (user?.user_type === userType) {
+            setAxiosAccessToken(null);
+            setAccessToken(null);
+            setUser(null);
+            setIsAuthenticated(false);
           }
 
           return false;
@@ -300,40 +209,23 @@ export function AuthProvider({ children }) {
         }
       })();
 
-      refreshPromises.set(
-        userType,
-        restorePromise
-      );
+      refreshPromises.set(userType, restorePromise);
 
       try {
         return await restorePromise;
       } finally {
-        if (
-          refreshPromises.get(userType) ===
-          restorePromise
-        ) {
+        if (refreshPromises.get(userType) === restorePromise) {
           refreshPromises.delete(userType);
         }
       }
     },
-    [
-      isAuthenticated,
-      user,
-      accessToken,
-    ]
+    [isAuthenticated, user, accessToken]
   );
 
   /*
-  |--------------------------------------------------------------------------
-  | LOGIN
-  |--------------------------------------------------------------------------
-  */
-
-  const login = async (
-    username,
-    password,
-    userType
-  ) => {
+   * Login
+   */
+  const login = async (username, password, userType) => {
     if (!isValidUserType(userType)) {
       return {
         success: false,
@@ -345,50 +237,26 @@ export function AuthProvider({ children }) {
       setAuthLoading(true);
       setAuthError(false);
 
-      /*
-       * Select the department before the login request.
-       */
-
       setActiveUserType(userType);
 
-      /*
-       * Remove any previous in-memory token.
-       */
-
+      // Remove any previous access token before changing departments.
       setAxiosAccessToken(null);
       setAccessToken(null);
+      setUser(null);
+      setIsAuthenticated(false);
 
-      const data = await loginUser(
-        username,
-        password,
-        userType
-      );
+      const data = await loginUser(username, password, userType);
 
-      if (
-        !data?.success ||
-        !data?.access ||
-        !data?.user
-      ) {
+      if (!data?.success || !data?.access || !data?.user) {
         return {
           success: false,
-          message:
-            data?.message ||
-            "Unable to sign in.",
+          message: data?.message || "Unable to sign in.",
         };
       }
 
-      /*
-       * Verify the department returned by Django.
-       */
-
-      if (
-        data.user.user_type !== userType
-      ) {
+      if (data.user.user_type !== userType) {
         setAxiosAccessToken(null);
         setAccessToken(null);
-
-        setUser(null);
-        setIsAuthenticated(false);
 
         return {
           success: false,
@@ -397,19 +265,11 @@ export function AuthProvider({ children }) {
         };
       }
 
-      /*
-       * Save authentication state.
-       *
-       * The backend must also set the appropriate
-       * department-specific refresh cookie.
-       */
-
       setActiveUserType(userType);
       setAxiosAccessToken(data.access);
 
       setAccessToken(data.access);
       setUser(data.user);
-
       setIsAuthenticated(true);
       setAuthError(false);
 
@@ -423,7 +283,6 @@ export function AuthProvider({ children }) {
 
       setAxiosAccessToken(null);
       setAccessToken(null);
-
       setUser(null);
       setIsAuthenticated(false);
 
@@ -435,7 +294,7 @@ export function AuthProvider({ children }) {
               error.response.status
             )
           : error.request
-            ? "Unable to connect to the server. Check whether the backend is running."
+            ? "Unable to connect to the server. Check whether Django is running."
             : "Something went wrong. Please try again.",
       };
     } finally {
@@ -444,41 +303,26 @@ export function AuthProvider({ children }) {
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | LOGOUT
-  |--------------------------------------------------------------------------
-  */
-
+   * Logout from the current department.
+   */
   const logout = async () => {
     const department = user?.user_type;
 
     try {
-      if (
-        department &&
-        isValidUserType(department)
-      ) {
-        await logoutDepartmentSession(
-          department
-        );
+      if (isValidUserType(department)) {
+        await logoutDepartmentSession(department);
       }
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
       setAxiosAccessToken(null);
       setAccessToken(null);
-
       setUser(null);
       setIsAuthenticated(false);
-
       setAuthError(false);
+      setActiveUserType(null);
     }
   };
-
-  /*
-  |--------------------------------------------------------------------------
-  | CONTEXT
-  |--------------------------------------------------------------------------
-  */
 
   return (
     <AuthContext.Provider
@@ -498,20 +342,13 @@ export function AuthProvider({ children }) {
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| Auth Hook
-|--------------------------------------------------------------------------
-*/
-
 export function useAuth() {
   const context = useContext(AuthContext);
 
   if (!context) {
-    throw new Error(
-      "useAuth must be used inside AuthProvider."
-    );
+    throw new Error("useAuth must be used inside AuthProvider.");
   }
 
   return context;
 }
+

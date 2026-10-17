@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPoPendingGRnAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
@@ -32,6 +32,8 @@ from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsRepo
     ScrapListCreateAPIView,
     ScrapDetailAPIView,
     ScrapDashboardAPIView,
+    AdminAssemblyStageDetailAPIView,
+    AdminStatisticsAPIView
     
     )
 
@@ -853,7 +855,27 @@ path(
     AdminDocumentNumberUsedAPIView.as_view(),
     name="admin-document-number-used",
 ),
+path(
+        "admin/project-status/",
+        AdminProjectStatusAPIView.as_view(),
+        name="admin-project-status",
+    ),
 
+        path(
+        "admin/project-status/",
+        AdminProjectStatusAPIView.as_view(),
+        name="admin-project-status",
+    ),
+    path(
+        "admin/project-status/<str:assembly_id>/",
+        AdminAssemblyStageDetailAPIView.as_view(),
+        name="admin-project-status-assembly",
+    ),
+    path(
+    "admin/statistics/",
+    AdminStatisticsAPIView.as_view(),
+    name="admin-statistics",
+),
     
 
 

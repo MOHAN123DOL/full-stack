@@ -1,1255 +1,278 @@
-/* =========================================================
-   MUGIL ERP
-   ADMIN PROJECT STATUS
-   FINAL CSS
-   ========================================================= */
-
-
-/* =========================================================
-   PAGE WRAPPER
-   ========================================================= */
+/* AdminProjectStatus.css — self-contained project and assembly status page */
 
 .admin-project-status-page {
-  --project-dark: #064e3b;
-  --project-dark-2: #065f46;
-  --project-emerald: #059669;
-  --project-green: #10b981;
-
-  --project-mint: #ecfdf5;
-  --project-mint-2: #d1fae5;
-
-  --project-text: #123c31;
-  --project-muted: #6b857c;
-
+  --aps-green-950: #064e3b;
+  --aps-green-900: #065f46;
+  --aps-green-700: #047857;
+  --aps-green-600: #059669;
+  --aps-green-500: #10b981;
+  --aps-green-50: #ecfdf5;
+  --aps-text: #163b31;
+  --aps-muted: #6b8179;
   width: 100%;
   min-height: calc(100vh - 72px);
-
-  margin: 0;
-  padding: 24px 28px 40px;
-
   box-sizing: border-box;
-
-  position: relative;
-
-  color: var(--project-text);
-
-  /*
-    Light emerald/mint textured background.
-    Current image:
-    src/assets/projectstatus/progress_status_bg.png
-  */
-  background-image:
-    linear-gradient(
-      rgba(236, 253, 245, 0.72),
-      rgba(220, 252, 231, 0.78)
-    ),
-    url("/projectstatus/progress_status_bg.png");
-
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-
-  overflow: visible;
-
-  box-sizing: border-box;
-}
-
-
-/* =========================================================
-   MAKE PAGE FILL ADMIN CONTENT AREA
-   ========================================================= */
-
-.admin-content > .admin-project-status-page {
-  width: 100%;
-  min-height: calc(100vh - 72px);
-
-  box-sizing: border-box;
-}
-
-
-/* =========================================================
-   HERO
-   ========================================================= */
-
-.admin-project-status-page .project-status-hero {
-  position: relative;
-
-  width: 100%;
-  min-height: 180px;
-
-  margin: 0 0 16px;
-  padding: 32px 38px;
-
-  display: flex;
-  align-items: center;
-
-  box-sizing: border-box;
-
-  border-radius: 17px;
-
-  border: 1px solid rgba(255, 255, 255, 0.20);
-
-  background:
-    linear-gradient(
-      135deg,
-      rgba(6, 95, 70, 0.98) 0%,
-      rgba(5, 150, 105, 0.96) 100%
-    );
-
-  box-shadow:
-    0 12px 30px rgba(6, 78, 59, 0.16);
-
-  overflow: hidden;
-}
-
-
-/* =========================================================
-   HERO DECORATION
-   ========================================================= */
-
-.admin-project-status-page .project-status-hero::before {
-  content: "";
-
-  position: absolute;
-
-  width: 300px;
-  height: 300px;
-
-  top: -155px;
-  right: -70px;
-
-  border-radius: 50%;
-
-  background: rgba(255, 255, 255, 0.08);
-
-  pointer-events: none;
-}
-
-
-.admin-project-status-page .project-status-hero::after {
-  content: "";
-
-  position: absolute;
-
-  width: 190px;
-  height: 190px;
-
-  right: 85px;
-  bottom: -130px;
-
-  border-radius: 50%;
-
-  background: rgba(255, 255, 255, 0.055);
-
-  pointer-events: none;
-}
-
-
-/* =========================================================
-   HERO CONTENT
-   ========================================================= */
-
-.admin-project-status-page .project-status-hero-content {
-  position: relative;
-
-  z-index: 2;
-
-  max-width: 720px;
-
-  color: #ffffff;
-}
-
-
-/* =========================================================
-   HERO EYEBROW
-   ========================================================= */
-
-.admin-project-status-page .project-status-eyebrow {
-  display: block;
-
-  margin: 0 0 8px;
-
-  font-size: 10px;
-  line-height: 1;
-
-  font-weight: 700;
-
-  letter-spacing: 1.5px;
-
-  text-transform: uppercase;
-
-  color: rgba(255, 255, 255, 0.78);
-}
-
-
-/* =========================================================
-   HERO TITLE
-   ========================================================= */
-
-.admin-project-status-page .project-status-hero h1 {
-  margin: 0;
-
-  font-size: 30px;
-  line-height: 1.15;
-
-  font-weight: 800;
-
-  letter-spacing: -0.4px;
-
-  color: #ffffff;
-}
-
-
-/* =========================================================
-   HERO DESCRIPTION
-   ========================================================= */
-
-.admin-project-status-page .project-status-hero p {
-  margin: 9px 0 0;
-
-  max-width: 650px;
-
-  font-size: 13px;
-  line-height: 1.5;
-
-  color: rgba(255, 255, 255, 0.88);
-}
-
-
-/* =========================================================
-   TOOLBAR
-   ========================================================= */
-
-.admin-project-status-page .admin-toolbar {
-  width: 100%;
-
-  min-height: 52px;
-
-  margin: 0 0 12px;
-  padding: 7px 10px;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  gap: 12px;
-
-  box-sizing: border-box;
-
-  border: 1px solid rgba(16, 185, 129, 0.16);
-
-  border-radius: 10px;
-
-  background: rgba(255, 255, 255, 0.90);
-
-  box-shadow:
-    0 5px 16px rgba(6, 78, 59, 0.07);
-
-  backdrop-filter: blur(6px);
-}
-
-
-/* =========================================================
-   SEARCH INPUT
-   ========================================================= */
-
-.admin-project-status-page .admin-toolbar input {
-  min-height: 34px;
-
-  border: 1px solid #cbded7;
-
-  border-radius: 6px;
-
-  background: #ffffff;
-
-  color: #173f33;
-
-  font-size: 12px;
-
-  outline: none;
-
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-
-.admin-project-status-page .admin-toolbar input:focus {
-  border-color: #10b981;
-
-  box-shadow:
-    0 0 0 3px rgba(16, 185, 129, 0.10);
-}
-
-
-.admin-project-status-page .admin-toolbar input::placeholder {
-  color: #91a69f;
-}
-
-
-/* =========================================================
-   STATUS FILTER
-   ========================================================= */
-
-.admin-project-status-page .admin-field {
-  display: inline-flex;
-  align-items: center;
-
-  gap: 8px;
-
-  margin: 0;
-
-  color: #426358;
-
-  font-size: 11px;
-  font-weight: 600;
-}
-
-
-.admin-project-status-page .admin-field select {
-  min-height: 34px;
-
-  padding: 0 30px 0 10px;
-
-  border: 1px solid #cbded7;
-
-  border-radius: 6px;
-
-  background: #ffffff;
-
-  color: #173f33;
-
-  font-size: 12px;
-
-  outline: none;
-
-  cursor: pointer;
-
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-
-.admin-project-status-page .admin-field select:focus {
-  border-color: #10b981;
-
-  box-shadow:
-    0 0 0 3px rgba(16, 185, 129, 0.10);
-}
-
-
-/* =========================================================
-   ADMIN CARD
-   ========================================================= */
-
-.admin-project-status-page .admin-card {
-  width: 100%;
-
-  position: relative;
-
-  overflow: hidden;
-
-  box-sizing: border-box;
-
-  border: 1px solid rgba(16, 185, 129, 0.15);
-
-  border-radius: 14px;
-
-  background: rgba(255, 255, 255, 0.96);
-
-  box-shadow:
-    0 10px 28px rgba(6, 78, 59, 0.08);
-}
-
-
-/* =========================================================
-   TABLE HEADING
-   ========================================================= */
-
-.admin-project-status-page .project-table-heading {
-  width: 100%;
-
-  min-height: 66px;
-
-  padding: 13px 16px;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  gap: 16px;
-
-  box-sizing: border-box;
-
-  border-bottom: 1px solid #e1eee9;
-
-  background:
-    linear-gradient(
-      180deg,
-      #ffffff 0%,
-      #f7fcfa 100%
-    );
-}
-
-
-/* =========================================================
-   TABLE HEADING TITLE
-   ========================================================= */
-
-.admin-project-status-page .project-table-heading h2 {
-  margin: 0;
-
-  font-size: 17px;
-  line-height: 1.2;
-
-  font-weight: 800;
-
-  color: #123c31;
-}
-
-
-/* =========================================================
-   TABLE HEADING DESCRIPTION
-   ========================================================= */
-
-.admin-project-status-page .project-table-heading p {
-  margin: 4px 0 0;
-
-  font-size: 11px;
-  line-height: 1.4;
-
-  color: #718980;
-}
-
-
-/* =========================================================
-   PROJECT COUNT
-   ========================================================= */
-
-.admin-project-status-page .project-count {
-  flex: 0 0 auto;
-
-  padding: 5px 10px;
-
-  border-radius: 999px;
-
-  border: 1px solid #bbf7d0;
-
-  background: #ecfdf5;
-
-  color: #047857;
-
-  font-size: 10px;
-  font-weight: 700;
-
-  white-space: nowrap;
-}
-
-
-/* =========================================================
-   DATA TABLE
-   ========================================================= */
-
-.admin-project-status-page .admin-data-table {
-  width: 100%;
-
-  min-width: 0;
-
-  border-collapse: collapse;
-
-  background: #ffffff;
-
-  table-layout: fixed;
-}
-
-
-/* =========================================================
-   TABLE HEADER
-   ========================================================= */
-
-.admin-project-status-page .admin-data-table thead {
-  background: #064e3b;
-}
-
-
-.admin-project-status-page .admin-data-table thead th {
-  height: 38px;
-
-  padding: 0 14px;
-
-  box-sizing: border-box;
-
-  background:
-    linear-gradient(
-      90deg,
-      #064e3b 0%,
-      #087f5b 100%
-    );
-
-  color: #ffffff !important;
-
-  border: none;
-
-  font-size: 9px;
-  line-height: 1;
-
-  font-weight: 700;
-
-  text-align: left;
-
-  text-transform: uppercase;
-
-  letter-spacing: 0.55px;
-
-  white-space: nowrap;
-}
-
-
-/* Force shared table header content white */
-
-.admin-project-status-page
-.admin-data-table
-thead
-th
-* {
-  color: #ffffff !important;
-}
-
-
-/* =========================================================
-   EXACTLY FOUR COLUMN WIDTHS
-   ========================================================= */
-
-/*
-   Project Name     = 36%
-   Project Code     = 18%
-   Status           = 18%
-   Current Process  = 28%
-*/
-
-.admin-project-status-page
-.admin-data-table
-thead
-th:nth-child(1),
-
-.admin-project-status-page
-.admin-data-table
-tbody
-td:nth-child(1) {
-  width: 36%;
-}
-
-
-.admin-project-status-page
-.admin-data-table
-thead
-th:nth-child(2),
-
-.admin-project-status-page
-.admin-data-table
-tbody
-td:nth-child(2) {
-  width: 18%;
-}
-
-
-.admin-project-status-page
-.admin-data-table
-thead
-th:nth-child(3),
-
-.admin-project-status-page
-.admin-data-table
-tbody
-td:nth-child(3) {
-  width: 18%;
-}
-
-
-.admin-project-status-page
-.admin-data-table
-thead
-th:nth-child(4),
-
-.admin-project-status-page
-.admin-data-table
-tbody
-td:nth-child(4) {
-  width: 28%;
-}
-
-
-/* =========================================================
-   TABLE BODY
-   ========================================================= */
-
-.admin-project-status-page .admin-data-table tbody tr {
-  height: 37px;
-
-  background: rgba(255, 255, 255, 0.98);
-
-  transition:
-    background-color 0.15s ease;
-}
-
-
-.admin-project-status-page .admin-data-table tbody tr:hover {
-  background: #f0fdf7;
-}
-
-
-/* =========================================================
-   TABLE CELLS
-   ========================================================= */
-
-.admin-project-status-page .admin-data-table tbody td {
-  padding: 6px 14px;
-
-  box-sizing: border-box;
-
-  border-bottom: 1px solid #e4eee9;
-
-  color: #24463c;
-
-  font-size: 11px;
-  line-height: 1.25;
-
-  vertical-align: middle;
-}
-
-
-/* =========================================================
-   PROJECT NAME
-   ========================================================= */
-
-.admin-project-status-page .project-name-cell {
-  min-width: 0;
-
+  padding: 24px 28px 36px;
   display: flex;
   flex-direction: column;
-
-  justify-content: center;
-
-  gap: 2px;
+  gap: 18px;
+  color: var(--aps-text);
+  background:
+    linear-gradient(rgba(236, 253, 245, .84), rgba(240, 253, 244, .9)),
+    url("/projectstatus/progress_status_bg.png") center / cover fixed no-repeat;
 }
+.admin-project-status-page *,
+.aps-modal-backdrop * { box-sizing: border-box; }
+.admin-project-status-page button,
+.aps-modal-backdrop button,
+.admin-project-status-page input,
+.admin-project-status-page select { font: inherit; }
 
-
-.admin-project-status-page .admin-cell-primary {
+.aps-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 22px;
+  min-height: 164px;
+  padding: 28px 32px;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(125deg, #064e3b, #059669);
+  box-shadow: 0 12px 30px rgba(6, 78, 59, .16);
+}
+.aps-hero-kicker, .aps-eyebrow {
   display: block;
-
-  overflow: hidden;
-
-  color: #173f33;
-
-  font-size: 11px;
-  line-height: 1.25;
-
-  font-weight: 700;
-
-  white-space: nowrap;
-
-  text-overflow: ellipsis;
-}
-
-
-.admin-project-status-page .admin-cell-secondary {
-  display: block;
-
-  overflow: hidden;
-
-  color: #81968f;
-
-  font-size: 9px;
-  line-height: 1.2;
-
-  white-space: nowrap;
-
-  text-overflow: ellipsis;
-}
-
-
-/* =========================================================
-   PROJECT CODE
-   ========================================================= */
-
-.admin-project-status-page .project-code {
-  display: inline-flex;
-  align-items: center;
-
-  padding: 5px 8px;
-
-  border-radius: 6px;
-
-  background: #effcf5;
-
-  border: 1px solid #d5f5e4;
-
-  color: #16704f;
-
-  font-size: 9px;
-
-  font-weight: 700;
-
-  letter-spacing: 0.25px;
-
-  white-space: nowrap;
-}
-
-
-/* =========================================================
-   STATUS BADGE
-   ========================================================= */
-
-.admin-project-status-page .project-status-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  min-width: 60px;
-
-  padding: 4px 8px;
-
-  border-radius: 999px;
-
-  font-size: 9px;
-
-  font-weight: 700;
-
-  line-height: 1;
-
-  white-space: nowrap;
-
-  box-sizing: border-box;
-}
-
-
-/* =========================================================
-   ACTIVE
-   ========================================================= */
-
-.admin-project-status-page
-.project-status-badge.active {
-  background: #e5f8eb;
-
-  border: 1px solid #c7ecd2;
-
-  color: #16803b;
-}
-
-
-/* =========================================================
-   ON HOLD
-   ========================================================= */
-
-.admin-project-status-page
-.project-status-badge.on-hold {
-  background: #fff5d9;
-
-  border: 1px solid #f8df9f;
-
-  color: #a96700;
-}
-
-
-/* =========================================================
-   COMPLETED
-   ========================================================= */
-
-.admin-project-status-page
-.project-status-badge.completed {
-  background: #e7efff;
-
-  border: 1px solid #d1def7;
-
-  color: #2056a4;
-}
-
-
-/* =========================================================
-   CURRENT PROCESS
-   ========================================================= */
-
-.admin-project-status-page .project-process {
-  display: inline-flex;
-  align-items: center;
-
-  gap: 7px;
-
-  color: #365f53;
-
+  margin-bottom: 8px;
   font-size: 10px;
-
-  font-weight: 600;
-
-  white-space: nowrap;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
 }
-
-
-.admin-project-status-page .project-process-dot {
-  width: 7px;
-  height: 7px;
-
-  flex: 0 0 7px;
-
-  border-radius: 50%;
-
-  background: #10b981;
-
-  box-shadow:
-    0 0 0 3px rgba(16, 185, 129, 0.10);
+.aps-hero-kicker { color: rgba(255,255,255,.78); }
+.aps-hero h1 { margin: 0; color: #fff; font-size: clamp(25px, 3vw, 34px); line-height: 1.15; font-weight: 800; }
+.aps-hero p { max-width: 720px; margin: 10px 0 0; color: rgba(255,255,255,.86); font-size: 13px; line-height: 1.6; }
+.aps-refresh-btn, .aps-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 38px; padding: 0 13px; border: 1px solid #c8e7d9; border-radius: 8px;
+  background: #fff; color: #047857; font-size: 12px; font-weight: 700; cursor: pointer;
+  white-space: nowrap; transition: background .15s, transform .15s;
 }
+.aps-refresh-btn:hover:not(:disabled), .aps-btn:hover { background: #ecfdf5; }
+.aps-refresh-btn:disabled { opacity: .65; cursor: wait; }
+.aps-spin-icon { animation: apsRotate 1s linear infinite; }
+@keyframes apsRotate { to { transform: rotate(360deg); } }
 
-
-/* =========================================================
-   PROCESS COLORS
-   ========================================================= */
-
-.admin-project-status-page
-.project-process--welding
-.project-process-dot {
-  background: #f59e0b;
+.aps-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.aps-stat-card {
+  min-height: 88px; padding: 16px 18px; display: flex; flex-direction: column; justify-content: center; gap: 8px;
+  border: 1px solid rgba(16,185,129,.15); border-radius: 12px; background: rgba(255,255,255,.95);
+  box-shadow: 0 5px 18px rgba(6,78,59,.06);
 }
+.aps-stat-card span { color: var(--aps-muted); font-size: 11px; font-weight: 650; }
+.aps-stat-card strong { color: var(--aps-green-950); font-size: 25px; line-height: 1; }
 
-
-.admin-project-status-page
-.project-process--painting
-.project-process-dot {
-  background: #8b5cf6;
+.aps-table-card {
+  min-width: 0; overflow: hidden; border: 1px solid rgba(16,185,129,.16); border-radius: 14px;
+  background: rgba(255,255,255,.97); box-shadow: 0 10px 28px rgba(6,78,59,.07);
 }
-
-
-.admin-project-status-page
-.project-process--inspection
-.project-process-dot {
-  background: #3b82f6;
+.aps-table-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 18px 20px; border-bottom: 1px solid #e2eee8; background: linear-gradient(#fff, #f7fcf9);
 }
-
-
-.admin-project-status-page
-.project-process--cutting
-.project-process-dot {
-  background: #ef4444;
+.aps-table-header h2 { margin: 0; color: #123c31; font-size: 17px; font-weight: 800; }
+.aps-table-header p { margin: 5px 0 0; color: #718980; font-size: 11px; line-height: 1.5; }
+.aps-result-count, .aps-count {
+  flex: 0 0 auto; padding: 5px 10px; border: 1px solid #bbf7d0; border-radius: 999px;
+  background: #ecfdf5; color: #047857; font-size: 10px; font-weight: 800; white-space: nowrap;
 }
-
-
-.admin-project-status-page
-.project-process--assembly
-.project-process-dot {
-  background: #06b6d4;
+.aps-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid #e7f0eb;
 }
-
-
-.admin-project-status-page
-.project-process--completed
-.project-process-dot {
-  background: #10b981;
+.aps-search {
+  display: flex; align-items: center; gap: 9px; width: min(520px, 100%); min-height: 38px;
+  padding: 0 11px; border: 1px solid #cbded7; border-radius: 8px; color: #6b857c; background: #fff;
 }
-
-
-/* =========================================================
-   ADMIN DATA TABLE — EMPTY STATE
-   ========================================================= */
-
-.admin-project-status-page
-.admin-data-table
-.admin-empty-state {
-  min-height: 150px;
-
-  background: rgba(255, 255, 255, 0.96);
+.aps-search:focus-within { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.1); }
+.aps-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: #173f33; background: transparent; font-size: 12px; }
+.aps-search input::placeholder { color: #91a69f; }
+.aps-filter { display: flex; align-items: center; gap: 9px; color: #426358; font-size: 11px; font-weight: 700; }
+.aps-filter select {
+  min-height: 38px; min-width: 150px; padding: 0 30px 0 10px; border: 1px solid #cbded7;
+  border-radius: 8px; background: #fff; color: #173f33; font-size: 12px; outline: 0; cursor: pointer;
 }
-
-
-/* =========================================================
-   FOOTER NOTE
-   ========================================================= */
-
-.admin-project-status-page .admin-note {
-  margin: 8px 3px 0;
-
-  font-size: 9px;
-  line-height: 1.5;
-
-  color: #648078;
+.aps-filter select:focus { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.1); }
+.aps-table-scroll { width: 100%; overflow-x: auto; scrollbar-width: thin; }
+.aps-table-scroll::-webkit-scrollbar { height: 7px; }
+.aps-table-scroll::-webkit-scrollbar-thumb { border-radius: 10px; background: #86efac; }
+.aps-project-table { width: 100%; min-width: 1000px; border-collapse: collapse; table-layout: auto; }
+.aps-project-table thead th {
+  height: 42px; padding: 0 14px; text-align: left; white-space: nowrap;
+  color: #fff; background: linear-gradient(90deg, #064e3b, #087f5b);
+  font-size: 10px; font-weight: 800; letter-spacing: .055em; text-transform: uppercase;
 }
-
-
-/* =========================================================
-   OLD PROGRESS ELEMENT SAFETY
-   ========================================================= */
-
-/*
-   The Progress column has been removed from JSX.
-
-   These rules make sure an old progress component cannot
-   accidentally appear if some cached/legacy markup remains.
-*/
-
-.admin-project-status-page .project-progress,
-.admin-project-status-page .project-progress-wrapper,
-.admin-project-status-page .progress-bar,
-.admin-project-status-page .progress-track,
-.admin-project-status-page .progress-fill,
-.admin-project-status-page .admin-progress-track,
-.admin-project-status-page .admin-progress-fill {
-  display: none !important;
+.aps-project-table tbody td { padding: 12px 14px; border-bottom: 1px solid #e4eee9; color: #24463c; font-size: 12px; vertical-align: middle; }
+.aps-project-row { background: rgba(255,255,255,.98); }
+.aps-project-row:hover { background: #f7fdf9; }
+.aps-project-cell { display: flex; align-items: center; gap: 9px; min-width: 220px; }
+.aps-expand-btn {
+  width: 28px; height: 28px; flex: 0 0 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #cfe5d9; border-radius: 7px; background: #fff; color: #047857; cursor: pointer;
 }
-
-
-/* =========================================================
-   TABLE WRAPPER / SCROLLBAR
-   ========================================================= */
-
-.admin-project-status-page
-.admin-data-table-wrapper {
-  width: 100%;
-
-  overflow-x: auto;
-
-  scrollbar-width: thin;
+.aps-expand-btn:hover:not(:disabled) { border-color: #10b981; background: #ecfdf5; }
+.aps-expand-btn:disabled { opacity: .3; cursor: not-allowed; }
+.aps-project-name { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.aps-project-name strong { color: #173f33; font-size: 13px; overflow-wrap: anywhere; }
+.aps-project-name span, .aps-assembly-identity > span:last-child { color: #81968f; font-size: 11px; }
+.aps-project-status { display: inline-flex; padding: 5px 9px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.aps-project-status--active { background: #dcfce7; color: #166534; }
+.aps-project-status--completed { background: #d1fae5; color: #065f46; }
+.aps-project-status--on-hold { background: #fef3c7; color: #92400e; }
+.aps-assembly-counts { display: flex; flex-wrap: wrap; gap: 5px; max-width: 310px; }
+.aps-assembly-counts span { display: inline-flex; padding: 4px 7px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.aps-assembly-counts .aps-count-progress { background: #dbeafe; color: #1d4ed8; }
+.aps-assembly-counts .aps-count-done { background: #dcfce7; color: #166534; }
+.aps-assembly-row td { background: #f6fdfa; }
+.aps-assembly-row td:first-child { padding-left: 52px; }
+.aps-assembly-identity { display: flex; flex-direction: column; gap: 4px; }
+.aps-assembly-identity strong { color: #0f172a; font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace; font-size: 12px; }
+.aps-subrow-label { color: #059669 !important; font-size: 9px !important; font-weight: 800; letter-spacing: .1em; }
+.aps-sequence { color: #526b62; font-size: 11px; font-weight: 650; white-space: nowrap; }
+.aps-muted { color: #64748b; font-size: 11px; }
+.aps-action-cell { text-align: right; white-space: nowrap; }
+.aps-eye-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px;
+  padding: 0 10px; border: 1px solid rgba(16,185,129,.4); border-radius: 8px; background: #fff;
+  color: #047857; font-size: 11px; font-weight: 800; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(6,78,59,.07); transition: background .15s, transform .1s, box-shadow .15s;
 }
+.aps-eye-btn:hover:not(:disabled) { background: #ecfdf5; border-color: #10b981; box-shadow: 0 3px 8px rgba(16,185,129,.18); }
+.aps-eye-btn:active { transform: scale(.97); }
+.aps-eye-btn:disabled { opacity: .4; cursor: not-allowed; }
+.aps-eye-btn:focus-visible, .aps-close:focus-visible, .aps-expand-btn:focus-visible { outline: 2px solid #10b981; outline-offset: 2px; }
 
+.aps-process { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 9px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 750; white-space: nowrap; }
+.aps-process-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: currentColor; }
+.aps-process-label { margin-left: 3px; padding-left: 7px; border-left: 1px solid currentColor; font-size: 9px; font-weight: 800; opacity: .8; text-transform: uppercase; }
+.aps-process--not-started, .aps-process--pending { background: #f1f5f9; color: #64748b; }
+.aps-process--ready { background: #e0f2fe; color: #0369a1; }
+.aps-process--in-progress { background: #dbeafe; color: #1d4ed8; }
+.aps-process--awaiting-qc { background: #fef3c7; color: #b45309; }
+.aps-process--in-rework { background: #fee2e2; color: #b91c1c; }
+.aps-process--outsourced { background: #ede9fe; color: #6d28d9; }
+.aps-process--completed { background: #dcfce7; color: #166534; }
+.aps-process--cancelled { background: #e2e8f0; color: #475569; }
 
-.admin-project-status-page
-.admin-data-table-wrapper::-webkit-scrollbar {
-  height: 6px;
+.aps-page-state { display: flex; min-height: 170px; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; color: #64748b; text-align: center; font-size: 13px; }
+.aps-page-state p { margin: 0; }
+.aps-state-error { color: #b91c1c; }
+.aps-empty-inline { padding: 8px; color: #64748b; font-size: 12px; }
+.aps-footnote { margin: 0 3px; color: #648078; font-size: 11px; line-height: 1.5; }
+
+.aps-spinner { width: 25px; height: 25px; border: 3px solid #d1fae5; border-top-color: #059669; border-radius: 50%; animation: apsRotate .75s linear infinite; }
+.aps-state { padding: 26px 10px; text-align: center; color: #64748b; font-size: 13px; }
+.aps-state p { margin: 10px 0; }
+.aps-state-error { color: #b91c1c; }
+
+/* Assembly detail modal */
+.aps-modal-backdrop {
+  position: fixed; inset: 0; z-index: 10000; display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto; padding: 28px 16px; background: rgba(3, 34, 25, .68); backdrop-filter: blur(4px);
+  animation: apsBackdropIn .16s ease-out;
 }
-
-
-.admin-project-status-page
-.admin-data-table-wrapper::-webkit-scrollbar-track {
-  background: #ecfdf5;
+@keyframes apsBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+.aps-modal {
+  width: min(1120px, 100%); max-height: calc(100vh - 56px); display: flex; flex-direction: column;
+  overflow: hidden; border: 1px solid rgba(255,255,255,.55); border-radius: 16px; background: #fff;
+  box-shadow: 0 24px 80px rgba(0,0,0,.28); animation: apsModalIn .18s ease-out;
 }
-
-
-.admin-project-status-page
-.admin-data-table-wrapper::-webkit-scrollbar-thumb {
-  background: #86efac;
-
-  border-radius: 10px;
+@keyframes apsModalIn { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.aps-modal-header {
+  flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
+  padding: 21px 25px; border-bottom: 1px solid #e2eee8; background: linear-gradient(180deg, #fff, #f0fdf7);
 }
-
-
-.admin-project-status-page
-.admin-data-table-wrapper::-webkit-scrollbar-thumb:hover {
-  background: #4ade80;
-}
-
-
-/* =========================================================
-   TABLE SCROLL SAFETY
-   ========================================================= */
-
-@media (max-width: 1000px) {
-
-  .admin-project-status-page
-  .admin-data-table {
-    min-width: 760px;
-  }
-
-}
-
-
-/* =========================================================
-   TABLET
-   ========================================================= */
+.aps-eyebrow { margin-bottom: 6px; color: #059669; }
+.aps-modal-header h2 { margin: 0; color: #064e3b; font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace; font-size: 22px; }
+.aps-modal-header p { margin: 6px 0 0; color: #64748b; font-size: 12px; line-height: 1.5; }
+.aps-close { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: 0 0 36px; border: 1px solid #d7e8df; border-radius: 9px; background: #fff; color: #426358; cursor: pointer; }
+.aps-close:hover { background: #dcfce7; color: #047857; }
+.aps-modal-content { min-height: 120px; overflow-y: auto; padding: 20px 25px 28px; }
+.aps-detail-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.aps-detail-summary > div { min-width: 0; display: flex; flex-direction: column; gap: 7px; padding: 12px 13px; border: 1px solid #e2eee8; border-radius: 10px; background: #fbfefc; }
+.aps-summary-label { color: #718980; font-size: 9px; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
+.aps-detail-summary strong { color: #123c31; font-size: 12px; overflow-wrap: anywhere; }
+.aps-current-stage { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border: 1px solid #a7f3d0; border-radius: 12px; background: linear-gradient(110deg, #ecfdf5, #f8fffb); }
+.aps-current-stage h3 { margin: 5px 0 4px; color: #064e3b; font-size: 18px; }
+.aps-process-id { color: #64748b; font-family: "JetBrains Mono", monospace; font-size: 11px; }
+.aps-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 24px 0 10px; }
+.aps-section-heading h3 { margin: 0; color: #123c31; font-size: 15px; font-weight: 800; }
+.aps-section-heading p { margin: 4px 0 0; color: #718980; font-size: 11px; }
+.aps-empty { padding: 22px; border: 1px dashed #cbded7; border-radius: 10px; color: #64748b; font-size: 12px; text-align: center; }
+.aps-stage-list { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.aps-stage { position: relative; display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #edf3ef; }
+.aps-stage:last-child { border-bottom: 0; }
+.aps-stage-number { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 34px; border: 2px solid #fff; border-radius: 50%; background: #f1f5f9; color: #475569; box-shadow: 0 0 0 1px #dbe5df; font-size: 12px; font-weight: 850; }
+.aps-stage--in-progress .aps-stage-number { background: #dbeafe; color: #1d4ed8; box-shadow: 0 0 0 1px #93c5fd; }
+.aps-stage--ready .aps-stage-number { background: #e0f2fe; color: #0369a1; }
+.aps-stage--awaiting-qc .aps-stage-number { background: #fef3c7; color: #b45309; }
+.aps-stage--in-rework .aps-stage-number { background: #fee2e2; color: #b91c1c; }
+.aps-stage--outsourced .aps-stage-number { background: #ede9fe; color: #6d28d9; }
+.aps-stage--completed .aps-stage-number { background: #dcfce7; color: #166534; }
+.aps-stage-main { min-width: 0; flex: 1; }
+.aps-stage-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.aps-stage-heading h4 { margin: 1px 0 5px; color: #0f172a; font-size: 14px; }
+.aps-stage-heading p { margin: 0; color: #64748b; font-size: 11px; }
+.aps-stage-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.aps-tag { display: inline-flex; padding: 4px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 700; }
+.aps-tag-qc { background: #fef3c7; color: #92400e; }
+.aps-tag-started { background: #dbeafe; color: #1d4ed8; }
+.aps-quantities { display: grid; grid-template-columns: repeat(7, minmax(80px, 1fr)); gap: 7px; margin: 12px 0 8px; }
+.aps-quantity { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 9px; border: 1px solid #e7eee9; border-radius: 8px; background: #f8fafc; }
+.aps-quantity span { color: #718096; font-size: 9px; line-height: 1.3; }
+.aps-quantity strong { color: #0f172a; font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace; font-size: 13px; }
+.aps-movements { margin-top: 10px; border: 1px solid #e2eee8; border-radius: 8px; overflow: hidden; }
+.aps-movements summary { padding: 10px 12px; background: #f7fcf9; color: #047857; cursor: pointer; font-size: 11px; font-weight: 800; }
+.aps-movement-table { width: 100%; min-width: 800px; border-collapse: collapse; font-size: 11px; }
+.aps-movement-table th { padding: 9px 10px; text-align: left; background: #064e3b; color: #fff; white-space: nowrap; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+.aps-movement-table td { padding: 9px 10px; border-bottom: 1px solid #edf3ef; color: #334155; vertical-align: top; }
+.aps-movement-table tr:last-child td { border-bottom: 0; }
+.aps-events { margin-top: 8px; padding-top: 4px; border-top: 1px solid #e2eee8; }
+.aps-events ul { margin: 0; padding: 0; list-style: none; }
+.aps-events li { display: grid; grid-template-columns: minmax(150px, 210px) minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px dashed #e2eee8; color: #334155; font-size: 12px; }
+.aps-events li:last-child { border-bottom: 0; }
+.aps-events time { color: #64748b; font-family: "JetBrains Mono", monospace; font-size: 10px; }
+.aps-notes { margin-top: 18px; padding: 13px 15px; border-radius: 9px; background: #f8fafc; color: #475569; font-size: 12px; }
+.aps-notes strong { color: #123c31; }
+.aps-notes p { margin: 5px 0 0; white-space: pre-wrap; }
 
 @media (max-width: 900px) {
-
-  .admin-project-status-page {
-    min-height: calc(100vh - 64px);
-
-    padding: 20px 20px 32px;
-
-    background-attachment: scroll;
-  }
-
-
-  .admin-content > .admin-project-status-page {
-    min-height: calc(100vh - 64px);
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero {
-    min-height: 165px;
-
-    padding: 28px 30px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero h1 {
-    font-size: 27px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero p {
-    font-size: 12px;
-  }
-
-
-  .admin-project-status-page
-  .project-table-heading {
-    padding: 12px 15px;
-  }
-
-
-  .admin-project-status-page
-  .admin-data-table {
-    min-width: 760px;
-  }
-
-
-  .admin-project-status-page
-  .admin-data-table
-  thead
-  th {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
-
-  .admin-project-status-page
-  .admin-data-table
-  tbody
-  td {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
+  .admin-project-status-page { padding: 18px 16px 28px; }
+  .aps-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .aps-detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .aps-quantities { grid-template-columns: repeat(4, minmax(80px, 1fr)); }
 }
-
-
-/* =========================================================
-   MOBILE
-   ========================================================= */
-
-@media (max-width: 650px) {
-
-  .admin-project-status-page {
-    min-height: calc(100vh - 64px);
-
-    padding: 14px 14px 28px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero {
-    min-height: 150px;
-
-    margin-bottom: 12px;
-
-    padding: 24px 22px;
-
-    border-radius: 14px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-eyebrow {
-    font-size: 9px;
-
-    letter-spacing: 1.3px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero h1 {
-    font-size: 23px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero p {
-    margin-top: 7px;
-
-    font-size: 11px;
-  }
-
-
-  .admin-project-status-page
-  .admin-toolbar {
-    min-height: 48px;
-
-    padding: 6px 8px;
-
-    align-items: flex-start;
-
-    flex-direction: column;
-
-    gap: 7px;
-  }
-
-
-  .admin-project-status-page
-  .admin-toolbar input {
-    width: 100%;
-  }
-
-
-  .admin-project-status-page
-  .admin-field {
-    width: 100%;
-
-    justify-content: space-between;
-  }
-
-
-  .admin-project-status-page
-  .admin-field select {
-    min-width: 130px;
-  }
-
-
-  .admin-project-status-page
-  .admin-card {
-    border-radius: 12px;
-  }
-
-
-  .admin-project-status-page
-  .project-table-heading {
-    min-height: 62px;
-
-    padding: 11px 13px;
-  }
-
-
-  .admin-project-status-page
-  .project-table-heading h2 {
-    font-size: 15px;
-  }
-
-
-  .admin-project-status-page
-  .project-table-heading p {
-    font-size: 10px;
-  }
-
-
-  .admin-project-status-page
-  .project-count {
-    font-size: 9px;
-  }
-
-
-  .admin-project-status-page
-  .admin-data-table {
-    min-width: 760px;
-  }
-
-
-  .admin-project-status-page
-  .admin-data-table
-  thead
-  th {
-    height: 36px;
-
-    padding: 0 11px;
-
-    font-size: 8px;
-  }
-
-
-  .admin-project-status-page
-  .admin-data-table
-  tbody
-  td {
-    padding: 6px 11px;
-
-    font-size: 10px;
-  }
-
-
-  .admin-project-status-page
-  .admin-cell-primary {
-    font-size: 10px;
-  }
-
-
-  .admin-project-status-page
-  .admin-cell-secondary {
-    font-size: 8px;
-  }
-
-
-  .admin-project-status-page
-  .project-code {
-    font-size: 8px;
-
-    padding: 4px 7px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-badge {
-    font-size: 8px;
-
-    padding: 4px 7px;
-  }
-
-
-  .admin-project-status-page
-  .project-process {
-    font-size: 9px;
-  }
-
-
-  .admin-project-status-page
-  .admin-note {
-    font-size: 8px;
-  }
-
-}
-
-
-/* =========================================================
-   VERY SMALL MOBILE
-   ========================================================= */
-
-@media (max-width: 420px) {
-
-  .admin-project-status-page {
-    padding: 10px 10px 24px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero {
-    min-height: 140px;
-
-    padding: 20px 18px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero h1 {
-    font-size: 21px;
-  }
-
-
-  .admin-project-status-page
-  .project-status-hero p {
-    font-size: 10px;
-  }
-
-
-  .admin-project-status-page
-  .project-table-heading {
-    align-items: flex-start;
-
-    flex-direction: column;
-
-    gap: 6px;
-  }
-
-
-  .admin-project-status-page
-  .project-count {
-    align-self: flex-start;
-  }
-
+@media (max-width: 600px) {
+  .admin-project-status-page { padding: 12px 10px 22px; gap: 12px; }
+  .aps-hero { align-items: flex-start; flex-direction: column; padding: 22px 19px; }
+  .aps-hero p { font-size: 12px; }
+  .aps-stats { gap: 8px; }
+  .aps-stat-card { min-height: 78px; padding: 12px; }
+  .aps-stat-card strong { font-size: 22px; }
+  .aps-table-header { align-items: flex-start; padding: 15px 13px; }
+  .aps-toolbar { align-items: stretch; flex-direction: column; padding: 11px; }
+  .aps-search { width: 100%; }
+  .aps-filter { justify-content: space-between; }
+  .aps-filter select { flex: 1; }
+  .aps-modal-backdrop { padding: 8px; }
+  .aps-modal { max-height: calc(100vh - 16px); border-radius: 12px; }
+  .aps-modal-header { padding: 16px; }
+  .aps-modal-content { padding: 14px; }
+  .aps-detail-summary { gap: 7px; }
+  .aps-detail-summary > div { padding: 10px; }
+  .aps-current-stage { align-items: flex-start; flex-direction: column; padding: 13px; }
+  .aps-stage { gap: 9px; }
+  .aps-stage-number { width: 29px; height: 29px; flex-basis: 29px; }
+  .aps-stage-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .aps-quantities { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .aps-events li { grid-template-columns: 1fr; gap: 5px; }
 }
