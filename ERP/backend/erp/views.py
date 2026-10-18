@@ -8428,24 +8428,31 @@ class ConsumableIssueStockAPIView(APIView):
             })
 
         return Response(data)
+from django.template.loader import render_to_string
+from django.core.mail import EmailMultiAlternatives
+from django.conf import settings
+from django.utils import timezone
+from decimal import Decimal, InvalidOperation
 
+from .models import EmailLog   # ⬅️ import the log model
 
-# ---------------------------------------------------------------------
-# POST /erp/consumable-grn/issue/<grn_id>/
-# ---------------------------------------------------------------------
+from django.template.loader import render_to_string
+from django.core.mail import EmailMultiAlternatives
+from django.conf import settings
+from django.utils import timezone
+from decimal import Decimal, InvalidOperation
+
+from .models import EmailLog
+
 
 class ConsumableIssueCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
     @transaction.atomic
     def post(self, request, grn_id):
-        # Lock the GRN row so two concurrent issues can't oversell
+        # ---------------- LOCK GRN ----------------
         try:
-            grn = (
-                ConsumableGRN.objects
-                .select_for_update()
-                .get(id=grn_id)
-            )
+            grn = ConsumableGRN.objects.select_for_update().get(id=grn_id)
         except ConsumableGRN.DoesNotExist:
             return Response(
                 {"success": False, "detail": "Stock line not found."},
@@ -8468,59 +8475,30 @@ class ConsumableIssueCreateAPIView(APIView):
 
         # ---------------- VALIDATION ----------------
         if not department:
-            return Response(
-                {"success": False, "detail": "Department is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+            return Response({"success": False, "detail": "Department is required."}, status=400)
         if not employee_name:
-            return Response(
-                {"success": False, "detail": "Employee name is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+            return Response({"success": False, "detail": "Employee name is required."}, status=400)
         if quantity <= 0:
-            return Response(
-                {
-                    "success": False,
-                    "detail": "Quantity must be greater than zero.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"success": False, "detail": "Quantity must be greater than zero."}, status=400)
 
         # ---------------- STOCK CHECK ----------------
         available = _available_qty_for_grn(grn)
 
         if available <= 0:
-            return Response(
-                {
-                    "success": False,
-                    "detail": "This stock line is fully issued.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+            return Response({"success": False, "detail": "This stock line is fully issued."}, status=400)
         if quantity > available:
             return Response(
-                {
-                    "success": False,
-                    "detail": (
-                        f"Only {available} {grn.unit or ''} available "
-                        f"to issue."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+                {"success": False, "detail": f"Only {available} {grn.unit or ''} available to issue."},
+                status=400,
             )
 
-        # ---------------- CREATE ----------------
+        # ---------------- CREATE ISSUE ----------------
         issue = ConsumableIssue.objects.create(
             issue_number=generate_issue_number(),
             grn=grn,
             po_number=grn.po_number,
             po_description=grn.po_description,
-            consumable_name=(
-                grn.consumable_name or grn.po_description
-            ),
+            consumable_name=(grn.consumable_name or grn.po_description),
             category=grn.category,
             unit=grn.unit,
             warehouse=grn.warehouse,
@@ -8532,14 +8510,113 @@ class ConsumableIssueCreateAPIView(APIView):
             remarks=remarks,
         )
 
+        # =================================================================
+        # BUFFER STOCK EMAIL TRIGGER
+        # =================================================================
+        new_available = available - quantity
+        buffer_limit = grn.buffer_stock_limit
+        email_status = "SKIPPED"
+        email_error = None
+
+        if buffer_limit is not None and str(buffer_limit).strip() != "":
+            try:
+                buffer_limit_dec = Decimal(str(buffer_limit))
+
+                if new_available <= buffer_limit_dec:
+                    # Prepare email context
+                    context = {
+                        "company_name": getattr(settings, "COMPANY_NAME", "ERP System"),
+                        "year": timezone.now().year,
+                        "material_name": issue.consumable_name,
+                        "grn_number": grn.grn_number,
+                        "warehouse": grn.warehouse or "Main Warehouse",
+                        "issue_number": issue.issue_number,
+                        "previous_available": available,
+                        "issued_quantity": quantity,
+                        "available_qty": new_available,
+                        "buffer_limit": buffer_limit_dec,
+                        "unit": grn.unit or "Nos",
+                        # ⬇️ NEW: PO Number and Received Date
+                        "po_number": grn.po_number or "N/A",
+                        "received_date": grn.created_at.strftime("%d %b %Y, %I:%M %p"),
+                    }
+
+                    html_body = render_to_string("emails/buffer_stock_alert.html", context)
+                    text_body = (
+                        f"Buffer Stock Alert!\n\n"
+                        f"{issue.consumable_name} has dropped to {new_available} {grn.unit}.\n"
+                        f"PO Number: {grn.po_number or 'N/A'}\n"
+                        f"Please restock this item immediately."
+                    )
+
+                    admin_email = (
+                        getattr(settings, "CONTACT_ADMIN_EMAIL", None)
+                        or getattr(settings, "EMAIL_HOST_USER", None)
+                    )
+                    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+
+                    if not admin_email:
+                        email_status = "FAILED"
+                        email_error = "No admin email configured (CONTACT_ADMIN_EMAIL / EMAIL_HOST_USER both empty)."
+                    elif not from_email:
+                        email_status = "FAILED"
+                        email_error = "DEFAULT_FROM_EMAIL not configured."
+                    else:
+                        try:
+                            subject = f"⚠️ LOW BUFFER STOCK: {issue.consumable_name}"
+
+                            email = EmailMultiAlternatives(
+                                subject=subject,
+                                body=text_body,
+                                from_email=from_email,
+                                to=[admin_email],
+                            )
+                            email.attach_alternative(html_body, "text/html")
+                            email.send(fail_silently=False)
+
+                            email_status = "SENT"
+
+                            # Log success
+                            EmailLog.objects.create(
+                                email_type="BUFFER_STOCK_ALERT",
+                                recipient=admin_email,
+                                subject=subject,
+                                status="SENT",
+                                sent_at=timezone.now(),
+                            )
+
+                        except Exception as e:
+                            email_status = "FAILED"
+                            email_error = f"{type(e).__name__}: {e}"
+                            
+                            # Log failure
+                            try:
+                                EmailLog.objects.create(
+                                    email_type="BUFFER_STOCK_ALERT",
+                                    recipient=admin_email,
+                                    subject=f"⚠️ LOW BUFFER STOCK: {issue.consumable_name}",
+                                    status="FAILED",
+                                    error_message=email_error,
+                                )
+                            except Exception as log_err:
+                                pass # Fail silently if logging itself fails
+            except (InvalidOperation, ValueError, TypeError):
+                pass # Skip if buffer_limit is corrupted
+
+        # =================================================================
+
         return Response(
             {
                 "success": True,
                 "message": "Consumable issued successfully.",
                 "data": ConsumableIssueSerializer(issue).data,
+                "email_status": email_status,
+                "email_error": email_error,
             },
             status=status.HTTP_201_CREATED,
         )
+
+
 
 # for returning consumables after issue
 def generate_return_number():
@@ -20776,3 +20853,312 @@ class AdminStatisticsAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+
+# views.py
+
+from decimal import Decimal, InvalidOperation
+from django.db.models import Sum
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from .models import ConsumableGRN, ConsumableIssue, ConsumableReturn
+from .permissions import IsERPAdmin
+
+
+class AdminBufferStockAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        """
+        GET /erp/admin/buffer-stock/
+        Fetches all consumable GRNs, calculates live available quantities,
+        and flags items that have dropped to or below their buffer limit.
+        """
+        grns = ConsumableGRN.objects.all().order_by("-created_at")
+        
+        rows = []
+        alerts_triggered = 0
+
+        for grn in grns:
+            # 1. Calculate live available quantity
+            issued = (
+                ConsumableIssue.objects
+                .filter(grn=grn)
+                .aggregate(total=Sum("quantity_issued"))["total"] 
+                or Decimal("0")
+            )
+            returned = (
+                ConsumableReturn.objects
+                .filter(issue__grn=grn)
+                .aggregate(total=Sum("quantity_returned"))["total"] 
+                or Decimal("0")
+            )
+            
+            available_qty = grn.received_quantity - issued + returned
+
+            # Hide fully depleted items
+            if available_qty <= 0:
+                continue
+
+            # 2. Safely evaluate buffer limit
+            buffer_limit = grn.buffer_stock_limit
+            is_low = False
+
+            if buffer_limit is not None and str(buffer_limit).strip() != "":
+                try:
+                    buffer_limit_dec = Decimal(str(buffer_limit))
+                    if available_qty <= buffer_limit_dec:
+                        is_low = True
+                        alerts_triggered += 1
+                except (ValueError, TypeError, InvalidOperation):
+                    pass # Ignore corrupt numbers
+
+            rows.append({
+                "id": grn.id,
+                "materialCode": grn.grn_number,
+                "description": grn.consumable_name or grn.po_description or "Consumable Item",
+                "unit": grn.unit or "Nos",
+                "availableQty": float(available_qty),
+                "bufferQty": float(buffer_limit) if buffer_limit else 0.0,
+                "isLow": is_low,
+                "warehouse": grn.warehouse or "—"
+            })
+
+        return Response({
+            "success": True,
+            "alerts_triggered": alerts_triggered,
+            "data": rows
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        """
+        PATCH /erp/admin/buffer-stock/<pk>/
+        Updates the buffer_stock_limit for a specific Consumable GRN.
+        """
+        try:
+            grn = ConsumableGRN.objects.get(pk=pk)
+        except ConsumableGRN.DoesNotExist:
+            return Response(
+                {"success": False, "message": "GRN record not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        new_limit = request.data.get("buffer_stock_limit")
+
+        if new_limit is not None:
+            try:
+                # Convert to Decimal safely
+                limit_decimal = Decimal(str(new_limit))
+                if limit_decimal < 0:
+                    raise ValueError
+                
+                grn.buffer_stock_limit = limit_decimal
+                grn.save(update_fields=["buffer_stock_limit", "updated_at"])
+                
+                return Response({
+                    "success": True,
+                    "message": "Buffer limit updated successfully.",
+                    "buffer_stock_limit": float(limit_decimal)
+                }, status=status.HTTP_200_OK)
+
+            except (ValueError, TypeError, InvalidOperation):
+                return Response(
+                    {"success": False, "message": "Invalid limit value. Must be a positive number."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        return Response(
+            {"success": False, "message": "No limit provided."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+
+# =====================================================================
+# ADMIN — PENDING PAYMENTS
+# -----------------------------------------------------------------
+# GET /erp/admin/pending-payments/
+#
+# Returns a unified list of all documents where payment is still
+# pending.
+#
+# Logic:
+#   - TI (Tax Invoice)      → Customer owes us money
+#   - PI (Proforma Invoice) → Customer owes us money
+#   - PO / QO               → Ignored (Not invoices, just orders)
+# =====================================================================
+from django.db import transaction
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+# Adjust these imports to your project layout
+# from .models import TaxInvoice, ProformaInvoice
+# from .permissions import IsERPAdmin
+
+
+# =========================================================
+# HELPERS
+# =========================================================
+
+# Document prefix -> (model, field holding the visible document number)
+DOC_TYPES = {
+    "TI": (TaxInvoice, "invoice_number"),
+    "PI": (ProformaInvoice, "proforma_no"),
+}
+
+
+def _is_paid(doc):
+    return doc.payment_status == type(doc).PaymentStatus.PAID
+
+
+def _build_row(short, doc, number_field):
+    """Single place that shapes an invoice into an API row."""
+    receiver = doc.receiver_details or {}
+    amount = float(doc.grand_total or 0)
+    paid = _is_paid(doc)
+
+    return {
+        "id": f"{short}-{doc.id}",
+        "document_number": getattr(doc, number_field),
+        "short": short,
+        "customer_name": receiver.get("companyName") or "Unknown Customer",
+        "amount": amount,                                   # invoice total
+        "outstanding_amount": 0 if paid else amount,        # what is still owed
+        "payment_status": doc.payment_status,
+        "is_paid": paid,
+        "type": "Customer Pays Us",
+        "created_at": doc.created_at.isoformat() if doc.created_at else None,
+    }
+
+
+# =========================================================
+# 1. LIST: all confirmed TI + PI (paid and unpaid)
+#    GET /erp/admin/pending-payments/?status=all|paid|pending
+# =========================================================
+
+class AdminPendingPaymentsAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        status_filter = (request.query_params.get("status") or "all").lower()
+        if status_filter not in ("all", "paid", "pending"):
+            return Response(
+                {"success": False, "message": "status must be all, paid or pending."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        items = []  # (created_at, row)
+
+        for short, (model, number_field) in DOC_TYPES.items():
+            qs = model.objects.filter(status=model.Status.CONFIRMED)
+
+            if status_filter == "paid":
+                qs = qs.filter(payment_status=model.PaymentStatus.PAID)
+            elif status_filter == "pending":
+                qs = qs.filter(payment_status=model.PaymentStatus.PENDING)
+
+            for doc in qs:
+                row = _build_row(short, doc, number_field)
+                items.append((doc.created_at, row))
+
+        # Newest first, across both tables
+        items.sort(key=lambda pair: pair[0], reverse=True)
+        rows = [row for _, row in items]
+
+        total_outstanding = sum(r["outstanding_amount"] for r in rows)
+        total_paid = sum(r["amount"] for r in rows if r["is_paid"])
+        paid_count = sum(1 for r in rows if r["is_paid"])
+
+        return Response(
+            {
+                "success": True,
+                "count": len(rows),
+                "paid_count": paid_count,
+                "pending_count": len(rows) - paid_count,
+                "total_outstanding": total_outstanding,
+                "total_paid": total_paid,
+                "data": rows,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# 2. UPDATE: admin marks an invoice paid / pending
+#    PATCH /erp/admin/pending-payments/<doc_id>/payment-status/
+#    body: { "payment_status": "paid" | "pending" }
+#    doc_id looks like "TI-12" or "PI-7" (same as the list `id`)
+# =========================================================
+
+class AdminPaymentStatusUpdateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def patch(self, request, doc_id):
+        # ---- parse "TI-12" ----
+        prefix, _, raw_pk = str(doc_id).partition("-")
+        prefix = prefix.upper()
+
+        if prefix not in DOC_TYPES or not raw_pk.isdigit():
+            return Response(
+                {"success": False, "message": "Invalid invoice id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        model, number_field = DOC_TYPES[prefix]
+
+        # ---- validate requested status ----
+        requested = str(request.data.get("payment_status", "")).strip().lower()
+        status_map = {
+            "paid": model.PaymentStatus.PAID,
+            "pending": model.PaymentStatus.PENDING,
+        }
+        if requested not in status_map:
+            return Response(
+                {"success": False, "message": "payment_status must be 'paid' or 'pending'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- update atomically ----
+        with transaction.atomic():
+            try:
+                doc = model.objects.select_for_update().get(
+                    pk=int(raw_pk), status=model.Status.CONFIRMED
+                )
+            except model.DoesNotExist:
+                return Response(
+                    {"success": False, "message": "Invoice not found or not confirmed."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            doc.payment_status = status_map[requested]
+            # If you track who/when, add e.g. paid_at / paid_by here and to update_fields.
+            doc.save(update_fields=["payment_status"])
+
+        return Response(
+            {
+                "success": True,
+                "message": f"Marked as {requested}.",
+                "data": _build_row(prefix, doc, number_field),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# urls.py
+# =========================================================
+# from django.urls import path
+#
+# urlpatterns += [
+#     path("admin/pending-payments/", AdminPendingPaymentsAPIView.as_view()),
+#     path(
+#         "admin/pending-payments/<str:doc_id>/payment-status/",
+#         AdminPaymentStatusUpdateAPIView.as_view(),
+#     ),
+# ]

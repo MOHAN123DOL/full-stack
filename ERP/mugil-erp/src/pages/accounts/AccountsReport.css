@@ -252,6 +252,72 @@
 }
 
 /* ============================================================
+   NEW: CUSTOM TOOLTIP STYLES
+   ============================================================ */
+.tooltip-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  color: #64748b;
+  margin-left: 6px;
+}
+
+.tooltip-container:hover {
+  color: #3b82f6;
+}
+
+.tooltip-popup {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 10px;
+  background: #1e293b;
+  color: #ffffff;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  width: max-content;
+  max-width: 280px;
+  z-index: 50;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+  font-weight: 500;
+  white-space: pre-line;
+  pointer-events: none; /* Prevents the tooltip from blocking mouse events */
+  animation: fadeIn 0.15s ease-out;
+}
+
+/* The little triangle arrow pointing up */
+.tooltip-popup::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: #1e293b;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translate(-50%, 5px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Ensure the table header is a stacking context so the tooltip stays on top */
+.accounts-report-table thead th {
+  position: relative;
+  z-index: 1;
+}
+
+.accounts-report-table thead th:hover {
+  z-index: 100;
+}
+
+/* ============================================================
    PRINT OVERLAY
    ------------------------------------------------------------
    #print-container is created by AccountsReport.jsx

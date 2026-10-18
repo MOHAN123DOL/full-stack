@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
                     LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
@@ -876,9 +876,26 @@ path(
     AdminStatisticsAPIView.as_view(),
     name="admin-statistics",
 ),
+
+path(
+        "admin/buffer-stock/",
+        AdminBufferStockAPIView.as_view(),
+        name="admin-buffer-stock",
+    ),
+    
+    # Buffer Stock Edit (PATCH)
+    path(
+        "admin/buffer-stock/<int:pk>/",
+        AdminBufferStockAPIView.as_view(),
+        name="admin-buffer-stock-detail",
+    ),
     
 
-
+path("admin/pending-payments/", AdminPendingPaymentsAPIView.as_view()),
+path(
+      "admin/pending-payments/<str:doc_id>/payment-status/",
+         AdminPaymentStatusUpdateAPIView.as_view(),
+     ),
    
 
 

@@ -4,7 +4,6 @@
    OPTION 1 — BLUE / CYAN INVENTORY THEME
    ========================================================= */
 
-
 /* =========================================================
    PAGE VARIABLES
    ========================================================= */
@@ -47,20 +46,15 @@
   isolation: isolate;
 }
 
-
 /* =========================================================
    PAGE BACKGROUND
    ========================================================= */
 
 .admin-buffer-stock-page::before {
   content: "";
-
   position: fixed;
-
   inset: 0;
-
   z-index: -3;
-
   background:
     linear-gradient(
       135deg,
@@ -69,43 +63,22 @@
       rgba(213, 241, 255, 0.90) 100%
     ),
     url("/buffer_stock/buffer_stock_bg.png");
-
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-
   pointer-events: none;
 }
-
-
-/* =========================================================
-   SOFT BACKGROUND OVERLAY
-   ========================================================= */
 
 .admin-buffer-stock-page::after {
   content: "";
-
   position: fixed;
-
   inset: 0;
-
   z-index: -2;
-
   background:
-    radial-gradient(
-      circle at 85% 18%,
-      rgba(0, 184, 230, 0.09),
-      transparent 28%
-    ),
-    radial-gradient(
-      circle at 10% 82%,
-      rgba(8, 120, 209, 0.07),
-      transparent 30%
-    );
-
+    radial-gradient(circle at 85% 18%, rgba(0, 184, 230, 0.09), transparent 28%),
+    radial-gradient(circle at 10% 82%, rgba(8, 120, 209, 0.07), transparent 30%);
   pointer-events: none;
 }
-
 
 /* =========================================================
    HERO
@@ -113,42 +86,24 @@
 
 .admin-buffer-stock-page .buffer-stock-hero {
   position: relative;
-
   width: 100%;
   min-height: 150px;
-
   margin: 0 0 15px;
   padding: 28px 30px;
-
   display: flex;
   align-items: center;
-
   box-sizing: border-box;
-
   overflow: hidden;
-
   border-radius: 14px;
-
   background-size: cover;
   background-position: center;
-
-  box-shadow:
-    0 10px 28px rgba(6, 47, 99, 0.18);
+  box-shadow: 0 10px 28px rgba(6, 47, 99, 0.18);
 }
 
-
-/* =========================================================
-   HERO OVERLAY
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-hero-overlay {
+.admin-buffer-stock-page .buffer-stock-hero-overlay {
   position: absolute;
-
   inset: 0;
-
   z-index: 1;
-
   background:
     linear-gradient(
       105deg,
@@ -158,165 +113,81 @@
     );
 }
 
-
-/* =========================================================
-   HERO DECORATIVE GLOW
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-hero::before {
+.admin-buffer-stock-page .buffer-stock-hero::before {
   content: "";
-
   position: absolute;
-
   width: 280px;
   height: 280px;
-
   right: -80px;
   top: -170px;
-
   border-radius: 50%;
-
-  background:
-    rgba(255, 255, 255, 0.08);
-
+  background: rgba(255, 255, 255, 0.08);
   z-index: 2;
-
   pointer-events: none;
 }
 
-
-.admin-buffer-stock-page
-.buffer-stock-hero::after {
+.admin-buffer-stock-page .buffer-stock-hero::after {
   content: "";
-
   position: absolute;
-
   width: 170px;
   height: 170px;
-
   right: 170px;
   bottom: -125px;
-
   border-radius: 50%;
-
-  background:
-    rgba(0, 220, 255, 0.12);
-
+  background: rgba(0, 220, 255, 0.12);
   z-index: 2;
-
   pointer-events: none;
 }
 
-
-/* =========================================================
-   HERO CONTENT
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-hero-content {
+.admin-buffer-stock-page .buffer-stock-hero-content {
   position: relative;
-
   z-index: 4;
-
   width: calc(100% - 170px);
-
   max-width: 720px;
-
   margin: 0;
 }
 
-
-/* =========================================================
-   HERO EYEBROW
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-eyebrow {
+.admin-buffer-stock-page .buffer-stock-eyebrow {
   display: block;
-
   margin: 0 0 7px;
-
   color: rgba(255, 255, 255, 0.76);
-
   font-size: 9px;
   line-height: 1;
-
   font-weight: 800;
-
   letter-spacing: 1.5px;
-
   text-transform: uppercase;
 }
 
-
-/* =========================================================
-   HERO TITLE
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-hero h1 {
+.admin-buffer-stock-page .buffer-stock-hero h1 {
   margin: 0;
-
   color: #ffffff;
-
   font-size: 28px;
   line-height: 1.12;
-
   font-weight: 800;
-
   letter-spacing: -0.4px;
 }
 
-
-/* =========================================================
-   HERO DESCRIPTION
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-hero p {
+.admin-buffer-stock-page .buffer-stock-hero p {
   max-width: 620px;
-
   margin: 7px 0 0;
-
   color: rgba(255, 255, 255, 0.86);
-
   font-size: 11px;
   line-height: 1.45;
-
   font-weight: 400;
 }
 
-
-/* =========================================================
-   HERO ICON
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-hero-icon {
+.admin-buffer-stock-page .buffer-stock-hero-icon {
   position: absolute;
-
   z-index: 5;
-
   width: 125px;
   height: 125px;
-
   right: 30px;
   top: 50%;
-
   transform: translateY(-50%);
-
   object-fit: contain;
-
   pointer-events: none;
-
-  filter:
-    drop-shadow(
-      0 10px 18px
-      rgba(0, 30, 70, 0.25)
-    );
+  filter: drop-shadow(0 10px 18px rgba(0, 30, 70, 0.25));
 }
-
 
 /* =========================================================
    ADMIN CARD
@@ -324,804 +195,486 @@
 
 .admin-buffer-stock-page .admin-card {
   position: relative;
-
   width: 100%;
-
   margin: 0;
   padding: 0;
-
   box-sizing: border-box;
-
   overflow: hidden;
-
   border: 1px solid var(--buffer-border);
-
   border-radius: 13px;
-
-  background:
-    rgba(255, 255, 255, 0.96);
-
+  background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--buffer-shadow);
-
   backdrop-filter: blur(7px);
 }
 
-
-/* =========================================================
-   CARD HEADER
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-card-header {
+.admin-buffer-stock-page .buffer-stock-card-header {
   width: 100%;
-
   min-height: 70px;
-
   padding: 13px 16px 11px;
-
   display: flex;
   align-items: center;
   justify-content: space-between;
-
   gap: 20px;
-
   box-sizing: border-box;
-
   border-bottom: 1px solid rgba(8, 120, 209, 0.10);
-
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.98),
-      rgba(246, 252, 255, 0.96)
-    );
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 252, 255, 0.96));
 }
 
-
-/* =========================================================
-   CARD HEADING
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-card-heading {
+.admin-buffer-stock-page .buffer-stock-card-heading {
   min-width: 0;
-
   margin: 0;
 }
 
-
-/* =========================================================
-   CARD EYEBROW
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-card-eyebrow {
+.admin-buffer-stock-page .buffer-stock-card-eyebrow {
   display: block;
-
   margin: 0 0 3px;
-
   color: var(--buffer-blue);
-
   font-size: 8px;
   line-height: 1.1;
-
   font-weight: 800;
-
   letter-spacing: 1.25px;
-
   text-transform: uppercase;
 }
 
-
-/* =========================================================
-   CARD TITLE
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-card-heading h2 {
+.admin-buffer-stock-page .buffer-stock-card-heading h2 {
   margin: 0;
-
   color: var(--buffer-text-dark);
-
   font-size: 16px;
   line-height: 1.2;
-
   font-weight: 750;
 }
 
-
-/* =========================================================
-   CARD DESCRIPTION
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-card-heading p {
+.admin-buffer-stock-page .buffer-stock-card-heading p {
   margin: 3px 0 0;
-
   color: var(--buffer-muted);
-
   font-size: 9px;
   line-height: 1.35;
 }
 
-
-/* =========================================================
-   RECORD COUNT
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-record-count {
+.admin-buffer-stock-page .buffer-stock-record-count {
   flex-shrink: 0;
-
   min-height: 25px;
-
   padding: 0 10px;
-
   display: inline-flex;
   align-items: center;
   justify-content: center;
-
   gap: 5px;
-
   box-sizing: border-box;
-
   border: 1px solid rgba(8, 120, 209, 0.14);
-
   border-radius: 999px;
-
-  background:
-    linear-gradient(
-      180deg,
-      #f0faff,
-      #e4f6ff
-    );
-
+  background: linear-gradient(180deg, #f0faff, #e4f6ff);
   color: var(--buffer-blue);
-
   font-size: 9px;
   line-height: 1;
-
   font-weight: 750;
-
   white-space: nowrap;
-
-  box-shadow:
-    0 3px 10px rgba(8, 120, 209, 0.06);
+  box-shadow: 0 3px 10px rgba(8, 120, 209, 0.06);
 }
 
-
-/* =========================================================
-   RECORD ICON
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-record-icon {
+.admin-buffer-stock-page .buffer-stock-record-icon {
   display: inline-flex;
-
   align-items: center;
   justify-content: center;
-
   color: var(--buffer-cyan);
-
   font-size: 11px;
 }
 
-
 /* =========================================================
-   TABLE WRAPPER
+   TABLE WRAPPER & SCROLLBAR
    ========================================================= */
 
-.admin-buffer-stock-page
-.buffer-stock-table-wrapper {
+.admin-buffer-stock-page .buffer-stock-table-wrapper {
   width: 100%;
-
   margin: 0;
   padding: 0;
-
   overflow-x: auto;
-
   background: rgba(255, 255, 255, 0.90);
 }
 
+.admin-buffer-stock-page .buffer-stock-table-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+.admin-buffer-stock-page .buffer-stock-table-wrapper::-webkit-scrollbar-track {
+  background: #eef7fc;
+}
+.admin-buffer-stock-page .buffer-stock-table-wrapper::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #9bcde6;
+}
+.admin-buffer-stock-page .buffer-stock-table-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #65b5db;
+}
 
 /* =========================================================
    DATA TABLE
    ========================================================= */
 
-.admin-buffer-stock-page
-.admin-data-table {
+.admin-buffer-stock-page .admin-data-table {
   width: 100%;
-
-  min-width: 620px;
-
+  min-width: 820px;
   margin: 0;
-
   border-collapse: collapse;
-
   table-layout: fixed;
-
   font-size: 11px;
 }
 
-
-/* =========================================================
-   TABLE HEADER
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-data-table
-thead {
-  margin: 0;
-  padding: 0;
-}
-
-
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th {
+.admin-buffer-stock-page .admin-data-table thead th {
   height: 36px;
-
   padding: 0 14px;
-
   box-sizing: border-box;
-
   border-bottom: 1px solid rgba(8, 120, 209, 0.14);
-
-  background:
-    linear-gradient(
-      180deg,
-      #edf8ff 0%,
-      #e5f5ff 100%
-    );
-
+  background: linear-gradient(180deg, #edf8ff 0%, #e5f5ff 100%);
   color: #456176;
-
   font-size: 9px;
-
   line-height: 1;
-
   font-weight: 800;
-
   letter-spacing: 0.055em;
-
   text-align: left;
-
   text-transform: uppercase;
-
   white-space: nowrap;
 }
 
-
-/* =========================================================
-   TABLE HEADER SORT ICON / CHILDREN
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th
-* {
+.admin-buffer-stock-page .admin-data-table thead th * {
   color: inherit;
 }
 
+/* COLUMN WIDTHS (Adjusted for new columns) */
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(1),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(1) { width: 14%; } /* Code */
 
-/* =========================================================
-   COLUMN WIDTHS
-   ========================================================= */
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(2),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(2) { width: 28%; } /* Description */
 
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th:nth-child(1),
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(1) {
-  width: 18%;
-}
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(3),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(3) { width: 10%; } /* Warehouse */
 
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(4),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(4) { width: 8%; }  /* Unit */
 
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th:nth-child(2),
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(2) {
-  width: 38%;
-}
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(5),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(5) { width: 12%; } /* Available */
 
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(6),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(6) { width: 12%; } /* Buffer */
 
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th:nth-child(3),
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(3) {
-  width: 12%;
-}
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(7),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(7) { width: 8%; }  /* Status */
 
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(8),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(8) { width: 8%; text-align: center; }  /* Edit */
 
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th:nth-child(4),
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(4) {
-  width: 16%;
-}
-
-
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th:nth-child(5),
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(5) {
-  width: 16%;
-}
-
-
-/* =========================================================
-   RIGHT ALIGN QUANTITY COLUMNS
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th:nth-child(4),
-.admin-buffer-stock-page
-.admin-data-table
-thead
-th:nth-child(5),
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(4),
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(5) {
+/* Right align quantity columns */
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(5),
+.admin-buffer-stock-page .admin-data-table thead th:nth-child(6),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(5),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(6) {
   text-align: right;
 }
 
-
-/* =========================================================
-   TABLE BODY
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-tr {
+.admin-buffer-stock-page .admin-data-table tbody tr {
   background: rgba(255, 255, 255, 0.94);
-
-  transition:
-    background-color 0.16s ease;
+  transition: background-color 0.16s ease;
 }
 
-
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-tr:hover {
-  background:
-    rgba(235, 249, 255, 0.85);
+.admin-buffer-stock-page .admin-data-table tbody tr:hover {
+  background: rgba(235, 249, 255, 0.85);
 }
 
-
-/* =========================================================
-   TABLE CELLS
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td {
+.admin-buffer-stock-page .admin-data-table tbody td {
   height: 46px;
-
   padding: 7px 14px;
-
   box-sizing: border-box;
-
-  border-bottom:
-    1px solid rgba(8, 120, 209, 0.08);
-
+  border-bottom: 1px solid rgba(8, 120, 209, 0.08);
   color: #526b7f;
-
   font-size: 10.5px;
-
   line-height: 1.35;
-
   vertical-align: middle;
 }
 
-
-/* =========================================================
-   MATERIAL CODE
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:first-child {
+.admin-buffer-stock-page .admin-data-table tbody td:first-child {
   color: var(--buffer-blue);
-
-  font-family:
-    "SFMono-Regular",
-    Consolas,
-    "Liberation Mono",
-    monospace;
-
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 10px;
-
   font-weight: 700;
 }
 
-
-/* =========================================================
-   DESCRIPTION
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-cell-wrap {
+.admin-buffer-stock-page .admin-cell-wrap {
   display: block;
-
   max-width: 430px;
-
   overflow: hidden;
-
   color: #496275;
-
   text-overflow: ellipsis;
-
   white-space: nowrap;
 }
 
-
-/* =========================================================
-   UNIT
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(3) {
-  color: #60788a;
-
-  font-weight: 600;
-}
-
-
-/* =========================================================
-   QUANTITY CELLS
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(4),
-.admin-buffer-stock-page
-.admin-data-table
-tbody
-td:nth-child(5) {
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(5),
+.admin-buffer-stock-page .admin-data-table tbody td:nth-child(6) {
   color: var(--buffer-text-dark);
-
   font-weight: 700;
-
   font-variant-numeric: tabular-nums;
 }
 
-
 /* =========================================================
-   EMPTY STATE
+   NEW: EDIT BUTTON
    ========================================================= */
 
-.admin-buffer-stock-page
-.admin-empty-state {
-  min-height: 150px;
-
-  padding: 25px 20px;
-
-  display: flex;
-
-  flex-direction: column;
-
+.admin-buffer-stock-page .buffer-edit-btn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-
-  box-sizing: border-box;
-
-  background:
-    linear-gradient(
-      180deg,
-      rgba(249, 253, 255, 0.98),
-      rgba(255, 255, 255, 0.98)
-    );
-
-  text-align: center;
-}
-
-
-/* =========================================================
-   EMPTY STATE ICON
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-empty-state
-svg {
-  width: 30px;
-  height: 30px;
-
-  margin: 0 0 8px;
-
-  color: #8ca5b8;
-}
-
-
-/* =========================================================
-   EMPTY STATE TITLE
-   ========================================================= */
-
-.admin-buffer-stock-page
-.admin-empty-state
-h3 {
-  margin: 0 0 5px;
-
-  color: var(--buffer-text-dark);
-
+  gap: 4px;
+  padding: 5px 10px;
   font-size: 11px;
-
-  line-height: 1.3;
-
-  font-weight: 750;
+  font-weight: 600;
+  color: var(--buffer-blue);
+  background-color: #ffffff;
+  border: 1px solid rgba(8, 120, 209, 0.25);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
+.admin-buffer-stock-page .buffer-edit-btn:hover {
+  background-color: var(--buffer-sky);
+  border-color: var(--buffer-blue);
+}
 
 /* =========================================================
-   EMPTY STATE MESSAGE
+   NEW: MODAL OVERLAY & DIALOG
    ========================================================= */
 
-.admin-buffer-stock-page
-.admin-empty-state
-p {
-  max-width: 460px;
-
-  margin: 0;
-
-  color: #8a9eae;
-
-  font-size: 9px;
-
-  line-height: 1.45;
+.buffer-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(6, 47, 99, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: bufferFadeIn 0.15s ease-out;
 }
 
+@keyframes bufferFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.buffer-modal {
+  background-color: #ffffff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  animation: bufferSlideUp 0.2s ease-out;
+}
+
+@keyframes bufferSlideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.buffer-modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  background: var(--buffer-sky);
+}
+
+.buffer-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--buffer-text-dark);
+}
+
+.buffer-modal-header p {
+  margin: 6px 0 0 0;
+  font-size: 12px;
+  color: var(--buffer-muted);
+}
+
+.buffer-modal-body {
+  padding: 24px;
+}
+
+.buffer-modal-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--buffer-text);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.buffer-modal-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.buffer-modal-input:focus {
+  border-color: var(--buffer-blue);
+  box-shadow: 0 0 0 3px rgba(8, 120, 209, 0.1);
+}
+
+.buffer-modal-footer {
+  padding: 16px 24px;
+  background-color: var(--buffer-sky);
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.buffer-modal-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.buffer-modal-btn.cancel {
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: var(--buffer-muted);
+}
+
+.buffer-modal-btn.cancel:hover {
+  background-color: #f1f5f9;
+}
+
+.buffer-modal-btn.save {
+  background-color: var(--buffer-blue);
+  border: none;
+  color: #ffffff;
+}
+
+.buffer-modal-btn.save:hover {
+  background-color: var(--buffer-blue-dark);
+}
+
+.buffer-modal-btn.save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 /* =========================================================
    FOOTER NOTE
    ========================================================= */
 
-.admin-buffer-stock-page
-.buffer-stock-page-note {
+.admin-buffer-stock-page .buffer-stock-page-note {
   margin: 7px 2px 0;
-
   color: #698398;
-
   font-size: 9px;
-
   line-height: 1.45;
 }
-
-
-/* =========================================================
-   SCROLLBAR
-   ========================================================= */
-
-.admin-buffer-stock-page
-.buffer-stock-table-wrapper::-webkit-scrollbar {
-  height: 6px;
-}
-
-
-.admin-buffer-stock-page
-.buffer-stock-table-wrapper::-webkit-scrollbar-track {
-  background: #eef7fc;
-}
-
-
-.admin-buffer-stock-page
-.buffer-stock-table-wrapper::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-
-  background: #9bcde6;
-}
-
-
-.admin-buffer-stock-page
-.buffer-stock-table-wrapper::-webkit-scrollbar-thumb:hover {
-  background: #65b5db;
-}
-
 
 /* =========================================================
    TABLET
    ========================================================= */
 
 @media (max-width: 1000px) {
-
   .admin-buffer-stock-page {
     padding: 16px 18px 28px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero {
+  .admin-buffer-stock-page .buffer-stock-hero {
     min-height: 145px;
-
     padding: 25px 26px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero-icon {
+  .admin-buffer-stock-page .buffer-stock-hero-icon {
     width: 110px;
     height: 110px;
-
     right: 25px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero-content {
+  .admin-buffer-stock-page .buffer-stock-hero-content {
     width: calc(100% - 145px);
   }
-
 }
-
 
 /* =========================================================
    MOBILE
    ========================================================= */
 
 @media (max-width: 700px) {
-
   .admin-buffer-stock-page {
     padding: 12px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero {
+  .admin-buffer-stock-page .buffer-stock-hero {
     min-height: 140px;
-
     padding: 22px;
-
     border-radius: 12px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero-content {
+  .admin-buffer-stock-page .buffer-stock-hero-content {
     width: calc(100% - 100px);
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero h1 {
+  .admin-buffer-stock-page .buffer-stock-hero h1 {
     font-size: 23px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero p {
+  .admin-buffer-stock-page .buffer-stock-hero p {
     font-size: 9.5px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero-icon {
+  .admin-buffer-stock-page .buffer-stock-hero-icon {
     width: 85px;
     height: 85px;
-
     right: 14px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-card-header {
+  .admin-buffer-stock-page .buffer-stock-card-header {
     min-height: 66px;
-
     padding: 11px 13px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-card-heading h2 {
+  .admin-buffer-stock-page .buffer-stock-card-heading h2 {
     font-size: 14px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-card-heading p {
+  .admin-buffer-stock-page .buffer-stock-card-heading p {
     font-size: 8.5px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-record-count {
+  .admin-buffer-stock-page .buffer-stock-record-count {
     font-size: 8px;
   }
-
-
-  .admin-buffer-stock-page
-  .admin-data-table {
-    min-width: 620px;
+  .admin-buffer-stock-page .admin-data-table {
+    min-width: 820px;
   }
-
 }
-
 
 /* =========================================================
    SMALL MOBILE
    ========================================================= */
 
 @media (max-width: 450px) {
-
   .admin-buffer-stock-page {
     padding: 10px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero {
+  .admin-buffer-stock-page .buffer-stock-hero {
     min-height: 125px;
-
     padding: 18px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero-content {
+  .admin-buffer-stock-page .buffer-stock-hero-content {
     width: calc(100% - 80px);
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero h1 {
+  .admin-buffer-stock-page .buffer-stock-hero h1 {
     font-size: 20px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-hero-icon {
+  .admin-buffer-stock-page .buffer-stock-hero-icon {
     width: 68px;
     height: 68px;
-
     right: 9px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-card-header {
+  .admin-buffer-stock-page .buffer-stock-card-header {
     align-items: flex-start;
-
     flex-direction: column;
-
     gap: 8px;
   }
-
-
-  .admin-buffer-stock-page
-  .buffer-stock-record-count {
+  .admin-buffer-stock-page .buffer-stock-record-count {
     align-self: flex-start;
   }
-
 }

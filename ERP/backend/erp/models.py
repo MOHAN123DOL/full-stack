@@ -2621,6 +2621,12 @@ class ConsumableGRN(models.Model):
         blank=True,
         related_name="grns",
     )
+    buffer_stock_limit = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        default=10,
+        help_text="Trigger an email alert when available stock drops to or below this level."
+    )
 
     po_number = models.CharField(
         max_length=100,
