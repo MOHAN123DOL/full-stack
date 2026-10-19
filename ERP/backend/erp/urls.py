@@ -1,10 +1,10 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
-                    LoginAPIView ,InventoryAPIView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminAttendanceDailyCountsAPIView,  AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
+                    LoginAPIView ,InventoryAPIView, LoginVerifyOTPView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
-                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, UserProfileDetailAPIView, 
+                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView, SendPasswordChangeOTPView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, TwoStepSendOTPView, TwoStepVerifyOTPView, UserProfileDetailAPIView, 
                           UserProfileListCreateAPIView, AttendanceEmployeeView,
     AttendanceViewSet,
     WageConfigViewSet,
@@ -69,7 +69,19 @@ urlpatterns = [
         name="user-profile-detail",
     ),
      # TO GET PROFILE AND CHANGE PASSWORD
-    path("profile/", ProfileAPIView.as_view(),name="profile",),
+    path("profile/", ProfileAPIView.as_view(), name="profile"),
+
+    path(
+        "profile/security/two-step/send-otp/",
+        TwoStepSendOTPView.as_view(),
+        name="two-step-send-otp",
+    ),
+    path(
+        "profile/security/two-step/verify-otp/",
+        TwoStepVerifyOTPView.as_view(),
+        name="two-step-verify-otp",
+    ),
+
     path(
         "attendance/my/",
         MyAttendanceAPIView.as_view(),
@@ -896,6 +908,17 @@ path(
       "admin/pending-payments/<str:doc_id>/payment-status/",
          AdminPaymentStatusUpdateAPIView.as_view(),
      ),
+     path(
+    "admin/attendance/daily-counts/",
+    AdminAttendanceDailyCountsAPIView.as_view(),
+    name="admin-attendance-daily-counts",
+),
+path("profile/security/password-change/send-otp/", SendPasswordChangeOTPView.as_view(), name="password-change-send-otp"),
+path("login/verify-otp/", LoginVerifyOTPView.as_view(), name="erp-login-verify-otp"),
+
+
+
+
    
 
 

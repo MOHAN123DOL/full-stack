@@ -112,10 +112,39 @@ class MyAttendanceSerializer(serializers.ModelSerializer):
             "remarks",
         ]
 
+
+
+# accounts/serializers.py
+from rest_framework import serializers
+from .models import AdminSecuritySettings, Employee
+
+
+class AdminSecuritySettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdminSecuritySettings
+        fields = [
+            "two_step_enabled",
+            "password_otp_enabled",
+            "login_otp_enabled",
+            "email_verified_at",
+             "verification_email",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "two_step_enabled",
+            "email_verified_at",
+            "updated_at",
+        ]
+
 class ProfileSerializer(serializers.ModelSerializer):
 
     accountId = serializers.IntegerField(
         source="id",
+        read_only=True,
+    )
+    security = serializers.SerializerMethodField()
+    userType = serializers.CharField(
+        source="user_type",
         read_only=True,
     )
 
@@ -144,14 +173,17 @@ class ProfileSerializer(serializers.ModelSerializer):
         fields = [
             "accountId",
             "username",
+            "security",
             "email",
             "profilePhoto",
+
             "phone",
             "role",
             "department",
             "employeeId",
             "joiningDate",
             "lastLogin",
+            "userType",
         ]
 
     # ---------------------------------------------------------
@@ -210,6 +242,25 @@ class ProfileSerializer(serializers.ModelSerializer):
 
         self._employee_cache[obj.id] = emp
         return emp
+
+    
+    def get_security(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+
+        user = request.user
+
+        # Match your existing admin-detection logic
+        usertype = getattr(user, "usertype", None) or getattr(user, "user_type", None)
+        if str(usertype or "").strip().lower() != "admin":
+            return None
+
+        settings_obj, _ = AdminSecuritySettings.objects.get_or_create(user=user)
+        return AdminSecuritySettingsSerializer(settings_obj).data
+
+
+    
     def get_profilePhoto(self, obj):
         emp = self._get_employee(obj)
 

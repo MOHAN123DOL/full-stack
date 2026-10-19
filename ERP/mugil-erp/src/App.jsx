@@ -61,6 +61,7 @@ import AdminDocumentNumber from "./pages/admin/AdminDocumentNumber.jsx";
 import AdminBufferStock from "./pages/admin/AdminBufferStock.jsx";
 import AdminStatistics from "./pages/admin/AdminStatistics.jsx";
 
+
 /* =====================================================================
    HR LAYOUT
    ---------------------------------------------------------------------

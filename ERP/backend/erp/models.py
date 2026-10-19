@@ -5702,3 +5702,140 @@ class EmailLog(models.Model):
 
     def __str__(self):
         return f"{self.recipient} - {self.status}"
+
+
+
+
+from django.db import models
+from django.conf import settings
+from django.utils import timezone
+
+
+class AdminSecuritySettings(models.Model):
+    """
+    Security preferences for admin accounts.
+    One row per user (enforced by OneToOneField).
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="admin_security",
+    )
+
+    # Master switch
+    two_step_enabled = models.BooleanField(default=False)
+    verification_email = models.EmailField(blank=True, null=True)
+
+    # Sub-options (only meaningful when two_step_enabled is True)
+    password_otp_enabled = models.BooleanField(default=False)
+    login_otp_enabled = models.BooleanField(default=False)
+
+    # Bookkeeping
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+    last_otp_sent_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Admin Security Settings"
+        verbose_name_plural = "Admin Security Settings"
+
+    def __str__(self):
+        return f"Security settings for {self.user.username}"
+
+    def disable_all(self):
+        """Turn everything off (used when 2FA is disabled)."""
+        self.two_step_enabled = False
+        self.password_otp_enabled = False
+        self.login_otp_enabled = False
+        self.save(
+            update_fields=[
+                "two_step_enabled",
+                "password_otp_enabled",
+                "login_otp_enabled",
+                "updated_at",
+            ]
+        )
+
+    def mark_email_verified(self):
+        self.email_verified_at = timezone.now()
+        self.two_step_enabled = True
+        self.save(update_fields=["email_verified_at", "two_step_enabled", "updated_at"])
+
+
+
+
+import random
+import string
+from datetime import timedelta
+
+
+def generate_otp():
+    return "".join(random.choices(string.digits, k=6))
+
+
+class EmailOTP(models.Model):
+    """Short-lived OTP codes for 2-step authentication setup."""
+
+    PURPOSE_CHOICES = [
+        ("two_step_setup", "Two-Step Setup"),
+        ("login", "Login"),
+        ("password_change", "Password Change"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="email_otps",
+    )
+    
+    code = models.CharField(max_length=6, default=generate_otp)
+    purpose = models.CharField(max_length=32, choices=PURPOSE_CHOICES)
+    is_used = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "purpose", "is_used"]),
+        ]
+
+    def is_valid(self):
+        return (
+            not self.is_used
+            and timezone.now() < self.expires_at
+        )
+
+    @classmethod
+    def issue(cls, user, purpose, ttl_minutes=10):
+        # Invalidate previous unused codes for same purpose
+        cls.objects.filter(
+            user=user, purpose=purpose, is_used=False
+        ).update(is_used=True)
+
+        return cls.objects.create(
+            user=user,
+            purpose=purpose,
+            expires_at=timezone.now() + timedelta(minutes=ttl_minutes),
+        )
+
+    @classmethod
+    def verify(cls, user, purpose, code):
+        otp = (
+            cls.objects.filter(
+                user=user,
+                purpose=purpose,
+                code=code,
+                is_used=False,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if not otp or not otp.is_valid():
+            return None
+
+        otp.is_used = True
+        otp.save(update_fields=["is_used"])
+        return otp

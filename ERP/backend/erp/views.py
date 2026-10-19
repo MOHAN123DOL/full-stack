@@ -28,7 +28,7 @@ from .models import (
     MaterialGRN,
     MaterialGRNNumberSettings,
 )
-from .serializers import AssemblyExecutionSerializer, AssemblySerializer, AssemblyStageExecutionSerializer, DispatchCreateSerializer, DispatchReadyAssemblySerializer, DispatchTransactionSerializer, JobWorkReceiveSerializer, MaterialGRNSerializer, ProductionIssueSerializer
+from .serializers import AdminSecuritySettingsSerializer, AssemblyExecutionSerializer, AssemblySerializer, AssemblyStageExecutionSerializer, DispatchCreateSerializer, DispatchReadyAssemblySerializer, DispatchTransactionSerializer, JobWorkReceiveSerializer, MaterialGRNSerializer, ProductionIssueSerializer
 from .permissions import IsMaterialPlanning
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -143,6 +143,15 @@ def get_refresh_cookie_name(user_type):
     cookie_names = getattr(settings, "REFRESH_COOKIE_NAMES", {})
 
     return cookie_names.get(user_type)
+
+
+from django.utils import timezone
+from django.core.mail import send_mail
+from django.conf import settings
+
+from .models import User, UserProfile, AdminSecuritySettings, EmailOTP
+from .serializers import LoginSerializer
+
 class LoginAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -160,27 +169,90 @@ class LoginAPIView(APIView):
             )
 
         user = serializer.validated_data["user"]
-
-        # Select the cookie based on the authenticated user's
-        # actual department, not an unverified request value.
         user_type = user.user_type
+
+        # ==================================================
+        # CHECK FOR ADMIN LOGIN OTP
+        # ==================================================
+        if user_type == "admin":
+            security, _ = AdminSecuritySettings.objects.get_or_create(user=user)
+            
+            if security.login_otp_enabled:
+                # 1. Ensure we have an email to send to
+                email = security.verification_email or user.email
+                if not email:
+                    return Response(
+                        {"success": False, "message": "No email configured for OTP."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # 2. Rate-limit (30s)
+                now = timezone.now()
+                if (
+                    security.last_otp_sent_at
+                    and (now - security.last_otp_sent_at).total_seconds() < 30
+                ):
+                    remaining = 30 - int((now - security.last_otp_sent_at).total_seconds())
+                    return Response(
+                        {
+                            "success": False,
+                            "message": f"Please wait {remaining}s before requesting another OTP.",
+                            "retry_after": remaining,
+                        },
+                        status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    )
+
+                # 3. Issue and Send OTP
+                try:
+                    otp = EmailOTP.issue(user, purpose="login")
+                    send_mail(
+                        subject="Mugil ERP - Login Verification Code",
+                        message=(
+                            f"Your login verification code is: {otp.code}\n\n"
+                            "It expires in 10 minutes.\n\n"
+                            "If you did not attempt to log in, please change your password immediately."
+                        ),
+                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                        recipient_list=[email],
+                        fail_silently=False,
+                    )
+                except Exception as exc:
+                    print("Login OTP email failed:", exc)
+                    return Response(
+                        {"success": False, "message": "Unable to send OTP email. Try again later."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+
+                # 4. Save timestamp
+                security.last_otp_sent_at = now
+                security.save(update_fields=["last_otp_sent_at", "updated_at"])
+
+                # 5. Return a special response telling the frontend to ask for the OTP
+                return Response(
+                    {
+                        "success": True,
+                        "otp_required": True,
+                        "username": user.username,
+                        "message": f"OTP sent to {email}.",
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+        # ==================================================
+        # NORMAL LOGIN FLOW (If OTP not enabled or not admin)
+        # ==================================================
         cookie_name = get_refresh_cookie_name(user_type)
 
         if not cookie_name:
             return Response(
-                {
-                    "success": False,
-                    "message": "Unsupported user department.",
-                },
+                {"success": False, "message": "Unsupported user department."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Update the user's last-login time.
         profile, _ = UserProfile.objects.get_or_create(user=user)
         profile.last_login = timezone.now()
         profile.save(update_fields=["last_login", "updated_at"])
 
-        # Generate the tokens.
         refresh = RefreshToken.for_user(user)
         access = refresh.access_token
 
@@ -198,8 +270,6 @@ class LoginAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
-        # Store the refresh token in a department-specific
-        # HttpOnly cookie.
         response.set_cookie(
             key=cookie_name,
             value=str(refresh),
@@ -210,10 +280,152 @@ class LoginAPIView(APIView):
             path=settings.REFRESH_COOKIE_PATH,
         )
 
-        # Preserve the existing CSRF-cookie behavior.
         get_token(request)
 
         return response
+
+class LoginVerifyOTPView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = str(request.data.get("username", "")).strip()
+        code = str(request.data.get("otp", "")).strip()
+
+        if not username or not code:
+            return Response(
+                {"success": False, "message": "Username and OTP are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 1. Find the user
+        user = User.objects.filter(username=username, user_type="admin").first()
+        if not user:
+            return Response(
+                {"success": False, "message": "Invalid login attempt."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # 2. Verify OTP
+        otp = EmailOTP.verify(user, purpose="login", code=code)
+        if not otp:
+            return Response(
+                {"success": False, "message": "Invalid or expired OTP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 3. Success! Proceed with normal login
+        user_type = user.user_type
+        cookie_name = get_refresh_cookie_name(user_type)
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.last_login = timezone.now()
+        profile.save(update_fields=["last_login", "updated_at"])
+
+        refresh = RefreshToken.for_user(user)
+        access = refresh.access_token
+
+        response = Response(
+            {
+                "success": True,
+                "message": "Login successful.",
+                "access": str(access),
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "user_type": user_type,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+        response.set_cookie(
+            key=cookie_name,
+            value=str(refresh),
+            max_age=settings.REFRESH_COOKIE_MAX_AGE,
+            httponly=settings.REFRESH_COOKIE_HTTPONLY,
+            secure=settings.REFRESH_COOKIE_SECURE,
+            samesite=settings.REFRESH_COOKIE_SAMESITE,
+            path=settings.REFRESH_COOKIE_PATH,
+        )
+
+        get_token(request)
+
+        return response
+
+
+from django.utils import timezone
+from django.middleware.csrf import get_token
+from rest_framework_simplejwt.tokens import RefreshToken
+
+class LoginVerifyOTPView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = str(request.data.get("username", "")).strip()
+        code = str(request.data.get("otp", "")).strip()
+
+        if not username or not code:
+            return Response(
+                {"success": False, "message": "Username and OTP are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 1. Find the user (only allow admin for OTP login)
+        user = User.objects.filter(username=username, user_type="admin").first()
+        if not user:
+            return Response(
+                {"success": False, "message": "Invalid login attempt."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # 2. Verify OTP against the database
+        otp = EmailOTP.verify(user, purpose="login", code=code)
+        if not otp:
+            return Response(
+                {"success": False, "message": "Invalid or expired OTP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 3. Success! Generate tokens and log the user in
+        user_type = user.user_type
+        cookie_name = get_refresh_cookie_name(user_type)
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.last_login = timezone.now()
+        profile.save(update_fields=["last_login", "updated_at"])
+
+        refresh = RefreshToken.for_user(user)
+        access = refresh.access_token
+
+        response = Response(
+            {
+                "success": True,
+                "message": "Login successful.",
+                "access": str(access),
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "user_type": user_type,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+        # Set the refresh cookie
+        response.set_cookie(
+            key=cookie_name,
+            value=str(refresh),
+            max_age=settings.REFRESH_COOKIE_MAX_AGE,
+            httponly=settings.REFRESH_COOKIE_HTTPONLY,
+            secure=settings.REFRESH_COOKIE_SECURE,
+            samesite=settings.REFRESH_COOKIE_SAMESITE,
+            path=settings.REFRESH_COOKIE_PATH,
+        )
+
+        get_token(request)
+
+        return response
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
@@ -460,6 +672,24 @@ class UserProfileDetailAPIView(generics.RetrieveUpdateAPIView):
 
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
+# accounts/views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
+from django.core.mail import send_mail
+from django.conf import settings as django_settings
+
+from .models import Employee, AdminSecuritySettings, EmailOTP
+from .serializers import ProfileSerializer
+
+
+def _is_admin(user):
+    usertype = getattr(user, "usertype", None) or getattr(user, "user_type", None)
+    return str(usertype or "").strip().lower() == "admin"
+
 
 class ProfileAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -483,16 +713,21 @@ class ProfileAPIView(APIView):
         )
 
     # ==================================================
-    # PATCH — photo only, saved on the Employee row
+    # PATCH — photo upload  OR  security settings
     # ==================================================
     def patch(self, request):
-        photo = request.FILES.get("profile_photo")
+        # Route: if a file is present → photo upload.
+        # Otherwise, treat as security-settings update (admin only).
+        if request.FILES.get("profile_photo"):
+            return self._handle_photo_upload(request)
 
-        if not photo:
-            return Response(
-                {"success": False, "message": "No image was uploaded."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        return self._handle_security_update(request)
+
+    # --------------------------------------------------
+    # PHOTO UPLOAD (unchanged from your code)
+    # --------------------------------------------------
+    def _handle_photo_upload(self, request):
+        photo = request.FILES.get("profile_photo")
 
         content_type = getattr(photo, "content_type", "") or ""
         if not content_type.startswith("image/"):
@@ -507,34 +742,23 @@ class ProfileAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # --------------------------------------------------
-        # Resolve the Employee row for this user
-        # (same match order as the serializer helper)
-        # --------------------------------------------------
-        employee = (
-            Employee.objects.filter(user=request.user).first()
-        )
+        employee = Employee.objects.filter(user=request.user).first()
 
         if employee is None:
             employee = (
-                Employee.objects
-                .filter(created_by=request.user)
+                Employee.objects.filter(created_by=request.user)
                 .order_by("-created_at")
                 .first()
             )
-
         if employee is None and request.user.email:
             employee = (
-                Employee.objects
-                .filter(email__iexact=request.user.email)
+                Employee.objects.filter(email__iexact=request.user.email)
                 .order_by("-created_at")
                 .first()
             )
-
         if employee is None and request.user.username:
             employee = (
-                Employee.objects
-                .filter(first_name__iexact=request.user.username)
+                Employee.objects.filter(first_name__iexact=request.user.username)
                 .order_by("-created_at")
                 .first()
             )
@@ -548,9 +772,6 @@ class ProfileAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # --------------------------------------------------
-        # Replace the old file
-        # --------------------------------------------------
         if employee.photo:
             try:
                 employee.photo.delete(save=False)
@@ -559,7 +780,6 @@ class ProfileAPIView(APIView):
 
         employee.photo = photo
 
-        # Save photo and keep the link to this user
         if employee.user_id is None:
             employee.user = request.user
             employee.save(update_fields=["photo", "user", "updated_at"])
@@ -570,7 +790,6 @@ class ProfileAPIView(APIView):
             request.user,
             context={"request": request},
         )
-
         return Response(
             {
                 "success": True,
@@ -579,6 +798,215 @@ class ProfileAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+    # --------------------------------------------------
+    # SECURITY UPDATE (admin only)
+    # --------------------------------------------------
+    def _handle_security_update(self, request):
+        if not _is_admin(request.user):
+            return Response(
+                {"success": False, "message": "Admin access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        settings_obj, _ = AdminSecuritySettings.objects.get_or_create(
+            user=request.user
+        )
+
+        data = request.data
+        updated_fields = []
+
+        # --- password_otp_enabled / login_otp_enabled ---
+        for field in ("password_otp_enabled", "login_otp_enabled"):
+            if field in data:
+                new_value = bool(data.get(field))
+                setattr(settings_obj, field, new_value)
+                updated_fields.append(field)
+
+        # --- two_step_enabled: turning OFF is allowed directly;
+        #     turning ON must go through the OTP flow
+        #     (POST /security/two-step/send-otp + verify-otp).
+        if "two_step_enabled" in data and not bool(data["two_step_enabled"]):
+            settings_obj.two_step_enabled = False
+            settings_obj.password_otp_enabled = False
+            settings_obj.login_otp_enabled = False
+            updated_fields.extend(
+                [
+                    "two_step_enabled",
+                    "password_otp_enabled",
+                    "login_otp_enabled",
+                ]
+            )
+
+        if updated_fields:
+            updated_fields.append("updated_at")
+            settings_obj.save(update_fields=list(set(updated_fields)))
+
+        return Response(
+            {
+                "success": True,
+                "message": "Security settings updated.",
+                "data": {
+                    "security": AdminSecuritySettingsSerializer(
+                        settings_obj
+                    ).data,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# accounts/views.py  (append)
+# accounts/views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from django.core.mail import send_mail
+from django.conf import settings as django_settings
+from django.utils import timezone
+
+from .models import AdminSecuritySettings, EmailOTP
+
+class TwoStepSendOTPView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not _is_admin(request.user):
+            return Response(
+                {"success": False, "message": "Admin access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        email = str(request.data.get("email", "")).strip()
+
+        if not email:
+            return Response(
+                {"success": False, "message": "Email is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if "@" not in email or "." not in email.split("@")[-1]:
+            return Response(
+                {"success": False, "message": "Enter a valid email address."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = email.lower()
+
+        settings_obj, _ = AdminSecuritySettings.objects.get_or_create(
+            user=request.user
+        )
+        now = timezone.now()
+
+        if (
+            settings_obj.last_otp_sent_at
+            and (now - settings_obj.last_otp_sent_at).total_seconds() < 30
+        ):
+            remaining = 30 - int(
+                (now - settings_obj.last_otp_sent_at).total_seconds()
+            )
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Please wait {remaining}s before requesting another OTP.",
+                    "retry_after": remaining,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        try:
+            otp = EmailOTP.issue(request.user, purpose="two_step_setup")
+
+            send_mail(
+                subject="Your Mugil ERP verification code",
+                message=(
+                    f"Your OTP is {otp.code}.\n"
+                    "It expires in 10 minutes.\n\n"
+                    "If you did not request this, you can safely ignore this email."
+                ),
+                from_email=getattr(django_settings, "DEFAULT_FROM_EMAIL", None),
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as exc:
+            print("Two-step OTP email failed:", exc)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Unable to send the OTP email right now. Please try again shortly.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # --- SAVE THE EMAIL HERE ---
+        settings_obj.last_otp_sent_at = now
+        settings_obj.verification_email = email  # <-- Save the email
+        
+        # Update the fields in the database
+        settings_obj.save(update_fields=["last_otp_sent_at", "verification_email", "updated_at"])
+
+        return Response(
+            {
+                "success": True,
+                "message": f"OTP sent to {email}.",
+                "data": {
+                    "email": email,
+                    "expires_in": 600,
+                    "retry_after": 30,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+    
+class TwoStepVerifyOTPView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not _is_admin(request.user):
+            return Response(
+                {"success": False, "message": "Admin access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        code = str(request.data.get("otp", "")).strip()
+        if not code.isdigit() or len(code) != 6:
+            return Response(
+                {"success": False, "message": "Enter a valid 6-digit OTP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        otp = EmailOTP.verify(
+            request.user, purpose="two_step_setup", code=code
+        )
+        if otp is None:
+            return Response(
+                {"success": False, "message": "Invalid or expired OTP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        settings_obj, _ = AdminSecuritySettings.objects.get_or_create(
+            user=request.user
+        )
+        settings_obj.mark_email_verified()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Two-step authentication enabled.",
+                "data": {
+                    "security": AdminSecuritySettingsSerializer(
+                        settings_obj
+                    ).data,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -763,17 +1191,115 @@ class ProfilePhotoDeleteAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
-class ChangePasswordAPIView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-    ]
+
+from .models import AdminSecuritySettings, EmailOTP
+class SendPasswordChangeOTPView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        if not _is_admin(request.user):
+            return Response(
+                {"success": False, "message": "Admin access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        settings_obj, _ = AdminSecuritySettings.objects.get_or_create(
+            user=request.user
+        )
+
+        # Check if they actually have this feature turned on
+        if not settings_obj.password_otp_enabled:
+            return Response(
+                {
+                    "success": False,
+                    "message": "OTP is not enabled for password changes.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get the email (fallback to user.email if verification_email is blank)
+        email = settings_obj.verification_email or request.user.email
+
+        if not email:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No email address found on your account.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Rate-limit: 1 OTP per 30 seconds
+        now = timezone.now()
+        if (
+            settings_obj.last_otp_sent_at
+            and (now - settings_obj.last_otp_sent_at).total_seconds() < 30
+        ):
+            remaining = 30 - int(
+                (now - settings_obj.last_otp_sent_at).total_seconds()
+            )
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Please wait {remaining}s before requesting another OTP.",
+                    "retry_after": remaining,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        # Issue the OTP
+        try:
+            otp = EmailOTP.issue(request.user, purpose="password_change")
+
+            send_mail(
+                subject="Mugil ERP - Password Change Code",
+                message=(
+                    f"Your verification code to change your password is: {otp.code}\n\n"
+                    "It expires in 10 minutes.\n\n"
+                    "If you did not request this, you can safely ignore this email."
+                ),
+                from_email=getattr(django_settings, "DEFAULT_FROM_EMAIL", None),
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as exc:
+            print("Password change OTP email failed:", exc)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Unable to send the OTP email right now. Please try again shortly.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Update the last sent timestamp
+        settings_obj.last_otp_sent_at = now
+        settings_obj.save(update_fields=["last_otp_sent_at", "updated_at"])
+
+        return Response(
+            {
+                "success": True,
+                "message": f"OTP sent to {email}.",
+                "data": {
+                    "email": email,
+                    "expires_in": 600,
+                    "retry_after": 30,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ChangePasswordAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # --------------------------------------------------
+        # 1. Validate basic password data first
+        # --------------------------------------------------
         serializer = ChangePasswordSerializer(
             data=request.data,
-            context={
-                "request": request,
-            },
+            context={"request": request},
         )
 
         if not serializer.is_valid():
@@ -788,13 +1314,46 @@ class ChangePasswordAPIView(APIView):
 
         user = request.user
 
-        user.set_password(
-            serializer.validated_data["newPassword"]
-        )
+        # --------------------------------------------------
+        # 2. Enforce OTP for Admin (if enabled)
+        # --------------------------------------------------
+        is_admin = str(getattr(user, "user_type", "")).strip().lower() == "admin"
 
-        user.save(
-            update_fields=["password"]
-        )
+        if is_admin:
+            security_settings, _ = AdminSecuritySettings.objects.get_or_create(user=user)
+            
+            # If the admin has turned on "Change Password with OTP"
+            if security_settings.password_otp_enabled:
+                otp_code = str(request.data.get("otp", "")).strip()
+
+                if not otp_code:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "A verification code (OTP) is required to change your password.",
+                            "otp_required": True, # Frontend can use this flag to show the OTP input
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Verify the OTP against the database
+                valid_otp = EmailOTP.verify(user, purpose="password_change", code=otp_code)
+                
+                if not valid_otp:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid or expired OTP. Please request a new one.",
+                            "otp_required": True,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+        # --------------------------------------------------
+        # 3. Save the new password
+        # --------------------------------------------------
+        user.set_password(serializer.validated_data["newPassword"])
+        user.save(update_fields=["password"])
 
         return Response(
             {
@@ -803,7 +1362,6 @@ class ChangePasswordAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 
 
 
@@ -21149,16 +21707,100 @@ class AdminPaymentStatusUpdateAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+# accounts/views.py  (or hr/views.py — wherever the admin views live)
+from datetime import date, timedelta
+import calendar as _cal
+from django.db.models import Count
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+from .models import Attendance, Employee
+from .permissions import IsERPAdmin
 
-# =========================================================
-# urls.py
-# =========================================================
-# from django.urls import path
-#
-# urlpatterns += [
-#     path("admin/pending-payments/", AdminPendingPaymentsAPIView.as_view()),
-#     path(
-#         "admin/pending-payments/<str:doc_id>/payment-status/",
-#         AdminPaymentStatusUpdateAPIView.as_view(),
-#     ),
-# ]
+class AdminAttendanceDailyCountsAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        today = timezone.localdate()
+
+        try:
+            year = int(request.query_params.get("year") or today.year)
+            month = int(request.query_params.get("month") or today.month)
+            if not (1900 <= year <= 2200 and 1 <= month <= 12):
+                raise ValueError
+        except (TypeError, ValueError):
+            return Response(
+                {"success": False, "message": "Invalid year or month."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        first = date(year, month, 1)
+        last = date(year, month, _cal.monthrange(year, month)[1])
+
+        active_qs = Employee.objects.filter(
+            archived=False,
+            employment_status="Active",
+        )
+        total_active = active_qs.count()
+
+        rows = (
+            Attendance.objects
+            .filter(
+                employee__in=active_qs,
+                date__gte=first,
+                date__lte=last,
+            )
+            .values("date", "status")
+            .annotate(count=Count("id"))
+        )
+
+        by_day = {}
+        for row in rows:
+            by_day.setdefault(row["date"], {})[row["status"]] = row["count"]
+
+        days = {}
+        current = first
+        
+        # FIX: Use timedelta to safely roll over into the next day
+        while current <= last:
+            counts = by_day.get(current, {})
+            present = (
+                counts.get("PRESENT", 0)
+                + counts.get("HALF_DAY", 0)
+                + counts.get("WFH", 0)
+            )
+            absent = counts.get("ABSENT", 0)
+            leave = (
+                counts.get("PAID_LEAVE", 0)
+                + counts.get("UNPAID_LEAVE", 0)
+            )
+            holiday = counts.get("HOLIDAY", 0)
+            weekly_off = counts.get("WEEKLY_OFF", 0)
+
+            marked = present + absent + leave + holiday + weekly_off
+            not_marked = max(total_active - marked, 0)
+
+            days[current.isoformat()] = {
+                "present": present,
+                "absent": absent,
+                "leave": leave,
+                "holiday": holiday,
+                "weekly_off": weekly_off,
+                "not_marked": not_marked,
+                "total": total_active,
+            }
+
+            current += timedelta(days=1)
+
+        return Response(
+            {
+                "success": True,
+                "year": year,
+                "month": month,
+                "total_active": total_active,
+                "days": days,
+            },
+            status=status.HTTP_200_OK,
+        )
