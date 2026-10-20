@@ -893,20 +893,33 @@ export default function Profile() {
   }, [profileData]);
 
   /* =======================================================
-     FALLBACK DATA + ADMIN FLAG
+     NORMALIZED DATA (handles snake_case OR camelCase from API)
+     — includes lastLogin with a safe fallback
   ======================================================= */
-  const data = profileData || {
-    username: "User",
-    accountId: "Not available",
-    profilePhoto: null,
-    email: "Not available",
-    phone: "Not available",
-    role: "Not available",
-    department: "Not available",
-    employeeId: "Not available",
-    joiningDate: "Not available",
-    lastLogin: "Not available",
-  };
+  const raw = profileData || {};
+
+  const data = useMemo(() => {
+    const pick = (...keys) => {
+      for (const k of keys) {
+        const v = raw?.[k];
+        if (v !== undefined && v !== null && v !== "") return v;
+      }
+      return undefined;
+    };
+
+    return {
+      username:      pick("username", "user_name", "name") || "User",
+      accountId:     pick("accountId", "account_id", "id") || "Not available",
+      profilePhoto:  pick("profilePhoto", "profile_photo") || null,
+      email:         pick("email") || "Not available",
+      phone:         pick("phone") || "Not available",
+      role:          pick("role") || "Not available",
+      department:    pick("department") || "Not available",
+      employeeId:    pick("employeeId", "employee_id") || "Not available",
+      joiningDate:   pick("joiningDate", "joining_date") || "Not available",
+      lastLogin:     pick("lastLogin", "last_login") || "Not available",
+    };
+  }, [raw]);
 
   const userType = String(
     profileData?.usertype ?? profileData?.userType ?? profileData?.user_type ?? "",
@@ -1109,8 +1122,8 @@ export default function Profile() {
   }, [data.username]);
 
   const stats = [
-    { icon: <IconBriefcase />, label: "ROLE",       value: data.role,       tone: "blue"   },
-    { icon: <IconBuilding />,  label: "DEPARTMENT", value: data.department, tone: "green"  },
+    { icon: <IconBriefcase />, label: "ROLE",       value: data.role,        tone: "blue"   },
+    { icon: <IconBuilding />,  label: "DEPARTMENT", value: data.department,  tone: "green"  },
     { icon: <IconCalendar />,  label: "JOINED",     value: data.joiningDate, tone: "orange" },
     { icon: <IconClock />,     label: "LAST LOGIN", value: data.lastLogin,   tone: "gray"   },
   ];
@@ -1789,6 +1802,8 @@ export default function Profile() {
                   <InfoItem icon={<IconBriefcase />} label="Role" value={data.role} />
                   <InfoItem icon={<IconBuilding />} label="Department" value={data.department} />
                   <InfoItem icon={<IconGlobe />} label="Employee ID" value={data.employeeId} />
+                  <InfoItem icon={<IconCalendar />} label="Joined" value={data.joiningDate} />
+                  <InfoItem icon={<IconClock />} label="Last Login" value={data.lastLogin} />
                 </div>
 
                 <div className="profile-info-footer">

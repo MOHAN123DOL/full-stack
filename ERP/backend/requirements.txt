@@ -4,9 +4,8 @@ djangorestframework==3.15.2
 djangorestframework-simplejwt==5.3.1
 
 # --- Database ---
-# (Keep this if you are still testing on SQLite, remove if moving entirely to Postgres)
-# psycopg2-binary==2.9.9 
-# (Uncomment the line above if you are migrating to PostgreSQL)
+# Postgres driver (uncommented for PostgreSQL migration)
+psycopg2-binary==2.9.10
 
 # --- CORS & Security ---
 django-cors-headers==4.3.1
@@ -18,7 +17,3 @@ python-decouple==3.8
 # --- Image / File Processing ---
 # (Required for ImageField and validate_image_upload in views.py)
 Pillow==10.3.0
-
-# --- Email / Utilities ---
-# (Required for sending OTPs and contact requests)
-# (Uses standard library smtplib, no external package needed)

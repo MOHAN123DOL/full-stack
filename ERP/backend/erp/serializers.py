@@ -47,14 +47,24 @@ class LoginSerializer(serializers.Serializer):
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import UserProfile
-
+from datetime import timezone
+from django.utils import timezone as dj_timezone
 User = get_user_model()
 
 
+from django.utils import timezone as dj_timezone
+from rest_framework import serializers
+from .models import UserProfile
+
+
 class UserProfileSerializer(serializers.ModelSerializer):
-    user = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all()
-    )
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+
+    # Map snake_case model field -> camelCase for the React app
+    lastLogin = serializers.SerializerMethodField()
+    profilePhoto = serializers.ImageField(source="profile_photo", read_only=True)
+    employeeId = serializers.CharField(source="employee_id", read_only=True)
+    joiningDate = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
@@ -62,18 +72,30 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "id",
             "user",
             "profile_photo",
+            "profilePhoto",
             "employee_id",
+            "employeeId",
             "phone",
             "joining_date",
+            "joiningDate",
             "role",
+                    # <-- ADDED
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
+                    # <-- ADDED (managed by auth flow)
             "created_at",
             "updated_at",
         ]
+
+    
+
+    def get_joiningDate(self, obj):
+        if not obj.joining_date:
+            return "Not available"
+        return obj.joining_date.strftime("%d %b %Y")
 
 
 # ============================================================
@@ -136,71 +158,68 @@ class AdminSecuritySettingsSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+# ============================================================
+# Profile serializer (used by /erp/profile/)
+# ============================================================
 class ProfileSerializer(serializers.ModelSerializer):
 
-    accountId = serializers.IntegerField(
-        source="id",
-        read_only=True,
-    )
-    security = serializers.SerializerMethodField()
-    userType = serializers.CharField(
-        source="user_type",
-        read_only=True,
-    )
+    # --- simple field aliases ---
+    accountId = serializers.IntegerField(source="id", read_only=True)
+    userType  = serializers.CharField(source="user_type", read_only=True)
+    username  = serializers.CharField(read_only=True)
+    email     = serializers.CharField(read_only=True)
 
-    username = serializers.CharField(
-        read_only=True,
-    )
-
-    email = serializers.CharField(
-        read_only=True,
-    )
-
-    department = serializers.SerializerMethodField()
-    lastLogin = serializers.DateTimeField(
-        source="last_login",
-        read_only=True,
-    )
-
-    phone = serializers.SerializerMethodField()
-    role = serializers.SerializerMethodField()
-    employeeId = serializers.SerializerMethodField()
-    joiningDate = serializers.SerializerMethodField()
+    # --- computed fields ---
     profilePhoto = serializers.SerializerMethodField()
+    employeeId   = serializers.SerializerMethodField()
+    phone        = serializers.SerializerMethodField()
+    role         = serializers.SerializerMethodField()
+    department   = serializers.SerializerMethodField()
+    joiningDate  = serializers.SerializerMethodField()
+    lastLogin    = serializers.SerializerMethodField()   # <-- the ONLY definition
+    security     = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             "accountId",
             "username",
-            "security",
             "email",
+            "userType",
             "profilePhoto",
-
+            "employeeId",
             "phone",
             "role",
             "department",
-            "employeeId",
             "joiningDate",
             "lastLogin",
-            "userType",
+            "security",
         ]
+        read_only_fields = fields
 
     # ---------------------------------------------------------
-    # HELPERS — resolve the Employee row for this User
+    # HELPERS
     # ---------------------------------------------------------
     def _get_employee(self, obj):
-        
-        
-        if not hasattr(self, "_employee_cache"):
-            self._employee_cache = {}
+        """
+        Resolve the Employee row for this User, with a per-instance
+        cache so we don't hit the DB six times per serialization.
 
-        if obj.id in self._employee_cache:
-            return self._employee_cache[obj.id]
+        Order of fallbacks:
+            1. Employee.user == obj
+            2. Employee.created_by == obj
+            3. Employee.email == obj.email
+            4. Employee.first_name == obj.username
+        Auto-links the Employee to the User on first match.
+        """
+        cache = getattr(self, "_employee_cache", None)
+        if cache is None:
+            cache = {}
+            self._employee_cache = cache
 
-        emp = None
+        if obj.id in cache:
+            return cache[obj.id]
 
-        # 1. Already linked
         emp = (
             Employee.objects
             .filter(user=obj)
@@ -208,7 +227,6 @@ class ProfileSerializer(serializers.ModelSerializer):
             .first()
         )
 
-        # 2. Seeded via created_by
         if emp is None:
             emp = (
                 Employee.objects
@@ -217,7 +235,6 @@ class ProfileSerializer(serializers.ModelSerializer):
                 .first()
             )
 
-        # 3. Match by email
         if emp is None and obj.email:
             emp = (
                 Employee.objects
@@ -226,7 +243,6 @@ class ProfileSerializer(serializers.ModelSerializer):
                 .first()
             )
 
-        # 4. Match by first name
         if emp is None and obj.username:
             emp = (
                 Employee.objects
@@ -235,93 +251,114 @@ class ProfileSerializer(serializers.ModelSerializer):
                 .first()
             )
 
-        # 5. Persist the link the first time we find a match
+        # Persist the link the first time we find a match
         if emp is not None and emp.user_id is None:
             emp.user = obj
             emp.save(update_fields=["user"])
 
-        self._employee_cache[obj.id] = emp
+        cache[obj.id] = emp
         return emp
 
-    
-    def get_security(self, obj):
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
+    def _get_profile(self, obj):
+        """Return the related UserProfile, or None if it doesn't exist."""
+        try:
+            return obj.profile
+        except UserProfile.DoesNotExist:
             return None
-
-        user = request.user
-
-        # Match your existing admin-detection logic
-        usertype = getattr(user, "usertype", None) or getattr(user, "user_type", None)
-        if str(usertype or "").strip().lower() != "admin":
-            return None
-
-        settings_obj, _ = AdminSecuritySettings.objects.get_or_create(user=user)
-        return AdminSecuritySettingsSerializer(settings_obj).data
-
-
-    
-    def get_profilePhoto(self, obj):
-        emp = self._get_employee(obj)
-
-        if emp and emp.photo:
-            request = self.context.get("request")
-            url = emp.photo.url
-            return request.build_absolute_uri(url) if request else url
-
-        return None
 
     # ---------------------------------------------------------
     # FIELD RESOLVERS
     # ---------------------------------------------------------
-    def get_phone(self, obj):
+    def get_profilePhoto(self, obj):
         emp = self._get_employee(obj)
-        if emp and emp.mobile:
-            return emp.mobile
-
-        try:
-            return obj.profile.phone
-        except UserProfile.DoesNotExist:
-            return None
-
-    def get_role(self, obj):
-        emp = self._get_employee(obj)
-        if emp and emp.designation:
-            return emp.designation
-
-        try:
-            return obj.profile.role
-        except UserProfile.DoesNotExist:
-            return None
+        if emp and emp.photo:
+            request = self.context.get("request")
+            url = emp.photo.url
+            return request.build_absolute_uri(url) if request else url
+        return None
 
     def get_employeeId(self, obj):
         emp = self._get_employee(obj)
         if emp and emp.employee_id:
             return emp.employee_id
 
-        try:
-            return obj.profile.employee_id
-        except UserProfile.DoesNotExist:
-            return None
+        profile = self._get_profile(obj)
+        if profile and profile.employee_id:
+            return profile.employee_id
+
+        return "Not available"
+
+    def get_phone(self, obj):
+        emp = self._get_employee(obj)
+        if emp and emp.mobile:
+            return emp.mobile
+
+        profile = self._get_profile(obj)
+        if profile and profile.phone:
+            return profile.phone
+
+        return "Not available"
+
+    def get_role(self, obj):
+        emp = self._get_employee(obj)
+        if emp and emp.designation:
+            return emp.designation
+
+        profile = self._get_profile(obj)
+        if profile and profile.role:
+            return profile.role
+
+        return "Not available"
+
+    def get_department(self, obj):
+        emp = self._get_employee(obj)
+        if emp and emp.department:
+            return emp.department
+
+        # Fall back to the User.user_type (legacy behaviour)
+        return obj.user_type or "Not available"
 
     def get_joiningDate(self, obj):
         emp = self._get_employee(obj)
         if emp and emp.joining_date:
             return emp.joining_date
 
+        profile = self._get_profile(obj)
+        if profile and profile.joining_date:
+            return profile.joining_date
+
+        return "Not available"
+
+    def get_lastLogin(self, obj):
+        """
+        Prefer UserProfile.last_login (if set), else fall back to
+        Django's built-in User.last_login.
+
+        Returns a human-readable string or 'Not available'.
+        """
+        profile = self._get_profile(obj)
+        dt = (profile.last_login if profile else None) or obj.last_login
+
+        if not dt:
+            return "Not available"
+
         try:
-            return obj.profile.joining_date
-        except UserProfile.DoesNotExist:
+            local_dt = dj_timezone.localtime(dt)
+        except (ValueError, AttributeError):
+            local_dt = dt
+
+        return local_dt.strftime("%d %b %Y, %I:%M %p")
+
+    def get_security(self, obj):
+        # Only expose security settings to admins
+        usertype = getattr(obj, "user_type", None) or getattr(obj, "usertype", None)
+        if str(usertype or "").strip().lower() != "admin":
             return None
 
-    
+        settings_obj, _ = AdminSecuritySettings.objects.get_or_create(user=obj)
+        return AdminSecuritySettingsSerializer(settings_obj).data
 
-    def get_department(self, obj):
-        emp = self._get_employee(obj)
-        if emp and emp.department:
-            return emp.department
-        # fall back to user_type (the old behaviour)
-        return obj.user_type
+    
 # ============================================================
 # CHANGE PASSWORD SERIALIZER
 # ============================================================

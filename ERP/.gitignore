@@ -54,6 +54,7 @@ coverage/
 # Python / Django
 # =========================
 backend/.venv/
+backend/venv/
 backend/__pycache__/
 backend/**/*.pyc
 
