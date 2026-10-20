@@ -125,6 +125,7 @@ class PurchaseOrder(models.Model):
     po_date = models.DateField(
         null=True,
         blank=True,
+        db_index=True,
     )
 
     ref_quote_number = models.CharField(
@@ -187,12 +188,14 @@ class PurchaseOrder(models.Model):
         max_length=20,
         choices=PaymentStatus.choices,
         default=PaymentStatus.PENDING,
+        db_index=True,  
     )
 
     delivery_status = models.CharField(
         max_length=20,
         choices=DeliveryStatus.choices,
         default=DeliveryStatus.PENDING,
+        db_index=True,
     )
 
     # =========================
@@ -289,6 +292,7 @@ class PurchaseOrder(models.Model):
         max_length=20,
         choices=Status.choices,
         default=Status.PREVIEWED,
+        db_index=True,
     )
 
     pdf_file = models.FileField(
@@ -323,6 +327,11 @@ class PurchaseOrder(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "created_at"], name="po_status_created_idx"),
+            models.Index(fields=["status", "po_date"],    name="po_status_date_idx"),
+            models.Index(fields=["-created_at"],          name="po_created_desc_idx"),
+        ]
 
     def __str__(self):
         return self.po_number
@@ -332,93 +341,135 @@ class PurchaseOrder(models.Model):
     def save(self, *args, **kwargs):
 
         if isinstance(self.items, list):
-
             normalised = []
-
             for idx, item in enumerate(self.items, start=1):
-
                 if not isinstance(item, dict):
                     continue
-
                 copy = dict(item)
                 copy["serialNo"] = idx
                 normalised.append(copy)
-
             self.items = normalised
 
-        
         super().save(*args, **kwargs)
 
-        
-        if self.status == self.Status.CONFIRMED:
+        if self.status != self.Status.CONFIRMED:
+            return
 
-            for index, item in enumerate(self.items or [], start=1):
+        def _dim(item, key):
+            val = item.get(key)
+            return "" if val is None else str(val).strip()
 
-                if not isinstance(item, dict):
-                    continue
+        objects = []
+        item_codes = []
 
-                # Helper to safely pull and normalise dimension values
-                def _dim(key):
-                    val = item.get(key)
-                    if val is None:
-                        return ""
-                    return str(val).strip()
+        for index, item in enumerate(self.items or [], start=1):
+            if not isinstance(item, dict):
+                continue
 
-                PurchaseOrderItem.objects.update_or_create(
+            code = f"DESC-{index:03d}"
+            item_codes.append(code)
+
+            objects.append(
+                PurchaseOrderItem(
                     purchase_order=self,
-                    item_code=f"DESC-{index:03d}",
-                                        defaults={
-                        "po_number": self.po_number,
+                    item_code=code,
+                    po_number=self.po_number,
+                    description=(
+                        item.get("description")
+                        or item.get("poDescription")
+                        or item.get("itemDescription")
+                        or ""
+                    ),
+                    material=(
+                        item.get("material")
+                        or item.get("materialType")
+                        or ""
+                    ),
+                    material_code=(
+                        item.get("materialCode")
+                        or item.get("material_code")
+                        or ""
+                    ),
+                    material_spec=(
+                        item.get("materialSpec")
+                        or item.get("material_spec")
+                        or ""
+                    ),
+                    quantity=(
+                        item.get("quantity")
+                        or item.get("qty")
+                        or item.get("poQty")
+                        or 0
+                    ),
+                    unit=(
+                        item.get("unit")
+                        or item.get("uom")
+                        or ""
+                    ),
+                    unit_weight=(
+                        item.get("unitWeight")
+                        or item.get("unit_weight")
+                        or None
+                    ),
+                    length=_dim(item, "length"),
+                    width=_dim(item, "width"),
+                    thickness=_dim(item, "thickness"),
+                )
+            )
 
-                        "description": (
-                            item.get("description")
-                            or item.get("poDescription")
-                            or item.get("itemDescription")
-                            or ""
-                        ),
+        existing = {
+            p.item_code: p
+            for p in PurchaseOrderItem.objects.filter(
+                purchase_order=self, item_code__in=item_codes
+            )
+        }
 
-                        "material": (
-                            item.get("material")
-                            or item.get("materialType")
-                            or ""
-                        ),
+        protected = set(
+            PurchaseOrderItem.objects.filter(
+                purchase_order=self, item_code__in=item_codes
+            ).filter(
+                models.Q(grns__isnull=False)
+                | models.Q(material_grns__isnull=False)
+                | models.Q(scrap_records__isnull=False)
+                | models.Q(bom_integrations__isnull=False)
+            ).values_list("item_code", flat=True)
+        )
 
-                        "material_code": (
-                            item.get("materialCode")
-                            or item.get("material_code")
-                            or ""
-                        ),
+        to_create = []
 
-                        "material_spec": (
-                            item.get("materialSpec")
-                            or item.get("material_spec")
-                            or ""
-                        ),
+        for obj in objects:
+            if obj.item_code in existing:
+                # Always update in place — never delete. Safe for FK.
+                PurchaseOrderItem.objects.filter(
+                    purchase_order=self, item_code=obj.item_code
+                ).update(
+                    po_number=obj.po_number,
+                    description=obj.description,
+                    material=obj.material,
+                    material_code=obj.material_code,
+                    material_spec=obj.material_spec,
+                    quantity=obj.quantity,
+                    unit=obj.unit,
+                    unit_weight=obj.unit_weight,
+                    length=obj.length,
+                    width=obj.width,
+                    thickness=obj.thickness,
+                )
+            else:
+                to_create.append(obj)
 
-                        "quantity": (
-                            item.get("quantity")
-                            or item.get("qty")
-                            or item.get("poQty")
-                            or 0
-                        ),
+        if to_create:
+            PurchaseOrderItem.objects.bulk_create(to_create)
 
-                        "unit": (
-                            item.get("unit")
-                            or item.get("uom")
-                            or ""
-                        ),
+        # Delete orphans — but ONLY those without any FK references.
+        PurchaseOrderItem.objects.filter(purchase_order=self).exclude(
+            item_code__in=item_codes
+        ).exclude(item_code__in=protected).delete()
 
-                        "unit_weight": (
-                            item.get("unitWeight")
-                            or item.get("unit_weight")
-                            or None
-                        ),
 
-                        "length": _dim("length"),
-                        "width": _dim("width"),
-                        "thickness": _dim("thickness"),
-                    },
-                                    )
+
+
+
 
 
 class DummyPurchaseOrder(models.Model):
@@ -499,6 +550,9 @@ class DummyPurchaseOrderItem(models.Model):
 
     def __str__(self):
         return f"{self.dummy_po.po_number} - {self.description}"
+
+
+
 class PurchaseOrderNumberSettings(models.Model):
     prefix = models.CharField(
         max_length=20,
@@ -515,6 +569,7 @@ class PurchaseOrderNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(
@@ -536,6 +591,7 @@ class Customer(models.Model):
 
     company_name = models.CharField(
         max_length=255,
+        db_index=True,
     )
 
     address = models.TextField(
@@ -583,6 +639,7 @@ class Customer(models.Model):
         max_length=30,
         choices=Source.choices,
         default=Source.PURCHASE_ORDER,
+        db_index=True,
     )
 
     created_at = models.DateTimeField(
@@ -595,6 +652,9 @@ class Customer(models.Model):
 
     class Meta:
         ordering = ["company_name"]
+        indexes = [
+            models.Index(fields=["source", "company_name"], name="cust_source_name_idx"),
+        ]
 
     def __str__(self):
         return self.company_name
@@ -616,6 +676,7 @@ class QuotationNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(
@@ -781,6 +842,7 @@ class DeliveryChallanNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(
@@ -976,6 +1038,7 @@ class TaxInvoiceNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(
@@ -1359,6 +1422,7 @@ class ProformaInvoiceNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(
@@ -1736,6 +1800,7 @@ class JournalEntry(models.Model):
         max_length=20,
         choices=EntryType.choices,
         default=EntryType.EXPENSE,
+        db_index=True,
     )
 
     # =========================
@@ -1746,6 +1811,7 @@ class JournalEntry(models.Model):
         max_length=50,
         choices=Category.choices,
         default=Category.OTHER,
+        db_index=True,
     )
     description   = models.TextField(blank=True, default="")
     amount        = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -1807,6 +1873,10 @@ class JournalEntry(models.Model):
         indexes = [
             models.Index(fields=["purchase_order"]),
             models.Index(fields=["po_number"]),
+            models.Index(fields=["date", "type"],
+                         name="je_date_type_idx"),                 # ← add (statistics aggregate)
+            models.Index(fields=["-date", "-created_at"],
+                         name="je_date_created_idx"),              # ← add (list order)
         ]
 
     def __str__(self):
@@ -1908,8 +1978,8 @@ class Employee(models.Model):
     # ---------------------------------------------------------
     # CONTACT
     # ---------------------------------------------------------
-    mobile = models.CharField(max_length=20, blank=True, default="")
-    email = models.EmailField(blank=True, default="")
+    mobile = models.CharField(max_length=20, blank=True, default="",db_index=True)
+    email = models.EmailField(blank=True, default="",db_index=True)
     emergency_contact_name = models.CharField(
         max_length=150, blank=True, default=""
     )
@@ -1921,23 +1991,23 @@ class Employee(models.Model):
     # EMPLOYMENT
     # ---------------------------------------------------------
     department = models.CharField(
-        max_length=50, choices=Department.choices, blank=True, default="",
+        max_length=50, choices=Department.choices, blank=True, default="",db_index=True
     )
-    designation = models.CharField(max_length=100, blank=True, default="")
-    branch = models.CharField(max_length=150, blank=True, default="")
+    designation = models.CharField(max_length=100, blank=True, default="",db_index=True)
+    branch = models.CharField(max_length=150, blank=True, default="",db_index=True)
     employment_type = models.CharField(
-        max_length=20, choices=EmploymentType.choices, blank=True, default="",
+        max_length=20, choices=EmploymentType.choices, blank=True, default="",db_index=True
     )
     employment_status = models.CharField(
         max_length=20,
         choices=EmploymentStatus.choices,
-        default=EmploymentStatus.ACTIVE,
+        default=EmploymentStatus.ACTIVE,db_index=True
     )
     reporting_manager = models.CharField(
         max_length=150, blank=True, default=""
     )
-    work_location = models.CharField(max_length=150, blank=True, default="")
-    joining_date = models.DateField(null=True, blank=True)
+    work_location = models.CharField(max_length=150, blank=True, default="",db_index=True)
+    joining_date = models.DateField(null=True, blank=True,db_index=True)
 
     # ---------------------------------------------------------
     # ADDRESS
@@ -2022,7 +2092,7 @@ class EmployeeCodeSettings(models.Model):
     prefix = models.CharField(max_length=20, default="EMP")
     next_number = models.PositiveIntegerField(default=1)
     number_padding = models.PositiveIntegerField(default=3)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True,db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -2476,6 +2546,9 @@ class Attendance(models.Model):
             models.Index(
                 fields=["status"]
             ),
+            models.Index(fields=["date", "status"], name="att_date_status_idx"),  # ← add
+            models.Index(fields=["employee", "status"], name="att_emp_status_idx"),  # ← add
+            models.Index(fields=["-date"], name="att_date_desc_idx"),  # ← add
         ]
 
         ordering = [
@@ -2585,6 +2658,12 @@ class PurchaseOrderItem(models.Model):
                 name="unique_po_item_code",
             )
         ]
+        indexes = [
+            models.Index(fields=["purchase_order", "item_code"],
+                         name="poitem_po_code_idx"),               # ← add
+            models.Index(fields=["purchase_order", "material_code"],
+                         name="poitem_po_matcode_idx"),            # ← add
+        ]
 
     def __str__(self):
         return f"{self.po_number} - {self.description}"
@@ -2620,6 +2699,8 @@ class ConsumableGRN(models.Model):
         null=True,
         blank=True,
         related_name="grns",
+        db_index=True,
+
     )
     buffer_stock_limit = models.DecimalField(
         max_digits=15,
@@ -2687,12 +2768,14 @@ class ConsumableGRN(models.Model):
         choices=WAREHOUSE_CHOICES,
         blank=True,
         default="",
+        db_index=True,
     )
 
     status = models.CharField(
         max_length=30,
         choices=Status.choices,
         default=Status.PENDING,
+        db_index=True,
     )
 
     received_by = models.CharField(
@@ -2708,6 +2791,16 @@ class ConsumableGRN(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["purchase_order_item", "received_quantity"],
+                         name="cgrn_item_qty_idx"),                # ← add (aggregate)
+            models.Index(fields=["po_number", "po_description"],
+                         name="cgrn_po_desc_idx"),                 # ← add (movement group key)
+            models.Index(fields=["-created_at"], name="cgrn_created_desc_idx"),  # ← add
+        ]
 
     def __str__(self):
         return f"{self.grn_number} - {self.po_number}"
@@ -2737,7 +2830,7 @@ class ConsumableIssue(models.Model):
     consumable_name = models.CharField(max_length=255, blank=True, default="")
     category = models.CharField(max_length=100, blank=True, default="")
     unit = models.CharField(max_length=50, blank=True, default="")
-    warehouse = models.CharField(max_length=50, blank=True, default="")
+    warehouse = models.CharField(max_length=50, blank=True, default="",db_index=True)
 
     # The issue itself
     quantity_issued = models.DecimalField(
@@ -2753,9 +2846,9 @@ class ConsumableIssue(models.Model):
     )
 
     # Where it went
-    department = models.CharField(max_length=150, blank=True, default="")
+    department = models.CharField(max_length=150, blank=True, default="",db_index=True)
     employee_name = models.CharField(max_length=255, blank=True, default="")
-    job_card = models.CharField(max_length=150, blank=True, default="")
+    job_card = models.CharField(max_length=150, blank=True, default="",db_index=True)
     remarks = models.TextField(blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -2764,9 +2857,12 @@ class ConsumableIssue(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["grn"]),
-            models.Index(fields=["po_number"]),
-            models.Index(fields=["status"]),
+            models.Index(fields=["grn"]),                          # existing
+            models.Index(fields=["po_number"]),                    # existing
+            models.Index(fields=["status"]),                       # existing
+            models.Index(fields=["grn", "quantity_issued"],
+                         name="cissue_grn_qty_idx"),               # ← add (aggregate)
+            models.Index(fields=["-created_at"], name="cissue_created_desc_idx"),  # ← add
         ]
 
     def __str__(self):
@@ -2792,7 +2888,12 @@ class ConsumableReturn(models.Model):
     issue_number = models.CharField(max_length=100, blank=True, default="", db_index=True)
     consumable_name = models.CharField(max_length=255, blank=True, default="")
     unit = models.CharField(max_length=50, blank=True, default="")
-    warehouse = models.CharField(max_length=50, blank=True, default="")
+    warehouse = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_index=True,
+    )
 
     quantity_returned = models.DecimalField(
         max_digits=15, decimal_places=3, default=0,
@@ -2807,8 +2908,11 @@ class ConsumableReturn(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["issue"]),
-            models.Index(fields=["issue_number"]),
+            models.Index(fields=["issue"]),                        # existing
+            models.Index(fields=["issue_number"]),                 # existing
+            models.Index(fields=["issue", "quantity_returned"],
+                         name="cret_issue_qty_idx"),               # ← add (aggregate)
+            models.Index(fields=["-created_at"], name="cret_created_desc_idx"),  # ← add
         ]
 
     def __str__(self):
@@ -3035,6 +3139,7 @@ class MaterialGRN(models.Model):
 
     grn_date = models.DateField(
         auto_now_add=True,
+        db_index=True,
     )
 
     # ---- Real PO line (nullable) ----
@@ -3119,13 +3224,16 @@ class MaterialGRN(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["purchase_order_item"]),
-            models.Index(fields=["dummy_purchase_order_item"]),
-            models.Index(fields=["grn_number"]),
-            models.Index(fields=["po_number"]),
+            models.Index(fields=["purchase_order_item"],           name="mgrn_po_item_idx"),
+            models.Index(fields=["dummy_purchase_order_item"],     name="mgrn_dummy_item_idx"),
+            models.Index(fields=["grn_number"],                    name="mgrn_grn_number_idx"),
+            models.Index(fields=["po_number"],                     name="mgrn_po_number_idx"),
+            models.Index(fields=["created_at"],                    name="mgrn_created_idx"),
+            models.Index(fields=["-created_at"],                   name="mgrn_created_desc_idx"),
+            models.Index(fields=["purchase_order_item", "received_qty"],
+                         name="mgrn_item_qty_idx"),
         ]
         constraints = [
-            # Exactly one of the two item FKs must be set
             models.CheckConstraint(
                 condition=(
                     models.Q(
@@ -3141,8 +3249,12 @@ class MaterialGRN(models.Model):
             ),
         ]
 
+
+
     def __str__(self):
         return f"{self.grn_number} · {self.po_number} · {self.description}"
+
+    
 #FOR MATERIAL GRN NUMBER SETTINGS
 
 class MaterialGRNNumberSettings(models.Model):
@@ -3169,6 +3281,7 @@ class MaterialGRNNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(
@@ -3229,12 +3342,14 @@ class MaterialStock(models.Model):
         max_length=50,
         choices=Warehouse.choices,
         default=Warehouse.UNIT_1,
+        db_index=True,
     )
 
     source_type = models.CharField(
         max_length=30,
         choices=SourceType.choices,
         default=SourceType.PO,
+        db_index=True,
     )
 
     # ---- Link back to where this lot came from ----
@@ -3286,6 +3401,7 @@ class MaterialStock(models.Model):
         max_length=100,
         blank=True,
         default="",
+        db_index=True,
     )
 
     material_spec = models.CharField(
@@ -3324,12 +3440,14 @@ class MaterialStock(models.Model):
         max_length=100,
         blank=True,
         default="",
+        db_index=True,
     )
 
     plate_number = models.CharField(
         max_length=100,
         blank=True,
         default="",
+        db_index=True,
     )
 
     # ---- Quantity ----
@@ -3371,6 +3489,7 @@ class MaterialStock(models.Model):
         max_length=30,
         choices=StockStatus.choices,
         default=StockStatus.AVAILABLE,
+        db_index=True,
     )
 
     rework_required = models.BooleanField(
@@ -3397,11 +3516,16 @@ class MaterialStock(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["stock_id"]),
-            models.Index(fields=["unit"]),
-            models.Index(fields=["source_type"]),
-            models.Index(fields=["po_number"]),
-            models.Index(fields=["stock_status"]),
+            models.Index(fields=["stock_id"]),                     # existing
+            models.Index(fields=["unit"]),                         # existing
+            models.Index(fields=["source_type"]),                  # existing
+            models.Index(fields=["po_number"]),                    # existing
+            models.Index(fields=["stock_status"]),                 # existing
+            models.Index(fields=["unit", "stock_status"],
+                         name="ms_unit_status_idx"),               # ← add
+            models.Index(fields=["project", "stock_status"],
+                         name="ms_proj_status_idx"),               # ← add (material-receive filter)
+            models.Index(fields=["-created_at"], name="ms_created_desc_idx"),  # ← add
         ]
 
     def __str__(self):
@@ -3501,9 +3625,12 @@ class MaterialStockMovement(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["stock"]),
-            models.Index(fields=["direction"]),
-            models.Index(fields=["movement_type"]),
+            models.Index(fields=["stock"]),                        # existing
+            models.Index(fields=["direction"]),                    # existing
+            models.Index(fields=["movement_type"]),                # existing
+            models.Index(fields=["stock", "direction", "movement_type"],
+                         name="msm_stock_dir_type_idx"),           # ← add (backing available_qty)
+            models.Index(fields=["-created_at"], name="msm_created_desc_idx"),  # ← add
         ]
 
     def __str__(self):
@@ -3728,11 +3855,14 @@ class JobWorkIssue(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["issue_number"]),
-            models.Index(fields=["stock"]),
-            models.Index(fields=["po_number"]),
-            models.Index(fields=["job_work_type"]),
-            models.Index(fields=["status"]),
+            models.Index(fields=["issue_number"]),                 # existing
+            models.Index(fields=["stock"]),                        # existing
+            models.Index(fields=["po_number"]),                    # existing
+            models.Index(fields=["job_work_type"]),                # existing
+            models.Index(fields=["status"]),                       # existing
+            models.Index(fields=["status", "-created_at"],
+                         name="jwi_status_created_idx"),           # ← add
+            models.Index(fields=["-created_at"], name="jwi_created_desc_idx"),  # ← add
         ]
 
     def __str__(self):
@@ -3790,6 +3920,7 @@ class JobWorkIssueNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+         db_index=True,
     )
 
     updated_at = models.DateTimeField(auto_now=True)
@@ -3996,6 +4127,7 @@ class JobWorkReceive(models.Model):
             models.Index(fields=["issue"]),
             models.Index(fields=["job_work_id"]),
             models.Index(fields=["po_number"]),
+            models.Index(fields=["-created_at"], name="jwr_created_desc_idx"),
         ]
 
     def __str__(self):
@@ -4058,6 +4190,10 @@ class JobWorkReceivePiece(models.Model):
 
     class Meta:
         ordering = ["id"]
+        indexes = [
+            models.Index(fields=["receive", "piece_no"],
+                         name="jwrp_receive_piece_idx"),           # ← add
+        ]
 
     def __str__(self):
         return f"{self.piece_no} ({self.qty})"
@@ -4123,6 +4259,10 @@ class JobWorkReceiveRemaining(models.Model):
 
     class Meta:
         ordering = ["id"]
+        indexes = [
+            models.Index(fields=["receive", "plate_no"],
+                         name="jwrr_receive_plate_idx"),           # ← add
+        ]
 
     def __str__(self):
         return f"{self.plate_no} ({self.rework_required})"
@@ -4148,6 +4288,7 @@ class JobWorkReceiveNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(auto_now=True)
@@ -4421,6 +4562,9 @@ class ProductionIssue(models.Model):
             models.Index(fields=["job_work_id"]),
             models.Index(fields=["po_number"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["job_work_piece", "issued_qty"],
+                         name="piss_piece_qty_idx"),               # ← add (ProductionAvailable aggregate)
+            models.Index(fields=["-created_at"], name="piss_created_desc_idx"),  # ← add
         ]
 
     def __str__(self):
@@ -4451,6 +4595,7 @@ class ProductionIssueNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(auto_now=True)
@@ -4533,6 +4678,7 @@ class Assembly(models.Model):
             models.Index(fields=["assembly_id"]),
             models.Index(fields=["project"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["-created_at"], name="asm_created_desc_idx"), 
         ]
 
     def __str__(self):
@@ -4649,6 +4795,14 @@ class AssemblyInput(models.Model):
                 name="assembly_input_exactly_one_source",
             ),
         ]
+        indexes = [
+            models.Index(fields=["assembly", "source_type"],
+                         name="asminput_asm_src_idx"),             # ← add (availability checks)
+            models.Index(fields=["job_work_piece", "use_qty"],
+                         name="asminput_piece_qty_idx"),           # ← add
+            models.Index(fields=["source_assembly", "use_qty"],
+                         name="asminput_src_asm_qty_idx"),         # ← add
+        ]
 
     def __str__(self):
         return (
@@ -4706,6 +4860,10 @@ class AssemblyProcess(models.Model):
                 name="assembly_process_unique_sequence",
             ),
         ]
+        indexes = [
+            models.Index(fields=["assembly", "sequence"],
+                         name="asmproc_asm_seq_idx"),              # ← add
+        ]
 
     def __str__(self):
         return f"{self.assembly.assembly_id} · {self.sequence}. {self.name}"
@@ -4715,17 +4873,11 @@ class AssemblyNumberSettings(models.Model):
     prefix = models.CharField(max_length=20, default="ASM")
     next_number = models.PositiveIntegerField(default=1)
     number_padding = models.PositiveIntegerField(default=3)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True,db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["is_active"],
-                condition=models.Q(is_active=True),
-                name="assemblynumbersettings_single_active",
-            ),
-        ]
+        pass
 
     def __str__(self):
         return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
@@ -4786,6 +4938,10 @@ class AssemblyExecution(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["status"]),
+            models.Index(fields=["-created_at"], name="asmexec_created_desc_idx"),  # ← add
+            models.Index(fields=["status", "-completed_at"],
+                         name="asmexec_status_completed_idx"), 
+            
         ]
 
     def __str__(self):
@@ -4875,6 +5031,8 @@ class AssemblyStageExecution(models.Model):
         indexes = [
             models.Index(fields=["execution"]),
             models.Index(fields=["sequence"]),
+            models.Index(fields=["execution", "sequence"],
+                         name="asmstage_exec_seq_idx"),   
         ]
 
     def __str__(self):
@@ -4941,6 +5099,10 @@ class AssemblyStageMovement(models.Model):
         indexes = [
             models.Index(fields=["stage"]),
             models.Index(fields=["movement"]),
+            models.Index(fields=["stage", "movement"],
+                         name="asmmove_stage_mvmt_idx"),           # ← add (_production_dates filter)
+            models.Index(fields=["-created_at"], name="asmmove_created_desc_idx"),
+            
         ]
 
     def __str__(self):
@@ -5001,7 +5163,7 @@ class ReworkNumberSettings(models.Model):
     prefix = models.CharField(max_length=20, default="RWK")
     next_number = models.PositiveIntegerField(default=1)
     number_padding = models.PositiveIntegerField(default=4)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True,db_index=True,)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -5141,6 +5303,9 @@ class ReworkRecord(models.Model):
             models.Index(fields=["source_type"]),
             models.Index(fields=["status"]),
             models.Index(fields=["project"]),
+            models.Index(fields=["assembly_stage_execution", "status"],
+                         name="rw_stage_status_idx"),              # ← add (rework_qty check)
+            models.Index(fields=["-created_at"], name="rw_created_desc_idx"),  # ← add
         ]
 
     def __str__(self):
@@ -5179,7 +5344,8 @@ class ReworkCompletion(models.Model):
 
     class Meta:
         ordering = ["created_at"]
-        indexes = [models.Index(fields=["rework"])]
+        indexes = [models.Index(fields=["rework"]),models.Index(fields=["rework", "created_at"],
+                         name="rwcomp_rw_created_idx"), ]
 
     def __str__(self):
         return f"{self.rework.rework_number} · {self.qty}"
@@ -5204,7 +5370,8 @@ class ReworkHistory(models.Model):
 
     class Meta:
         ordering = ["created_at"]
-        indexes = [models.Index(fields=["rework"])]
+        indexes = [models.Index(fields=["rework"]),models.Index(fields=["rework", "created_at"],
+                         name="rwhist_rw_created_idx"),]
 
     def __str__(self):
         return self.event_text[:80]
@@ -5234,17 +5401,11 @@ class DispatchNumberSettings(models.Model):
     prefix = models.CharField(max_length=20, default="DISP")
     next_number = models.PositiveIntegerField(default=1)
     number_padding = models.PositiveIntegerField(default=3)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True,db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["is_active"],
-                condition=models.Q(is_active=True),
-                name="dispatchnumbersettings_single_active",
-            ),
-        ]
+        pass
 
     def __str__(self):
         return f"{self.prefix}{self.next_number:0{self.number_padding}d}"
@@ -5372,6 +5533,9 @@ class DispatchTransaction(models.Model):
             models.Index(fields=["assembly_code"]),
             models.Index(fields=["dispatch_date"]),
             models.Index(fields=["dc_challan_number"]),
+            models.Index(fields=["-dispatch_date", "-created_at"],
+                         name="disp_date_created_idx"),            # ← add (history list)
+            models.Index(fields=["transporter"], name="disp_transporter_idx"), 
         ]
 
     def __str__(self):
@@ -5551,6 +5715,7 @@ class ScrapNumberSettings(models.Model):
 
     is_active = models.BooleanField(
         default=True,
+        db_index=True,
     )
 
     updated_at = models.DateTimeField(
