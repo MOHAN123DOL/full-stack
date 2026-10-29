@@ -1,6 +1,6 @@
-
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
+
 import { useAuth } from "../context/AuthContext";
 import Loading from "./loading";
 import Error from "./error";
@@ -21,23 +21,57 @@ const DEPARTMENT_PATHS = [
     userType: "material-planning",
     prefixes: ["/inventory", "/material-planning"],
   },
-  { userType: "admin", prefixes: ["/admin"] },
-  { userType: "accounts", prefixes: ["/accounts"] },
-  { userType: "hr", prefixes: ["/hr"] },
-  { userType: "production", prefixes: ["/production"] },
-  { userType: "supervisor", prefixes: ["/supervisor"] },
+  {
+    userType: "admin",
+    prefixes: ["/admin"],
+  },
+  {
+    userType: "accounts",
+    prefixes: ["/accounts"],
+  },
+  {
+    userType: "hr",
+    prefixes: ["/hr"],
+  },
+  {
+    userType: "production",
+    prefixes: ["/production"],
+  },
+  {
+    userType: "supervisor",
+    prefixes: ["/supervisor"],
+  },
 ];
 
 const SHARED_PATHS = ["/welcome", "/profile"];
 
+/*
+ * Specific route access overrides.
+ *
+ * Delivery Challan can be accessed by:
+ * - Accounts
+ * - Material Planning
+ *
+ * Other /accounts routes remain Accounts-only.
+ */
+const ROUTE_ACCESS_OVERRIDES = {
+  "/accounts/deliverychallan": ["accounts", "material-planning"],
+};
+
+function normalizePath(pathname) {
+  return String(pathname || "").toLowerCase().replace(/\/+$/, "") || "/";
+}
+
 function getDepartmentFromPath(pathname) {
-  const normalizedPath = String(pathname || "").toLowerCase();
+  const normalizedPath = normalizePath(pathname);
 
   for (const department of DEPARTMENT_PATHS) {
     for (const prefix of department.prefixes) {
+      const normalizedPrefix = normalizePath(prefix);
+
       if (
-        normalizedPath === prefix ||
-        normalizedPath.startsWith(`${prefix}/`)
+        normalizedPath === normalizedPrefix ||
+        normalizedPath.startsWith(`${normalizedPrefix}/`)
       ) {
         return department.userType;
       }
@@ -47,10 +81,30 @@ function getDepartmentFromPath(pathname) {
   return null;
 }
 
+function getAllowedUserTypesFromPath(pathname) {
+  const normalizedPath = normalizePath(pathname);
+
+  // Check specific route overrides first.
+  if (ROUTE_ACCESS_OVERRIDES[normalizedPath]) {
+    return ROUTE_ACCESS_OVERRIDES[normalizedPath];
+  }
+
+  const department = getDepartmentFromPath(normalizedPath);
+
+  return department ? [department] : [];
+}
+
 function isSharedPath(pathname) {
-  return SHARED_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
+  const normalizedPath = normalizePath(pathname);
+
+  return SHARED_PATHS.some((path) => {
+    const normalizedSharedPath = normalizePath(path);
+
+    return (
+      normalizedPath === normalizedSharedPath ||
+      normalizedPath.startsWith(`${normalizedSharedPath}/`)
+    );
+  });
 }
 
 export default function ProtectedRoute({
@@ -69,9 +123,15 @@ export default function ProtectedRoute({
 
   const isShared = isSharedPath(location.pathname);
 
-  const userType =
-    requestedUserType ||
-    getDepartmentFromPath(location.pathname);
+  /*
+   * If a userType prop is explicitly provided, use it.
+   * Otherwise, determine the allowed departments from the route.
+   */
+  const allowedUserTypes = requestedUserType
+    ? [requestedUserType]
+    : getAllowedUserTypesFromPath(location.pathname);
+
+  const primaryUserType = allowedUserTypes[0];
 
   const [checked, setChecked] = useState(false);
   const [checkError, setCheckError] = useState(false);
@@ -90,27 +150,25 @@ export default function ProtectedRoute({
       const isCurrentRequest = () =>
         !cancelled && requestIdRef.current === requestId;
 
-      // Shared pages can accept any currently authenticated department.
+      /*
+       * If the current authenticated user is already allowed,
+       * there is no need to refresh the session.
+       */
       if (
         isAuthenticated &&
         user &&
         VALID_USER_TYPES.includes(user.user_type) &&
-        (isShared || user.user_type === userType)
+        (isShared || allowedUserTypes.includes(user.user_type))
       ) {
         setChecked(true);
         return;
       }
 
-      // A department-specific route must identify a valid department.
-      if (!isShared && !VALID_USER_TYPES.includes(userType)) {
-        setChecked(true);
-        return;
-      }
-
-      try {
-        if (isShared) {
-          // Shared routes do not identify which department's cookie
-          // should be refreshed. Try each department until one succeeds.
+      /*
+       * Shared pages can be accessed by any valid department.
+       */
+      if (isShared) {
+        try {
           for (const department of VALID_USER_TYPES) {
             if (!isCurrentRequest()) return;
 
@@ -125,16 +183,51 @@ export default function ProtectedRoute({
           }
 
           setChecked(true);
-          return;
+        } catch (error) {
+          if (!isCurrentRequest()) return;
+
+          console.error("Shared route session check failed:", error);
+
+          setCheckError(true);
+          setChecked(true);
         }
 
-        const restored = await restoreSession(userType);
+        return;
+      }
 
-        if (!isCurrentRequest()) return;
+      /*
+       * A protected route must have at least one valid department.
+       */
+      if (
+        !allowedUserTypes.length ||
+        !allowedUserTypes.every((type) =>
+          VALID_USER_TYPES.includes(type)
+        )
+      ) {
+        setChecked(true);
+        return;
+      }
 
-        if (!restored) {
-          setChecked(true);
-          return;
+      /*
+       * Try restoring the session for each department allowed
+       * on this route.
+       *
+       * For Delivery Challan:
+       * 1. Try Accounts.
+       * 2. If Accounts fails, try Material Planning.
+       */
+      try {
+        for (const department of allowedUserTypes) {
+          if (!isCurrentRequest()) return;
+
+          const restored = await restoreSession(department);
+
+          if (!isCurrentRequest()) return;
+
+          if (restored) {
+            setChecked(true);
+            return;
+          }
         }
 
         setChecked(true);
@@ -142,6 +235,7 @@ export default function ProtectedRoute({
         if (!isCurrentRequest()) return;
 
         console.error("Protected route session check failed:", error);
+
         setCheckError(true);
         setChecked(true);
       }
@@ -154,27 +248,41 @@ export default function ProtectedRoute({
     };
 
     // Intentionally run the check when the route changes.
-    // AuthContext manages its own session state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, userType, isShared]);
+  }, [
+    location.pathname,
+    primaryUserType,
+    isShared,
+  ]);
 
+  /*
+   * Wait until session restoration and route checking finish.
+   */
   if (authLoading || !checked) {
     return <Loading />;
   }
 
+  /*
+   * Show an error if session restoration failed unexpectedly.
+   */
   if (authError || checkError) {
     return <Error />;
   }
 
-  if (!isShared && !VALID_USER_TYPES.includes(userType)) {
+  /*
+   * Invalid protected route.
+   */
+  if (!isShared && !allowedUserTypes.length) {
     return <Navigate to="/production/login" replace />;
   }
 
-  // If the user is not authenticated, send them to the appropriate login.
+  /*
+   * User is not authenticated.
+   */
   if (!isAuthenticated || !user) {
     const loginPath = isShared
       ? "/production/login"
-      : DEPARTMENT_ROUTES[userType];
+      : DEPARTMENT_ROUTES[primaryUserType];
 
     return (
       <Navigate
@@ -185,18 +293,25 @@ export default function ProtectedRoute({
     );
   }
 
-  // Validate the user type returned by Django.
+  /*
+   * Validate the user type returned by Django.
+   */
   if (!VALID_USER_TYPES.includes(user.user_type)) {
     return <Navigate to="/production/login" replace />;
   }
 
-  // Shared pages can be accessed by any authenticated department.
+  /*
+   * Shared pages can be accessed by any authenticated department.
+   */
   if (isShared) {
     return children;
   }
 
-  // Prevent access to another department's protected routes.
-  if (user.user_type !== userType) {
+  /*
+   * Check whether the current department is allowed
+   * to access this specific route.
+   */
+  if (!allowedUserTypes.includes(user.user_type)) {
     return (
       <Navigate
         to={DEPARTMENT_ROUTES[user.user_type]}
@@ -206,6 +321,8 @@ export default function ProtectedRoute({
     );
   }
 
+  /*
+   * Access granted.
+   */
   return children;
 }
-

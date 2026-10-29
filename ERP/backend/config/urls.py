@@ -21,7 +21,7 @@ from django.conf.urls.static import static
 from . import settings
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('admin1/', admin.site.urls),
     path(
         "api/erp/",
         include("erp.urls"),

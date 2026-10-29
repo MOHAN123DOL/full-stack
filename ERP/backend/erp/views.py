@@ -1,3 +1,5 @@
+from xml.dom.minidom import DocumentType
+
 from django.db import models
 from django.shortcuts import render
 from django.db import transaction
@@ -20,6 +22,7 @@ from .models import (
     AssemblyStageMovement,
     DispatchNumberSettings,
     DispatchTransaction,
+    PaymentRecord,
     PurchaseOrder,
     PurchaseOrderItem,
     DummyPurchaseOrderItem,
@@ -1697,13 +1700,33 @@ class PurchaseOrderListCreateAPIView(
             # Generate PO number
             # ----------------------------------------------
 
-            po_number = (
-                f"{settings_obj.prefix}"
-                f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
-            )
+            # Use the PO number received from NextPurchaseOrderNumberAPIView
 
-            # Always server-generated on CREATE.
-            data.pop("po_number", None)
+            po_number = str(data.get("po_number", "")).strip()
+
+            if not po_number:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "PO number is required."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Check if PO number already exists
+            if PurchaseOrder.objects.filter(
+                po_number=po_number
+            ).exists():
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            f"PO number {po_number} already exists. "
+                            "Please refresh and get the next PO number."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
             # ----------------------------------------------
             # Customer data
@@ -1868,6 +1891,8 @@ class NextPurchaseOrderNumberAPIView(APIView):
     permission_classes = [IsAuthenticated, IsAccounts]
 
     def get(self, request):
+
+        # 1. Get the PO number settings from the database
         settings_obj = (
             PurchaseOrderNumberSettings.objects
             .filter(is_active=True)
@@ -1878,69 +1903,49 @@ class NextPurchaseOrderNumberAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Purchase Order number settings "
-                        "have not been configured."
-                    )
+                    "message": "Purchase Order number settings have not been configured.",
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # -----------------------------------------
-        # 1. Generate current PO number
-        # -----------------------------------------
-
-        po_number = (
-            f"{settings_obj.prefix}"
-            f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
-        )
-
-        # -----------------------------------------
-        # 2. Check current PO
-        # -----------------------------------------
-
-        existing_po = (
+        # 2. Get the latest PO from the database
+        last_po = (
             PurchaseOrder.objects
-            .select_related("created_by")
-            .filter(po_number=po_number)
-            .first()
-        )
-
-        # -----------------------------------------
-        # 3. Current PO EXISTS
-        # -----------------------------------------
-
-        if existing_po is not None:
-
-            serializer = PurchaseOrderSerializer(existing_po)
-
-            return Response(
-                {
-                    "success": True,
-                    "is_new": False,
-                    "po_number": po_number,
-                    "data": serializer.data,
-                },
-                status=status.HTTP_200_OK
-            )
-
-        # -----------------------------------------
-        # 4. Current PO DOES NOT EXIST
-        #    Get previous PO
-        # -----------------------------------------
-
-        previous_po = (
-            PurchaseOrder.objects
-            .select_related("created_by")
             .order_by("-id")
             .first()
         )
 
-        # -----------------------------------------
-        # 5. No previous PO exists
-        # -----------------------------------------
+        # 3. Reuse the latest PO if it is not confirmed
+        if last_po and last_po.status != PurchaseOrder.Status.CONFIRMED:
+            return Response(
+                {
+                    "success": True,
+                    "is_new": False,
+                    "po_number": last_po.po_number,
+                    "data": PurchaseOrderSerializer(last_po).data,
+                },
+                status=status.HTTP_200_OK,
+            )
 
-        if previous_po is None:
+        # 4. Read next_number directly from the database settings
+        next_number = settings_obj.next_number
+
+        # 5. Find the next unused PO number
+        while True:
+            po_number = (
+                f"{settings_obj.prefix}"
+                f"{next_number:0{settings_obj.number_padding}d}"
+            )
+
+            if not PurchaseOrder.objects.filter(
+                po_number=po_number
+            ).exists():
+                break
+
+            next_number += 1
+
+        # 6. If no previous PO exists, return the new number
+        if last_po is None:
             return Response(
                 {
                     "success": True,
@@ -1948,18 +1953,11 @@ class NextPurchaseOrderNumberAPIView(APIView):
                     "po_number": po_number,
                     "data": None,
                 },
-                status=status.HTTP_200_OK
+                status=status.HTTP_200_OK,
             )
 
-        # -----------------------------------------
-        # 6. Copy previous PO data
-        #    but use NEW PO number
-        # -----------------------------------------
-
-        serializer = PurchaseOrderSerializer(previous_po)
-
-        previous_data = serializer.data.copy()
-
+        # 7. Copy previous PO data as a template
+        previous_data = PurchaseOrderSerializer(last_po).data.copy()
         previous_data["po_number"] = po_number
 
         return Response(
@@ -1967,12 +1965,11 @@ class NextPurchaseOrderNumberAPIView(APIView):
                 "success": True,
                 "is_new": True,
                 "po_number": po_number,
-                "previous_po_number": previous_po.po_number,
+                "previous_po_number": last_po.po_number,
                 "data": previous_data,
             },
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
         )
-#for customer in all form
 
 
 from rest_framework.views import APIView
@@ -2185,28 +2182,72 @@ def validate_image_upload(upload):
 from .services import sync_purchase_order_items
 
 
+
+from django.db import transaction
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import method_decorator
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+from rest_framework.parsers import MultiPartParser, FormParser
+
+from .models import PurchaseOrder, PurchaseOrderNumberSettings
+from .serializers import PurchaseOrderSerializer
+from .services import sync_purchase_order_items
+
+
 @method_decorator(csrf_protect, name="dispatch")
 class PurchaseOrderConfirmAPIView(APIView):
 
     permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
+    @transaction.atomic
     def post(self, request, po_number):
+
         try:
-            po = PurchaseOrder.objects.get(po_number=po_number)
+            po = PurchaseOrder.objects.select_for_update().get(
+                po_number=po_number
+            )
         except PurchaseOrder.DoesNotExist:
             return Response(
                 {"detail": "Purchase Order not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        po.status = PurchaseOrder.Status.CONFIRMED
-        po.save(update_fields=["status", "updated_at"])
+        # Check whether the PO was already confirmed
+        was_already_confirmed = (
+            po.status == PurchaseOrder.Status.CONFIRMED
+        )
 
-        # Side effect runs exactly once per confirm, explicitly.
-        sync_purchase_order_items(po)
+        if not was_already_confirmed:
 
-        return Response(PurchaseOrderSerializer(po).data)
+            # Confirm the PO
+            po.status = PurchaseOrder.Status.CONFIRMED
+            po.save(update_fields=["status", "updated_at"])
+
+            # Increment the PO number counter only once
+            settings_obj = (
+                PurchaseOrderNumberSettings.objects
+                .select_for_update()
+                .get(is_active=True)
+            )
+
+            settings_obj.next_number += 1
+            settings_obj.save(
+                update_fields=["next_number", "updated_at"]
+            )
+
+            # Run confirmation side effects
+            sync_purchase_order_items(po)
+
+        return Response(
+            PurchaseOrderSerializer(po).data,
+            status=status.HTTP_200_OK,
+        )
 
 # for quotation module
 class QuotationNextNumberAPIView(APIView):
@@ -5100,161 +5141,296 @@ from .serializers import (
     AccountsReportRowSerializer,
     StatusUpdateSerializer,
 )
-@method_decorator(csrf_protect, name="dispatch")
-class AccountsReportStatusAPIView(APIView):
-    """
-    PATCH /erp/accounts-report/<short>/<id>/status/
-    """
+from decimal import Decimal, InvalidOperation
 
-    permission_classes = [AllowAny]
+from django.db import transaction
+from django.utils import timezone
+
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+class AccountsReportStatusAPIView(APIView):
 
     def patch(self, request, short, pk):
-
-        # ============================================================
-        # 1. Session check (same as report view)
-        # ============================================================
-        cookie_name = get_refresh_cookie_name("accounts")
-
-        if not cookie_name:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Accounts refresh-cookie configuration is missing.",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        refresh_token = request.COOKIES.get(cookie_name)
+        # --------------------------------------------------
+        # 1. AUTHENTICATION
+        # --------------------------------------------------
+        refresh_cookie_name = get_refresh_cookie_name("accounts")
+        refresh_token = request.COOKIES.get(refresh_cookie_name)
 
         if not refresh_token:
             return Response(
-                {"success": False, "message": "Session not found. Please login again."},
+                {"detail": "Authentication required."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         try:
             token = RefreshToken(refresh_token)
             user_id = token.get("user_id")
-        except Exception:
-            return Response(
-                {"success": False, "message": "Session is invalid or expired."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
 
-        try:
+            if not user_id:
+                return Response(
+                    {"detail": "Invalid authentication token."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
             user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
+
+            if getattr(user, "user_type", None) != "accounts":
+                return Response(
+                    {
+                        "detail": (
+                            "You do not have permission to update "
+                            "accounts reports."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        except (User.DoesNotExist, TokenError, InvalidToken):
             return Response(
-                {"success": False, "message": "Session user no longer exists."},
+                {"detail": "Invalid or expired authentication token."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        # ============================================================
-        # 2. Accounts-department check
-        # ============================================================
-        if user.user_type != User.UserType.ACCOUNTS:
-            return Response(
-                {"success": False, "message": "Accounts access required."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        # --------------------------------------------------
+        # 2. VALIDATE DOCUMENT TYPE
+        # --------------------------------------------------
+        short_type = str(short).upper()
 
-        # ============================================================
-        # 3. Resolve model from short code
-        # ============================================================
-        short_upper = (short or "").upper()
-        model = _STATUS_MODEL_MAP.get(short_upper)
+        model_map = {
+            "PO": PurchaseOrder,
+            "QO": Quotation,
+            "DC": DeliveryChallan,
+            "TI": TaxInvoice,
+            "PI": ProformaInvoice,
+        }
 
-        if not model:
+        if short_type not in model_map:
             return Response(
-                {
-                    "success": False,
-                    "message": f"Unknown document type: {short}",
-                },
+                {"detail": "Invalid document type."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ============================================================
-        # 4. Locate the document
-        # ============================================================
-        try:
-            obj = model.objects.get(pk=pk)
-        except model.DoesNotExist:
-            return Response(
-                {"success": False, "message": "Document not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        # IMPORTANT: Use Model consistently throughout this method.
+        Model = model_map[short_type]
 
-        # ============================================================
-        # 4b. Final-state guard
-        #     Once payment is PAID and delivery is DELIVERED,
-        #     the document is locked and status can no longer change.
-        # ============================================================
-        payment_final = str(obj.payment_status or "").upper() == "PAID"
-        delivery_final = str(obj.delivery_status or "").upper() == "DELIVERED"
+        # --------------------------------------------------
+        # 3. DOCUMENT NUMBER FIELDS
+        # --------------------------------------------------
+        document_number_fields = {
+            "PO": "po_number",
+            "QO": "quotation_number",
+            "DC": "dc_number",
+            "TI": "invoice_number",
+            "PI": "proforma_no",
+        }
 
-        if payment_final and delivery_final:
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "This document is already completed "
-                        "(payment: PAID, delivery: DELIVERED) "
-                        "and its status can no longer be changed."
-                    ),
-                    "data": {
-                        "id": f"{short_upper}-{obj.id}",
-                        "payment_status": obj.payment_status,
-                        "delivery_status": obj.delivery_status,
-                    },
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
+        # --------------------------------------------------
+        # 4. PAYMENT CONFIGURATION
+        # --------------------------------------------------
+        payment_direction_map = {
+            "PO": PaymentRecord.PaymentDirection.OUTGOING,
+            "PI": PaymentRecord.PaymentDirection.INCOMING,
+            "TI": PaymentRecord.PaymentDirection.INCOMING,
+        }
 
-        # ============================================================
-        # 5. Validate payload
-        # ============================================================
+        # --------------------------------------------------
+        # 5. VALIDATE REQUEST DATA
+        # --------------------------------------------------
         serializer = StatusUpdateSerializer(data=request.data)
 
         if not serializer.is_valid():
             return Response(
-                {
-                    "success": False,
-                    "message": "Invalid status update.",
-                    "errors": serializer.errors,
-                },
+                serializer.errors,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ============================================================
-        # 6. Apply changes
-        # ============================================================
-        updated_fields = []
-
-        if "payment_status" in serializer.validated_data:
-            obj.payment_status = serializer.validated_data["payment_status"]
-            updated_fields.append("payment_status")
-
-        if "delivery_status" in serializer.validated_data:
-            obj.delivery_status = serializer.validated_data["delivery_status"]
-            updated_fields.append("delivery_status")
-
-        obj.save(update_fields=updated_fields + ["updated_at"])
-
-        # ============================================================
-        # 7. Respond
-        # ============================================================
-        return Response(
-            {
-                "success": True,
-                "message": "Status updated.",
-                "data": {
-                    "id": f"{short_upper}-{obj.id}",
-                    "payment_status": obj.payment_status,
-                    "delivery_status": obj.delivery_status,
-                },
-            },
-            status=status.HTTP_200_OK,
+        new_payment_status = serializer.validated_data.get(
+            "payment_status"
         )
+
+        new_delivery_status = serializer.validated_data.get(
+            "delivery_status"
+        )
+
+        # --------------------------------------------------
+        # 6. UPDATE DOCUMENT AND CREATE PAYMENT RECORD
+        # --------------------------------------------------
+        with transaction.atomic():
+
+            try:
+                # FIX: Use Model, not model.
+                obj = Model.objects.select_for_update().get(pk=pk)
+
+            except Model.DoesNotExist:
+                return Response(
+                    {"detail": "Document not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # --------------------------------------------------
+            # 7. GET CURRENT STATUS VALUES
+            # --------------------------------------------------
+            old_payment_status = str(
+                getattr(obj, "payment_status", "")
+            ).strip().upper()
+
+            old_delivery_status = str(
+                getattr(obj, "delivery_status", "")
+            ).strip().upper()
+
+            requested_payment_status = (
+                str(new_payment_status).strip().upper()
+                if new_payment_status is not None
+                else old_payment_status
+            )
+
+            requested_delivery_status = (
+                str(new_delivery_status).strip().upper()
+                if new_delivery_status is not None
+                else old_delivery_status
+            )
+
+            # --------------------------------------------------
+            # 8. PREVENT UPDATES TO COMPLETED DOCUMENTS
+            # --------------------------------------------------
+            if (
+                old_payment_status == "PAID"
+                and old_delivery_status == "DELIVERED"
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "This document is locked because payment "
+                            "is Paid and delivery is Delivered."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payment_record_data = None
+
+            # --------------------------------------------------
+            # 9. CREATE PAYMENT RECORD ON FIRST PAID TRANSITION
+            # --------------------------------------------------
+            if (
+                old_payment_status != "PAID"
+                and requested_payment_status == "PAID"
+                and short_type in payment_direction_map
+            ):
+
+                number_field = document_number_fields[short_type]
+
+                document_number = getattr(
+                    obj,
+                    number_field,
+                    None,
+                )
+
+                if not document_number:
+                    return Response(
+                        {
+                            "detail": (
+                                f"Document number is missing for "
+                                f"{short_type}."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                raw_amount = getattr(
+                    obj,
+                    "grand_total",
+                    None,
+                )
+
+                if raw_amount is None:
+                    return Response(
+                        {
+                            "detail": (
+                                f"Grand total is missing for "
+                                f"{short_type}."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Validate payment amount.
+                try:
+                    paid_amount = Decimal(str(raw_amount))
+
+                except (InvalidOperation, TypeError, ValueError):
+                    return Response(
+                        {"detail": "Invalid document grand total."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                if not paid_amount.is_finite() or paid_amount <= 0:
+                    return Response(
+                        {
+                            "detail": (
+                                "Payment amount must be greater than zero."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Create payment record.
+                payment_record = PaymentRecord.objects.create(
+                    document_type=short_type,
+                    document_number=str(document_number),
+                    payment_direction=payment_direction_map[short_type],
+                    paid_amount=paid_amount,
+                    paid_date=timezone.localdate(),
+                )
+
+                payment_record_data = {
+                    "id": payment_record.pk,
+                    "document_type": payment_record.document_type,
+                    "document_number": payment_record.document_number,
+                    "payment_direction": payment_record.payment_direction,
+                    "paid_amount": str(payment_record.paid_amount),
+                    "paid_date": str(payment_record.paid_date),
+                }
+
+            # --------------------------------------------------
+            # 10. UPDATE DOCUMENT STATUSES
+            # --------------------------------------------------
+            if new_payment_status is not None:
+                obj.payment_status = new_payment_status
+
+            if new_delivery_status is not None:
+                obj.delivery_status = new_delivery_status
+
+            obj.save()
+
+            # --------------------------------------------------
+            # 11. SUCCESS RESPONSE
+            # --------------------------------------------------
+            return Response(
+                    {
+                        "success": True,
+                        "data": {
+                            "detail": "Document status updated successfully.",
+                            "document_type": short_type,
+                            "document_id": obj.pk,
+                            "payment_status": getattr(
+                                obj,
+                                "payment_status",
+                                None,
+                            ),
+                            "delivery_status": getattr(
+                                obj,
+                                "delivery_status",
+                                None,
+                            ),
+                            "payment_record": payment_record_data,
+                        },
+                    },
+                    status=status.HTTP_200_OK,
+                )
 
 #for expense
 
@@ -5303,77 +5479,418 @@ from rest_framework.views import APIView
 # Keep your existing project imports for:
 # IsAccounts, JournalEntry, JournalEntrySerializer,
 # and _generate_journal_number.
+from decimal import Decimal
+
+from django.db import models
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+# Ensure these imports match your project
+# from .models import JournalEntry, SalaryPayment, Advance
+# from .serializers import JournalEntrySerializer
+# from .permissions import IsAccounts
+# from .utils import _generate_journal_number
+
+
+from decimal import Decimal
+
+from django.db import models
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import method_decorator
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+# Ensure these models and classes are imported from your project:
+# JournalEntry, PaymentRecord, SalaryPayment, Advance
+# JournalEntrySerializer, IsAccounts
+
+from decimal import Decimal
+
+from django.db import models
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import method_decorator
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+# Import these from your existing application.
+# from .models import JournalEntry, PaymentRecord, SalaryPayment, Advance
+# from .serializers import JournalEntrySerializer
+# from .permissions import IsAccounts
+
+from decimal import Decimal
+
+from django.db import models
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import method_decorator
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from decimal import Decimal
+
+from django.db import models
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import method_decorator
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
 
 
 @method_decorator(csrf_protect, name="dispatch")
 class JournalAPIView(APIView):
     """
-    GET  /api/erp/journal/ -> list entries and totals
-    POST /api/erp/journal/ -> create one entry
+    GET  /erp/journal/
+         List journal entries and grouped payment totals.
+
+    POST /erp/journal/
+         Create a journal entry.
+
+    Query parameters:
+        month=10
+        year=2026
+        type=Expense or Income
+        payment_mode=Cash, UPI, Bank Transfer, Cheque, Other
     """
 
     permission_classes = [IsAuthenticated, IsAccounts]
 
-    # ========================================================
-    # GET — list entries and totals
-    # ========================================================
+    # ======================================================
+    # GET — LIST JOURNAL ENTRIES AND GROUPED PAYMENT TOTALS
+    # ======================================================
     def get(self, request):
-        # IsAuthenticated and IsAccounts handle authorization.
-        # request.user is the authenticated Accounts user.
+        today = timezone.localdate()
+
+        # --------------------------------------------------
+        # 1. VALIDATE MONTH AND YEAR
+        # --------------------------------------------------
+        try:
+            month = int(
+                request.query_params.get("month", today.month)
+            )
+            year = int(
+                request.query_params.get("year", today.year)
+            )
+
+            if not 1 <= month <= 12 or year < 1:
+                raise ValueError
+
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid month or year.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         entry_type = request.query_params.get("type")
+        payment_mode = request.query_params.get("payment_mode")
 
-        qs = JournalEntry.objects.all().order_by(
+        if entry_type and entry_type not in ("Expense", "Income"):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Type must be Expense or Income.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        month_name = timezone.datetime(
+            year, month, 1
+        ).strftime("%B")
+
+        # --------------------------------------------------
+        # 2. FETCH JOURNAL ENTRIES
+        # --------------------------------------------------
+        journal_qs = JournalEntry.objects.filter(
+            date__year=year,
+            date__month=month,
+        )
+
+        if entry_type:
+            journal_qs = journal_qs.filter(type=entry_type)
+
+        if payment_mode:
+            journal_qs = journal_qs.filter(
+                payment_mode=payment_mode
+            )
+
+        journal_qs = journal_qs.order_by(
             "-date",
             "-created_at",
         )
 
-        if entry_type in ("Expense", "Income"):
-            qs = qs.filter(type=entry_type)
-
-        serializer = JournalEntrySerializer(
-            qs,
-            many=True,
+        journal_data = list(
+            JournalEntrySerializer(
+                journal_qs,
+                many=True,
+            ).data
         )
 
-        # Calculate totals across all journal entries,
-        # regardless of the selected type filter.
-        total_expense = (
-            JournalEntry.objects
-            .filter(type=JournalEntry.EntryType.EXPENSE)
-            .aggregate(total=models.Sum("amount"))["total"]
-            or Decimal("0")
+        for row in journal_data:
+            row.setdefault("source_type", "JournalEntry")
+
+        # --------------------------------------------------
+        # 3. FETCH PAYMENT RECORDS FOR THE SELECTED MONTH
+        # --------------------------------------------------
+        payment_qs = PaymentRecord.objects.filter(
+            paid_date__year=year,
+            paid_date__month=month,
         )
 
+        # Apply type filter to the displayed payment groups.
+        if entry_type == "Expense":
+            payment_qs = payment_qs.filter(
+                payment_direction=(
+                    PaymentRecord.PaymentDirection.OUTGOING
+                )
+            )
+
+        elif entry_type == "Income":
+            payment_qs = payment_qs.filter(
+                payment_direction=(
+                    PaymentRecord.PaymentDirection.INCOMING
+                )
+            )
+
+        # --------------------------------------------------
+        # 4. GROUP PAYMENTS BY DOCUMENT TYPE AND DIRECTION
+        # --------------------------------------------------
+        payment_groups = (
+            payment_qs.values(
+                "document_type",
+                "payment_direction",
+            )
+            .annotate(
+                total_amount=models.Sum("paid_amount"),
+                transaction_count=models.Count("id"),
+            )
+            .order_by(
+                "document_type",
+                "payment_direction",
+            )
+        )
+
+        payment_data = []
+
+        for group in payment_groups:
+            document_type = group["document_type"]
+            direction = group["payment_direction"]
+
+            is_expense = (
+                direction
+                == PaymentRecord.PaymentDirection.OUTGOING
+            )
+
+            amount = (
+                group["total_amount"] or Decimal("0.00")
+            )
+
+            payment_data.append(
+                {
+                    "id": f"{document_type}-{direction}",
+                    "record_number": f"{document_type}-TOTAL",
+                    "date": f"{year}-{month:02d}-01",
+                    "type": (
+                        "Expense" if is_expense else "Income"
+                    ),
+                    "category": document_type,
+                    "description": (
+                        f"Total {document_type} "
+                        f"{'Outgoing' if is_expense else 'Incoming'} "
+                        f"Payments for {month_name} {year}"
+                    ),
+                    "amount": float(amount),
+                    "payment_mode": "Grouped Payments",
+                    "document_type": document_type,
+                    "payment_direction": direction,
+                    "transaction_count": group["transaction_count"],
+                    "source_type": "PaymentRecordGroup",
+                    "source_id": None,
+                    "purchase_order": None,
+                    "po_number": "",
+                }
+            )
+
+        # --------------------------------------------------
+        # 5. COMBINE JOURNAL ENTRIES AND PAYMENT GROUPS
+        # --------------------------------------------------
+        combined_data = journal_data + payment_data
+
+        combined_data.sort(
+            key=lambda row: row.get("date", ""),
+            reverse=True,
+        )
+
+        # --------------------------------------------------
+        # 6. CALCULATE JOURNAL INCOME
+        # --------------------------------------------------
+        journal_income = (
+            JournalEntry.objects.filter(
+                type=JournalEntry.EntryType.INCOME,
+                date__year=year,
+                date__month=month,
+            ).aggregate(
+                total=models.Sum("amount")
+            )["total"]
+            or Decimal("0.00")
+        )
+
+        # --------------------------------------------------
+        # 7. CALCULATE JOURNAL EXPENSES
+        # --------------------------------------------------
+        total_journal_expense = (
+            JournalEntry.objects.filter(
+                type=JournalEntry.EntryType.EXPENSE,
+                date__year=year,
+                date__month=month,
+            ).aggregate(
+                total=models.Sum("amount")
+            )["total"]
+            or Decimal("0.00")
+        )
+
+        # --------------------------------------------------
+        # 8. CALCULATE SALARY
+        # --------------------------------------------------
+        total_salary = (
+            SalaryPayment.objects.filter(
+                salary_month__year=year,
+                salary_month__month=month,
+            ).aggregate(
+                total=models.Sum("net_salary")
+            )["total"]
+            or Decimal("0.00")
+        )
+
+        # --------------------------------------------------
+        # 9. CALCULATE ADVANCES
+        # --------------------------------------------------
+        total_advance = (
+            Advance.objects.filter(
+                advance_date__year=year,
+                advance_date__month=month,
+            ).aggregate(
+                total=models.Sum("amount")
+            )["total"]
+            or Decimal("0.00")
+        )
+
+        # --------------------------------------------------
+        # 10. CALCULATE ALL INCOMING PAYMENTS
+        # --------------------------------------------------
+        total_incoming_payments = (
+            PaymentRecord.objects.filter(
+                paid_date__year=year,
+                paid_date__month=month,
+                payment_direction=(
+                    PaymentRecord.PaymentDirection.INCOMING
+                ),
+            ).aggregate(
+                total=models.Sum("paid_amount")
+            )["total"]
+            or Decimal("0.00")
+        )
+
+        # --------------------------------------------------
+        # 11. CALCULATE ALL OUTGOING PAYMENTS
+        # --------------------------------------------------
+        total_outgoing_payments = (
+            PaymentRecord.objects.filter(
+                paid_date__year=year,
+                paid_date__month=month,
+                payment_direction=(
+                    PaymentRecord.PaymentDirection.OUTGOING
+                ),
+            ).aggregate(
+                total=models.Sum("paid_amount")
+            )["total"]
+            or Decimal("0.00")
+        )
+
+        # --------------------------------------------------
+        # 12. FINAL INCOME, EXPENSE AND PROFIT/LOSS
+        # --------------------------------------------------
+
+        # Income includes journal income and incoming payments.
         total_income = (
-            JournalEntry.objects
-            .filter(type=JournalEntry.EntryType.INCOME)
-            .aggregate(total=models.Sum("amount"))["total"]
-            or Decimal("0")
+            journal_income
+            + total_incoming_payments
         )
 
+        # Expense includes journal expenses, salary,
+        # advances, and outgoing payment records.
+        total_expense = (
+            total_journal_expense
+            + total_salary
+            + total_advance
+            + total_outgoing_payments
+        )
+
+        # Positive = profit; negative = loss.
         net_profit = total_income - total_expense
 
+        # --------------------------------------------------
+        # 13. RESPONSE
+        # --------------------------------------------------
         return Response(
             {
                 "success": True,
-                "count": len(serializer.data),
-                "data": serializer.data,
+                "count": len(combined_data),
+                "data": combined_data,
+                "payment_groups": payment_data,
                 "totals": {
                     "total_income": float(total_income),
                     "total_expense": float(total_expense),
                     "net_profit": float(net_profit),
+                    "total_salary": float(total_salary),
+                    "total_advance": float(total_advance),
+                    "total_journal_income": float(journal_income),
+                    "total_journal_expense": float(
+                        total_journal_expense
+                    ),
+                    "total_incoming_payments": float(
+                        total_incoming_payments
+                    ),
+                    "total_outgoing_payments": float(
+                        total_outgoing_payments
+                    ),
+                },
+                "current_month": {
+                    "month": month,
+                    "year": year,
+                    "month_name": month_name,
                 },
             },
             status=status.HTTP_200_OK,
         )
 
-    # ========================================================
-    # POST — create journal entry
-    # ========================================================
+    # ======================================================
+    # POST — CREATE JOURNAL ENTRY
+    # ======================================================
     def post(self, request):
         serializer = JournalEntrySerializer(
-            data=request.data,
+            data=request.data
         )
 
         if not serializer.is_valid():
@@ -5394,7 +5911,7 @@ class JournalAPIView(APIView):
         )
 
         record_number = _generate_journal_number(
-            entry_type,
+            entry_type
         )
 
         entry = JournalEntry.objects.create(
@@ -5402,93 +5919,38 @@ class JournalAPIView(APIView):
             **validated,
         )
 
-        output_serializer = JournalEntrySerializer(entry)
-
         return Response(
             {
                 "success": True,
-                "message": "Journal entry created.",
-                "data": output_serializer.data,
+                "message": "Journal entry created successfully.",
+                "data": JournalEntrySerializer(entry).data,
             },
             status=status.HTTP_201_CREATED,
         )
 
 
-# ============================================================
-# DELETE A JOURNAL ENTRY
-# ------------------------------------------------------------
-# DELETE /erp/journal/<id>/
-# ============================================================
 @method_decorator(csrf_protect, name="dispatch")
 class JournalDetailAPIView(APIView):
     """
-    PATCH  /erp/journal/<pk>/   → edit an existing entry
-    DELETE /erp/journal/<pk>/   → delete an entry
+    PATCH  /erp/journal/<pk>/  → Update a journal entry.
+    DELETE /erp/journal/<pk>/  → Delete a journal entry.
     """
 
     permission_classes = [IsAuthenticated, IsAccounts]
 
-    # ========================================================
-    # AUTH HELPER — same pattern as JournalAPIView
-    # ========================================================
-    def _get_user(self, request):
-        cookie_name = get_refresh_cookie_name("accounts")
+    # ======================================================
+    # PATCH — UPDATE JOURNAL ENTRY
+    # ======================================================
+    def patch(self, request, pk):
+        try:
+            entry = JournalEntry.objects.get(pk=pk)
 
-        if not cookie_name:
+        except JournalEntry.DoesNotExist:
             return Response(
                 {
                     "success": False,
-                    "message": "Accounts refresh-cookie configuration is missing.",
+                    "message": "Journal entry not found.",
                 },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        refresh_token = request.COOKIES.get(cookie_name)
-
-        if not refresh_token:
-            return None, Response(
-                {"success": False, "message": "Session not found. Please login again."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        try:
-            token = RefreshToken(refresh_token)
-            user_id = token.get("user_id")
-        except Exception:
-            return None, Response(
-                {"success": False, "message": "Session is invalid or expired."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return None, Response(
-                {"success": False, "message": "Session user no longer exists."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        if user.user_type != User.UserType.ACCOUNTS:
-            return None, Response(
-                {"success": False, "message": "Accounts access required."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        return user, None
-
-    # ========================================================
-    # PATCH — edit an existing entry
-    # ========================================================
-    def patch(self, request, pk):
-        user, err = self._get_user(request)
-        if err:
-            return err
-
-        try:
-            entry = JournalEntry.objects.get(pk=pk)
-        except JournalEntry.DoesNotExist:
-            return Response(
-                {"success": False, "message": "Journal entry not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -5508,40 +5970,44 @@ class JournalDetailAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        serializer.save()
+        updated_entry = serializer.save()
 
         return Response(
             {
                 "success": True,
-                "message": "Journal entry updated.",
-                "data": serializer.data,
+                "message": "Journal entry updated successfully.",
+                "data": JournalEntrySerializer(
+                    updated_entry
+                ).data,
             },
             status=status.HTTP_200_OK,
         )
 
-    # ========================================================
-    # DELETE — remove an entry
-    # ========================================================
+    # ======================================================
+    # DELETE — DELETE JOURNAL ENTRY
+    # ======================================================
     def delete(self, request, pk):
-        user, err = self._get_user(request)
-        if err:
-            return err
-
         try:
             entry = JournalEntry.objects.get(pk=pk)
+
         except JournalEntry.DoesNotExist:
             return Response(
-                {"success": False, "message": "Journal entry not found."},
+                {
+                    "success": False,
+                    "message": "Journal entry not found.",
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
         entry.delete()
 
         return Response(
-            {"success": True, "message": "Journal entry deleted."},
+            {
+                "success": True,
+                "message": "Journal entry deleted successfully.",
+            },
             status=status.HTTP_200_OK,
         )
-
 # ============================================================
 # JOURNAL — PURCHASE ORDER SEARCH (for the "Related PO" dropdown)
 # ------------------------------------------------------------
@@ -5882,30 +6348,40 @@ class EmployeeDetailAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
-    # --------------------------------------------------------
-    # DELETE /erp/hr/employees/<pk>/
-    # --------------------------------------------------------
+    
     def delete(self, request, pk):
         emp = self._get(pk)
+
         if not emp:
             return Response(
-                {"success": False, "message": "Employee not found."},
+                {
+                    "success": False,
+                    "message": "Employee not found.",
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        
-        if emp.photo:
-            try:
-                emp.photo.delete(save=False)
-            except Exception:
-                pass
+        if emp.archived:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Employee is already archived.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        emp.delete()
+        emp.archived = True
+        emp.save(update_fields=["archived"])
 
         return Response(
-            {"success": True, "message": "Employee deleted."},
+            {
+                "success": True,
+                "message": "Employee archived successfully.",
+                "data": EmployeeSerializer(emp).data,
+            },
             status=status.HTTP_200_OK,
         )
+    
 from rest_framework.parsers import MultiPartParser, FormParser
 
 
@@ -13023,7 +13499,7 @@ class JobWorkIssueCreateAPIView(APIView):
         try:
             stock = (
                 MaterialStock.objects
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .select_related("project")
                 .get(id=stock_id)
             )
@@ -13209,7 +13685,7 @@ class JobWorkReceiveAPIView(APIView):
         try:
             issue = (
                 JobWorkIssue.objects
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .select_related("stock", "project")
                 .get(id=issue_id)
             )
@@ -13494,7 +13970,7 @@ class JobWorkReceiveCreateAPIView(APIView):
         try:
             issue = (
                 JobWorkIssue.objects
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .select_related("stock", "project")
                 .get(id=issue_id)
             )
@@ -14040,6 +14516,7 @@ class ProductionIssueListAPIView(APIView):
 # ---------------------------------------------------------------------
 # CREATE ISSUE
 # ---------------------------------------------------------------------
+
 class ProductionIssueCreateAPIView(APIView):
     """
     POST /erp/material/production/issue/
@@ -14101,7 +14578,7 @@ class ProductionIssueCreateAPIView(APIView):
         try:
             piece = (
                 JobWorkReceivePiece.objects
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .select_related(
                     "receive",
                     "receive__issue",
@@ -17047,7 +17524,7 @@ class DispatchCreateAPIView(APIView):
         try:
             execution = (
                 AssemblyExecution.objects
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .select_related("assembly", "assembly__project")
                 .get(assembly__assembly_id=assembly_id)
             )
@@ -21166,6 +21643,23 @@ def _get_statistics_date_range(period, from_date, to_date):
     last_day = calendar.monthrange(today.year, today.month)[1]
     return start, today.replace(day=last_day)
 
+from decimal import Decimal
+
+from django.db.models import Sum, Q, Case, When, Value, DecimalField
+from django.db.models.functions import (
+    Coalesce,
+    TruncDay,
+    TruncWeek,
+    TruncMonth,
+    TruncQuarter,
+    TruncYear,
+)
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
 
 class AdminStatisticsAPIView(APIView):
     permission_classes = [IsAuthenticated, IsERPAdmin]
@@ -21175,128 +21669,338 @@ class AdminStatisticsAPIView(APIView):
         from_date = request.query_params.get("from")
         to_date = request.query_params.get("to")
 
-        start_date, end_date = _get_statistics_date_range(period, from_date, to_date)
-
-        # -----------------------------------------------------------------
-        # 1. REVENUE, EXPENSES, SALARY & ADVANCE
-        # -----------------------------------------------------------------
-        journal_qs = JournalEntry.objects.filter(
-            date__gte=start_date,
-            date__lte=end_date
+        start_date, end_date = _get_statistics_date_range(
+            period, from_date, to_date
         )
 
-        income_agg = journal_qs.filter(type=JournalEntry.EntryType.INCOME).aggregate(total=Sum("amount"))
-        expense_agg = journal_qs.filter(type=JournalEntry.EntryType.EXPENSE).aggregate(total=Sum("amount"))
+        zero = Decimal("0.00")
+        money_field = DecimalField(max_digits=24, decimal_places=2)
 
-        total_revenue = float(income_agg["total"] or 0)
-        journal_expenses = float(expense_agg["total"] or 0)
+        # =====================================================
+        # 1. JOURNAL INCOME AND EXPENSES
+        # =====================================================
+        journal_qs = JournalEntry.objects.filter(
+            date__gte=start_date,
+            date__lte=end_date,
+        )
 
-        salary_agg = SalaryPayment.objects.filter(
-            payment_status="PAID",
+        journal_totals = journal_qs.aggregate(
+            income=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            type=JournalEntry.EntryType.INCOME,
+                            then="amount",
+                        ),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            ),
+            expenses=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            type=JournalEntry.EntryType.EXPENSE,
+                            then="amount",
+                        ),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            ),
+        )
+
+        journal_income = journal_totals["income"] or zero
+        journal_expenses = journal_totals["expenses"] or zero
+
+        # =====================================================
+        # 2. PAYMENT RECORDS: INCOMING AND OUTGOING
+        # =====================================================
+        payment_qs = PaymentRecord.objects.filter(
             paid_date__gte=start_date,
-            paid_date__lte=end_date
-        ).aggregate(total=Sum("net_salary"))
-        total_salary_paid = float(salary_agg["total"] or 0)
+            paid_date__lte=end_date,
+        )
 
-        advance_agg = Advance.objects.filter(
-            advance_date__gte=start_date,
-            advance_date__lte=end_date
-        ).aggregate(total=Sum("amount"))
-        total_advances = float(advance_agg["total"] or 0)
+        payment_totals = payment_qs.aggregate(
+            incoming=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            payment_direction=(
+                                PaymentRecord.PaymentDirection.INCOMING
+                            ),
+                            then="paid_amount",
+                        ),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            ),
+            outgoing=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            payment_direction=(
+                                PaymentRecord.PaymentDirection.OUTGOING
+                            ),
+                            then="paid_amount",
+                        ),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            ),
+        )
 
-        total_expenses = journal_expenses + total_salary_paid + total_advances
+        incoming_payments = payment_totals["incoming"] or zero
+        outgoing_payments = payment_totals["outgoing"] or zero
 
-        # -----------------------------------------------------------------
-        # 2. CHART GROUPING (Timeline)
-        # -----------------------------------------------------------------
+        # =====================================================
+        # 3. SALARY AND ADVANCES
+        # =====================================================
+        # Assumes SalaryPayment has payment_status and paid_date.
+        salary_paid = (
+            SalaryPayment.objects.filter(
+                payment_status="PAID",
+                paid_date__gte=start_date,
+                paid_date__lte=end_date,
+            ).aggregate(total=Sum("net_salary"))["total"]
+            or zero
+        )
+
+        advances = (
+            Advance.objects.filter(
+                advance_date__gte=start_date,
+                advance_date__lte=end_date,
+            ).aggregate(total=Sum("amount"))["total"]
+            or zero
+        )
+
+        # =====================================================
+        # 4. REVENUE, EXPENSES AND PROFIT/LOSS
+        # =====================================================
+        total_revenue = journal_income + incoming_payments
+
+        total_expenses = (
+            journal_expenses
+            + outgoing_payments
+            + salary_paid
+            + advances
+        )
+
+        net_profit = total_revenue - total_expenses
+
+        # =====================================================
+        # 5. OUTSTANDING TAX INVOICES
+        # ALL DATES: unpaid, non-cancelled invoices
+        # =====================================================
+        outstanding_tax_invoices = (
+            TaxInvoice.objects.filter(
+                payment_status=TaxInvoice.PaymentStatus.PENDING,
+            )
+            .exclude(status=TaxInvoice.Status.CANCELLED)
+            .aggregate(total=Sum("grand_total"))["total"]
+            or zero
+        )
+
+        # =====================================================
+        # 6. OUTSTANDING PROFORMA INVOICES
+        # ALL DATES: unpaid, non-cancelled invoices
+        # =====================================================
+        outstanding_proforma_invoices = (
+            ProformaInvoice.objects.filter(
+                payment_status=ProformaInvoice.PaymentStatus.PENDING,
+            )
+            .exclude(status=ProformaInvoice.Status.CANCELLED)
+            .aggregate(total=Sum("grand_total"))["total"]
+            or zero
+        )
+
+        # =====================================================
+        # 7. TOTAL OUTSTANDING
+        # =====================================================
+        total_outstanding = (
+            outstanding_tax_invoices
+            + outstanding_proforma_invoices
+        )
+
+        # =====================================================
+        # 8. TIMELINE HELPERS
+        # =====================================================
         if period == "day":
-            trunc_func = TruncDay("date")
+            journal_trunc = TruncDay("date")
+            payment_trunc = TruncDay("paid_date")
         elif period == "week":
-            trunc_func = TruncWeek("date")
+            journal_trunc = TruncWeek("date")
+            payment_trunc = TruncWeek("paid_date")
         elif period == "quarter":
-            trunc_func = TruncQuarter("date")
+            journal_trunc = TruncQuarter("date")
+            payment_trunc = TruncQuarter("paid_date")
         elif period == "year":
-            trunc_func = TruncYear("date")
+            journal_trunc = TruncYear("date")
+            payment_trunc = TruncYear("paid_date")
         else:
-            trunc_func = TruncMonth("date")
+            journal_trunc = TruncMonth("date")
+            payment_trunc = TruncMonth("paid_date")
 
-        timeline_qs = (
+        timeline_map = {}
+
+        def get_label(dt):
+            if period == "day":
+                return dt.strftime("%d %b")
+            if period == "week":
+                return f"Wk {dt.strftime('%d %b')}"
+            if period == "quarter":
+                return f"{dt.year}-Q{((dt.month - 1) // 3) + 1}"
+            if period == "year":
+                return str(dt.year)
+            return dt.strftime("%b %y")
+
+        def normalize_date(value):
+            if value is None:
+                return None
+            if hasattr(value, "date"):
+                return value.date()
+            return value
+
+        def ensure_bucket(value):
+            value = normalize_date(value)
+            if value is None:
+                return None
+
+            key = value.isoformat()
+
+            if key not in timeline_map:
+                timeline_map[key] = {
+                    "key": key,
+                    "label": get_label(value),
+                    "revenue": 0.0,
+                    "expenses": 0.0,
+                }
+
+            return key
+
+        # =====================================================
+        # 9. JOURNAL CHART DATA
+        # =====================================================
+        journal_timeline = (
             journal_qs
-            .annotate(bucket=trunc_func)
+            .annotate(bucket=journal_trunc)
             .values("bucket", "type")
             .annotate(total=Sum("amount"))
             .order_by("bucket")
         )
 
-        timeline_map = {}
+        for row in journal_timeline:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
 
-        def get_label(dt, p):
-            if not dt: return ""
-            if p == "day": return dt.strftime("%d %b")
-            if p == "week": return f"Wk {dt.strftime('%d %b')}"
-            if p == "month": return dt.strftime("%b %y")
-            if p == "quarter":
-                quarter = (dt.month - 1) // 3 + 1
-                return f"{dt.year}-Q{quarter}"
-            if p == "year": return str(dt.year)
-            return dt.strftime("%d %b")
-
-        for row in timeline_qs:
-            bucket = row["bucket"]
-            if not bucket: continue
-                
-            if hasattr(bucket, "date"):
-                bucket = bucket.date()
-                
-            key = bucket.isoformat()
-            
-            if key not in timeline_map:
-                timeline_map[key] = {
-                    "key": key,
-                    "label": get_label(bucket, period),
-                    "revenue": 0.0,
-                    "expenses": 0.0
-                }
+            amount = float(row["total"] or zero)
 
             if row["type"] == JournalEntry.EntryType.INCOME:
-                timeline_map[key]["revenue"] += float(row["total"])
-            else:
-                timeline_map[key]["expenses"] += float(row["total"])
+                timeline_map[key]["revenue"] += amount
+            elif row["type"] == JournalEntry.EntryType.EXPENSE:
+                timeline_map[key]["expenses"] += amount
 
-        chart_data = sorted(timeline_map.values(), key=lambda x: x["key"])
+        # =====================================================
+        # 10. PAYMENT RECORD CHART DATA
+        # Uses paid_date, NOT date
+        # =====================================================
+        payment_timeline = (
+            payment_qs
+            .annotate(bucket=payment_trunc)
+            .values("bucket", "payment_direction")
+            .annotate(total=Sum("paid_amount"))
+            .order_by("bucket")
+        )
 
-        # -----------------------------------------------------------------
-        # 3. EXPENSE BREAKDOWN (All Categories + Dynamic Salary)
-        # -----------------------------------------------------------------
-        category_qs = (
-            journal_qs.filter(type=JournalEntry.EntryType.EXPENSE)
+        for row in payment_timeline:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+
+            amount = float(row["total"] or zero)
+
+            if (
+                row["payment_direction"]
+                == PaymentRecord.PaymentDirection.INCOMING
+            ):
+                timeline_map[key]["revenue"] += amount
+            elif (
+                row["payment_direction"]
+                == PaymentRecord.PaymentDirection.OUTGOING
+            ):
+                timeline_map[key]["expenses"] += amount
+
+        chart_data = sorted(
+            timeline_map.values(),
+            key=lambda item: item["key"],
+        )
+
+        # =====================================================
+        # 11. EXPENSE BREAKDOWN
+        # =====================================================
+        category_rows = (
+            journal_qs
+            .filter(type=JournalEntry.EntryType.EXPENSE)
             .values("category")
             .annotate(total=Sum("amount"))
+            .order_by()
         )
-        
-        breakdown_map = {row["category"]: float(row["total"]) for row in category_qs if row["category"]}
-        breakdown_map["Salary"] = breakdown_map.get("Salary", 0.0) + total_salary_paid + total_advances
 
-        expected_categories = [
-            "Purchase", "Transport", "Salary", "Rent", "Electricity",
-            "Maintenance", "Office", "Sales", "Other"
+        breakdown_map = {
+            row["category"] or "Other": float(row["total"] or zero)
+            for row in category_rows
+        }
+
+        outgoing_by_document = (
+            payment_qs
+            .filter(
+                payment_direction=(
+                    PaymentRecord.PaymentDirection.OUTGOING
+                )
+            )
+            .values("document_type")
+            .annotate(total=Sum("paid_amount"))
+            .order_by()
+        )
+
+        for row in outgoing_by_document:
+            category = f"Payment - {row['document_type'] or 'Other'}"
+            breakdown_map[category] = (
+                breakdown_map.get(category, 0.0)
+                + float(row["total"] or zero)
+            )
+
+        breakdown_map["Salary"] = (
+            breakdown_map.get("Salary", 0.0)
+            + float(salary_paid)
+            + float(advances)
+        )
+
+        expense_breakdown = [
+            {"category": name, "amount": amount}
+            for name, amount in breakdown_map.items()
         ]
 
-        expense_breakdown = []
-        for cat in expected_categories:
-            amount = breakdown_map.get(cat, 0.0)
-            expense_breakdown.append({"category": cat, "amount": amount})
+        expense_breakdown.sort(
+            key=lambda item: item["amount"],
+            reverse=True,
+        )
 
-        for cat, amount in breakdown_map.items():
-            if cat not in expected_categories:
-                expense_breakdown.append({"category": cat, "amount": amount})
-
-        expense_breakdown = sorted(expense_breakdown, key=lambda x: x["amount"], reverse=True)
-
-        # -----------------------------------------------------------------
-        # 4. PURCHASE ORDER STATUS (Matched to Admin Po Pending GRN logic)
-        # -----------------------------------------------------------------
-        # We evaluate all confirmed PO items created within the date range
+        # =====================================================
+        # 12. PURCHASE ORDER STATUS
+        # =====================================================
         real_items = (
             PurchaseOrderItem.objects
             .select_related("purchase_order")
@@ -21307,9 +22011,8 @@ class AdminStatisticsAPIView(APIView):
             )
         )
 
-        # Fetch aggregates
         material_map = {
-            row["purchase_order_item_id"]: row["total"]
+            row["purchase_order_item_id"]: row["total"] or zero
             for row in (
                 MaterialGRN.objects
                 .filter(purchase_order_item__in=real_items)
@@ -21319,7 +22022,7 @@ class AdminStatisticsAPIView(APIView):
         }
 
         consumable_map = {
-            row["purchase_order_item_id"]: row["total"]
+            row["purchase_order_item_id"]: row["total"] or zero
             for row in (
                 ConsumableGRN.objects
                 .filter(purchase_order_item__in=real_items)
@@ -21328,67 +22031,55 @@ class AdminStatisticsAPIView(APIView):
             )
         }
 
-        # Build status counts based on exact logic from AdminPoPendingGRnAPIView
         counts = {
             "Pending": 0,
             "Partially Received": 0,
-            "Outstanding": 0, # We will use this for "Not Received"
-            "Fully Received": 0
+            "Outstanding": 0,
+            "Fully Received": 0,
         }
 
-        for pi in real_items:
-            po_qty = pi.quantity or Decimal("0")
-            material_received = material_map.get(pi.id, Decimal("0"))
-            consumable_received = consumable_map.get(pi.id, Decimal("0"))
-            received = material_received + consumable_received
-            balance = po_qty - received
+        for item in real_items:
+            ordered = item.quantity or zero
+            received = (
+                material_map.get(item.id, zero)
+                + consumable_map.get(item.id, zero)
+            )
+            balance = ordered - received
 
             if balance <= 0:
                 counts["Fully Received"] += 1
             elif received <= 0:
                 counts["Pending"] += 1
             else:
-                # Partially received (some received, some balance)
                 counts["Partially Received"] += 1
 
-        # The frontend expects an array of {status, count}
         po_status_array = [
-            {"status": "Pending", "count": counts["Pending"]},
-            {"status": "Partially Received", "count": counts["Partially Received"]},
-            {"status": "Outstanding", "count": 0},  # Not used in this logic, but kept for chart consistency
-            {"status": "Fully Received", "count": counts["Fully Received"]},
+            {"status": name, "count": count}
+            for name, count in counts.items()
         ]
 
-        # -----------------------------------------------------------------
-        # 5. OUTSTANDING AMOUNT
-        # -----------------------------------------------------------------
-        unpaid_invoices_ti = TaxInvoice.objects.filter(
-            invoice_date__gte=start_date,
-            invoice_date__lte=end_date,
-            payment_status=TaxInvoice.PaymentStatus.PENDING
+        # =====================================================
+        # 13. PROJECT COUNT
+        # =====================================================
+        total_projects = (
+            Project.objects.filter(
+                Q(
+                    start_date__gte=start_date,
+                    start_date__lte=end_date,
+                )
+                | Q(
+                    start_date__isnull=True,
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date,
+                )
+            )
+            .distinct()
+            .count()
         )
-        unpaid_invoices_pi = ProformaInvoice.objects.filter(
-            date__gte=start_date,
-            date__lte=end_date,
-            payment_status=ProformaInvoice.PaymentStatus.PENDING
-        )
 
-        outstanding_ti = unpaid_invoices_ti.aggregate(total=Sum("grand_total"))["total"] or 0
-        outstanding_pi = unpaid_invoices_pi.aggregate(total=Sum("grand_total"))["total"] or 0
-        
-        total_outstanding = float(outstanding_ti + outstanding_pi)
-
-        # -----------------------------------------------------------------
-        # 6. TOTAL PROJECTS
-        # -----------------------------------------------------------------
-        total_projects = Project.objects.filter(
-            Q(start_date__gte=start_date, start_date__lte=end_date) |
-            Q(start_date__isnull=True, created_at__date__gte=start_date, created_at__date__lte=end_date)
-        ).distinct().count()
-
-        # -----------------------------------------------------------------
-        # 7. RESPONSE
-        # -----------------------------------------------------------------
+        # =====================================================
+        # 14. RESPONSE
+        # =====================================================
         return Response(
             {
                 "success": True,
@@ -21399,10 +22090,24 @@ class AdminStatisticsAPIView(APIView):
                 },
                 "data": {
                     "kpis": {
-                        "revenue": total_revenue,
-                        "expenses": total_expenses,
-                        "outstanding": total_outstanding,
+                        "revenue": float(total_revenue),
+                        "expenses": float(total_expenses),
+                        "profit_loss": float(net_profit),
+                        "net_profit": float(net_profit),
+                        "outstanding": float(total_outstanding),
+                        "outstanding_tax_invoices": float(
+                            outstanding_tax_invoices
+                        ),
+                        "outstanding_proforma_invoices": float(
+                            outstanding_proforma_invoices
+                        ),
                         "projects": total_projects,
+                        "journal_income": float(journal_income),
+                        "journal_expenses": float(journal_expenses),
+                        "incoming_payments": float(incoming_payments),
+                        "outgoing_payments": float(outgoing_payments),
+                        "salary_paid": float(salary_paid),
+                        "advances": float(advances),
                     },
                     "chart_data": chart_data,
                     "expense_breakdown": expense_breakdown,
@@ -21412,7 +22117,512 @@ class AdminStatisticsAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+class AdminStatisticsAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
 
+    def get(self, request):
+        period = request.query_params.get("period", "month")
+        from_date = request.query_params.get("from")
+        to_date = request.query_params.get("to")
+
+        start_date, end_date = _get_statistics_date_range(
+            period,
+            from_date,
+            to_date,
+        )
+
+        zero = Decimal("0.00")
+
+        money_field = DecimalField(
+            max_digits=24,
+            decimal_places=2,
+        )
+
+        # =====================================================
+        # 1. JOURNAL INCOME AND EXPENSES
+        # One aggregate query
+        # =====================================================
+        journal_qs = JournalEntry.objects.filter(
+            date__gte=start_date,
+            date__lte=end_date,
+        )
+
+        journal_totals = journal_qs.aggregate(
+            income=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            type=JournalEntry.EntryType.INCOME,
+                            then="amount",
+                        ),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            ),
+            expenses=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            type=JournalEntry.EntryType.EXPENSE,
+                            then="amount",
+                        ),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            ),
+        )
+
+        journal_income = journal_totals["income"] or zero
+        journal_expenses = journal_totals["expenses"] or zero
+
+        # =====================================================
+        # 2. PAYMENT RECORDS
+        # Incoming and outgoing in one aggregate query
+        # =====================================================
+        payment_qs = PaymentRecord.objects.filter(
+            paid_date__gte=start_date,
+            paid_date__lte=end_date,
+        )
+
+        payment_totals = payment_qs.aggregate(
+            incoming=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            payment_direction=(
+                                PaymentRecord.PaymentDirection.INCOMING
+                            ),
+                            then="paid_amount",
+                        ),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            ),
+            outgoing=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            payment_direction=(
+                                PaymentRecord.PaymentDirection.OUTGOING
+                            ),
+                            then="paid_amount",
+                        ),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            ),
+        )
+
+        incoming_payments = payment_totals["incoming"] or zero
+        outgoing_payments = payment_totals["outgoing"] or zero
+
+        # =====================================================
+        # 3. SALARY AND ADVANCES
+        # =====================================================
+        # Assumes SalaryPayment has payment_status and paid_date.
+        # If your model uses different field names, change them here.
+        salary_paid = (
+            SalaryPayment.objects.filter(
+                payment_status="PAID",
+                paid_date__gte=start_date,
+                paid_date__lte=end_date,
+            ).aggregate(
+                total=Sum("net_salary")
+            )["total"]
+            or zero
+        )
+
+        advances = (
+            Advance.objects.filter(
+                advance_date__gte=start_date,
+                advance_date__lte=end_date,
+            ).aggregate(
+                total=Sum("amount")
+            )["total"]
+            or zero
+        )
+
+        # =====================================================
+        # 4. TOTAL REVENUE, EXPENSES AND PROFIT/LOSS
+        # =====================================================
+        total_revenue = journal_income + incoming_payments
+
+        total_expenses = (
+            journal_expenses
+            + outgoing_payments
+            + salary_paid
+            + advances
+        )
+
+        net_profit = total_revenue - total_expenses
+
+        # =====================================================
+        # 5. SELECT TIMELINE FUNCTION FOR JOURNAL ENTRIES
+        # =====================================================
+        if period == "day":
+            journal_trunc_func = TruncDay("date")
+        elif period == "week":
+            journal_trunc_func = TruncWeek("date")
+        elif period == "quarter":
+            journal_trunc_func = TruncQuarter("date")
+        elif period == "year":
+            journal_trunc_func = TruncYear("date")
+        else:
+            journal_trunc_func = TruncMonth("date")
+
+        # =====================================================
+        # 6. TIMELINE HELPERS
+        # =====================================================
+        timeline_map = {}
+
+        def get_label(dt):
+            if not dt:
+                return ""
+
+            if period == "day":
+                return dt.strftime("%d %b")
+
+            if period == "week":
+                return f"Wk {dt.strftime('%d %b')}"
+
+            if period == "quarter":
+                quarter = ((dt.month - 1) // 3) + 1
+                return f"{dt.year}-Q{quarter}"
+
+            if period == "year":
+                return str(dt.year)
+
+            return dt.strftime("%b %y")
+
+        def normalize_bucket(bucket):
+            if bucket is None:
+                return None
+
+            if hasattr(bucket, "date"):
+                return bucket.date()
+
+            return bucket
+
+        def ensure_timeline_bucket(bucket):
+            bucket = normalize_bucket(bucket)
+
+            if bucket is None:
+                return None
+
+            key = bucket.isoformat()
+
+            if key not in timeline_map:
+                timeline_map[key] = {
+                    "key": key,
+                    "label": get_label(bucket),
+                    "revenue": 0.0,
+                    "expenses": 0.0,
+                }
+
+            return key
+
+        # =====================================================
+        # 7. JOURNAL TIMELINE
+        # Uses JournalEntry.date
+        # =====================================================
+        journal_timeline = (
+            journal_qs
+            .annotate(bucket=journal_trunc_func)
+            .values("bucket", "type")
+            .annotate(total=Sum("amount"))
+            .order_by("bucket")
+        )
+
+        for row in journal_timeline:
+            key = ensure_timeline_bucket(row["bucket"])
+
+            if key is None:
+                continue
+
+            amount = float(row["total"] or 0)
+
+            if row["type"] == JournalEntry.EntryType.INCOME:
+                timeline_map[key]["revenue"] += amount
+
+            elif row["type"] == JournalEntry.EntryType.EXPENSE:
+                timeline_map[key]["expenses"] += amount
+
+        # =====================================================
+        # 8. PAYMENT TIMELINE
+        # IMPORTANT: PaymentRecord uses paid_date, not date
+        # =====================================================
+        if period == "day":
+            payment_trunc_func = TruncDay("paid_date")
+        elif period == "week":
+            payment_trunc_func = TruncWeek("paid_date")
+        elif period == "quarter":
+            payment_trunc_func = TruncQuarter("paid_date")
+        elif period == "year":
+            payment_trunc_func = TruncYear("paid_date")
+        else:
+            payment_trunc_func = TruncMonth("paid_date")
+
+        payment_timeline = (
+            payment_qs
+            .annotate(bucket=payment_trunc_func)
+            .values("bucket", "payment_direction")
+            .annotate(total=Sum("paid_amount"))
+            .order_by("bucket")
+        )
+
+        for row in payment_timeline:
+            key = ensure_timeline_bucket(row["bucket"])
+
+            if key is None:
+                continue
+
+            amount = float(row["total"] or 0)
+
+            if (
+                row["payment_direction"]
+                == PaymentRecord.PaymentDirection.INCOMING
+            ):
+                timeline_map[key]["revenue"] += amount
+
+            elif (
+                row["payment_direction"]
+                == PaymentRecord.PaymentDirection.OUTGOING
+            ):
+                timeline_map[key]["expenses"] += amount
+
+        chart_data = sorted(
+            timeline_map.values(),
+            key=lambda item: item["key"],
+        )
+
+        # =====================================================
+        # 9. EXPENSE BREAKDOWN
+        # =====================================================
+        category_qs = (
+            journal_qs
+            .filter(type=JournalEntry.EntryType.EXPENSE)
+            .values("category")
+            .annotate(total=Sum("amount"))
+            .order_by()
+        )
+
+        breakdown_map = {
+            row["category"] or "Other": float(row["total"] or 0)
+            for row in category_qs
+        }
+
+        # Group outgoing payment records by document type.
+        outgoing_by_document = (
+            payment_qs
+            .filter(
+                payment_direction=(
+                    PaymentRecord.PaymentDirection.OUTGOING
+                )
+            )
+            .values("document_type")
+            .annotate(total=Sum("paid_amount"))
+            .order_by()
+        )
+
+        for row in outgoing_by_document:
+            document_type = row["document_type"] or "Other"
+            category = f"Payment - {document_type}"
+
+            breakdown_map[category] = (
+                breakdown_map.get(category, 0.0)
+                + float(row["total"] or 0)
+            )
+
+        breakdown_map["Salary"] = (
+            breakdown_map.get("Salary", 0.0)
+            + float(salary_paid)
+            + float(advances)
+        )
+
+        expense_breakdown = [
+            {
+                "category": category,
+                "amount": amount,
+            }
+            for category, amount in breakdown_map.items()
+        ]
+
+        expense_breakdown.sort(
+            key=lambda item: item["amount"],
+            reverse=True,
+        )
+
+        # =====================================================
+        # 10. PURCHASE ORDER STATUS
+        # =====================================================
+        real_items = (
+            PurchaseOrderItem.objects
+            .select_related("purchase_order")
+            .filter(
+                purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+                purchase_order__created_at__date__gte=start_date,
+                purchase_order__created_at__date__lte=end_date,
+            )
+        )
+
+        material_map = {
+            row["purchase_order_item_id"]: (
+                row["total"] or zero
+            )
+            for row in (
+                MaterialGRN.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_qty"))
+            )
+        }
+
+        consumable_map = {
+            row["purchase_order_item_id"]: (
+                row["total"] or zero
+            )
+            for row in (
+                ConsumableGRN.objects
+                .filter(purchase_order_item__in=real_items)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_quantity"))
+            )
+        }
+
+        counts = {
+            "Pending": 0,
+            "Partially Received": 0,
+            "Outstanding": 0,
+            "Fully Received": 0,
+        }
+
+        for item in real_items:
+            po_qty = item.quantity or zero
+
+            received = (
+                material_map.get(item.id, zero)
+                + consumable_map.get(item.id, zero)
+            )
+
+            balance = po_qty - received
+
+            if balance <= 0:
+                counts["Fully Received"] += 1
+            elif received <= 0:
+                counts["Pending"] += 1
+            else:
+                counts["Partially Received"] += 1
+
+        po_status_array = [
+            {
+                "status": "Pending",
+                "count": counts["Pending"],
+            },
+            {
+                "status": "Partially Received",
+                "count": counts["Partially Received"],
+            },
+            {
+                "status": "Outstanding",
+                "count": counts["Outstanding"],
+            },
+            {
+                "status": "Fully Received",
+                "count": counts["Fully Received"],
+            },
+        ]
+
+        # =====================================================
+        # 11. OUTSTANDING INVOICES
+        # =====================================================
+        outstanding_ti = (
+            TaxInvoice.objects.filter(
+                invoice_date__gte=start_date,
+                invoice_date__lte=end_date,
+                payment_status=TaxInvoice.PaymentStatus.PENDING,
+            ).aggregate(
+                total=Sum("grand_total")
+            )["total"]
+            or zero
+        )
+
+        outstanding_pi = (
+            ProformaInvoice.objects.filter(
+                date__gte=start_date,
+                date__lte=end_date,
+                payment_status=ProformaInvoice.PaymentStatus.PENDING,
+            ).aggregate(
+                total=Sum("grand_total")
+            )["total"]
+            or zero
+        )
+
+        total_outstanding = outstanding_ti + outstanding_pi
+
+        # =====================================================
+        # 12. PROJECT COUNT
+        # =====================================================
+        total_projects = (
+            Project.objects.filter(
+                Q(
+                    start_date__gte=start_date,
+                    start_date__lte=end_date,
+                )
+                | Q(
+                    start_date__isnull=True,
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date,
+                )
+            )
+            .distinct()
+            .count()
+        )
+
+        # =====================================================
+        # 13. RESPONSE
+        # =====================================================
+        return Response(
+            {
+                "success": True,
+                "period": period,
+                "range": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat(),
+                },
+                "data": {
+                    "kpis": {
+                        "revenue": float(total_revenue),
+                        "expenses": float(total_expenses),
+                        "profit_loss": float(net_profit),
+                        "net_profit": float(net_profit),
+                        "outstanding": float(total_outstanding),
+                        "projects": total_projects,
+                        "journal_income": float(journal_income),
+                        "journal_expenses": float(journal_expenses),
+                        "incoming_payments": float(incoming_payments),
+                        "outgoing_payments": float(outgoing_payments),
+                        "salary_paid": float(salary_paid),
+                        "advances": float(advances),
+                    },
+                    "chart_data": chart_data,
+                    "expense_breakdown": expense_breakdown,
+                    "po_status": po_status_array,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 # views.py
 
@@ -21654,59 +22864,193 @@ class AdminPendingPaymentsAPIView(APIView):
 #    doc_id looks like "TI-12" or "PI-7" (same as the list `id`)
 # =========================================================
 
+from decimal import Decimal, InvalidOperation
+
+from django.db import transaction
+from django.utils import timezone
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+
 class AdminPaymentStatusUpdateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsERPAdmin]
 
     def patch(self, request, doc_id):
-        # ---- parse "TI-12" ----
+        # --------------------------------------------------
+        # 1. PARSE DOCUMENT ID
+        # Example: TI-12, PI-7
+        # --------------------------------------------------
         prefix, _, raw_pk = str(doc_id).partition("-")
         prefix = prefix.upper()
 
         if prefix not in DOC_TYPES or not raw_pk.isdigit():
             return Response(
-                {"success": False, "message": "Invalid invoice id."},
+                {
+                    "success": False,
+                    "message": "Invalid invoice id.",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        model, number_field = DOC_TYPES[prefix]
+        Model, number_field = DOC_TYPES[prefix]
 
-        # ---- validate requested status ----
-        requested = str(request.data.get("payment_status", "")).strip().lower()
+        # --------------------------------------------------
+        # 2. VALIDATE PAYMENT STATUS
+        # --------------------------------------------------
+        requested = str(
+            request.data.get("payment_status", "")
+        ).strip().upper()
+
         status_map = {
-            "paid": model.PaymentStatus.PAID,
-            "pending": model.PaymentStatus.PENDING,
+            "PAID": Model.PaymentStatus.PAID,
+            "PENDING": Model.PaymentStatus.PENDING,
         }
+
         if requested not in status_map:
             return Response(
-                {"success": False, "message": "payment_status must be 'paid' or 'pending'."},
+                {
+                    "success": False,
+                    "message": (
+                        "payment_status must be 'paid' or 'pending'."
+                    ),
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ---- update atomically ----
+        # --------------------------------------------------
+        # 3. UPDATE STATUS AND CREATE PAYMENT RECORD
+        # --------------------------------------------------
         with transaction.atomic():
             try:
-                doc = model.objects.select_for_update().get(
-                    pk=int(raw_pk), status=model.Status.CONFIRMED
+                doc = Model.objects.select_for_update().get(
+                    pk=int(raw_pk),
+                    status=Model.Status.CONFIRMED,
                 )
-            except model.DoesNotExist:
+
+            except Model.DoesNotExist:
                 return Response(
-                    {"success": False, "message": "Invoice not found or not confirmed."},
+                    {
+                        "success": False,
+                        "message": (
+                            "Invoice not found or not confirmed."
+                        ),
+                    },
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            doc.payment_status = status_map[requested]
-            # If you track who/when, add e.g. paid_at / paid_by here and to update_fields.
+            old_payment_status = str(
+                doc.payment_status or ""
+            ).strip().upper()
+
+            new_payment_status = status_map[requested]
+
+            payment_record_data = None
+
+            # ----------------------------------------------
+            # 4. CREATE PAYMENT RECORD WHEN FIRST MARKED PAID
+            # ----------------------------------------------
+            if (
+                old_payment_status != "PAID"
+                and requested == "PAID"
+            ):
+                document_number = getattr(
+                    doc,
+                    number_field,
+                    None,
+                )
+
+                if not document_number:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Document number is missing.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                raw_amount = getattr(
+                    doc,
+                    "grand_total",
+                    None,
+                )
+
+                try:
+                    paid_amount = Decimal(str(raw_amount))
+
+                except (InvalidOperation, TypeError, ValueError):
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid invoice grand total.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                if (
+                    not paid_amount.is_finite()
+                    or paid_amount <= 0
+                ):
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                "Payment amount must be greater than zero."
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Choose direction based on document type.
+                if prefix == "PO":
+                    payment_direction = (
+                        PaymentRecord.PaymentDirection.OUTGOING
+                    )
+                else:
+                    payment_direction = (
+                        PaymentRecord.PaymentDirection.INCOMING
+                    )
+
+                # Create the payment transaction record.
+                payment_record = PaymentRecord.objects.create(
+                    document_type=prefix,
+                    document_number=str(document_number),
+                    payment_direction=payment_direction,
+                    paid_amount=paid_amount,
+                    paid_date=timezone.localdate(),
+                )
+
+                payment_record_data = {
+                    "id": payment_record.pk,
+                    "document_type": payment_record.document_type,
+                    "document_number": payment_record.document_number,
+                    "payment_direction": payment_record.payment_direction,
+                    "paid_amount": str(payment_record.paid_amount),
+                    "paid_date": str(payment_record.paid_date),
+                }
+
+            # ----------------------------------------------
+            # 5. UPDATE THE ORIGINAL DOCUMENT MODEL
+            # ----------------------------------------------
+            doc.payment_status = new_payment_status
             doc.save(update_fields=["payment_status"])
 
+        # --------------------------------------------------
+        # 6. SUCCESS RESPONSE
+        # --------------------------------------------------
         return Response(
             {
                 "success": True,
-                "message": f"Marked as {requested}.",
-                "data": _build_row(prefix, doc, number_field),
+                "message": f"Marked as {requested.lower()}.",
+                "data": {
+                    **_build_row(prefix, doc, number_field),
+                    "payment_record": payment_record_data,
+                },
             },
             status=status.HTTP_200_OK,
         )
-
 # accounts/views.py  (or hr/views.py — wherever the admin views live)
 from datetime import date, timedelta
 import calendar as _cal

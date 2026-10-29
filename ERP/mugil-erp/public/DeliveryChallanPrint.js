@@ -301,7 +301,244 @@
 
   /* =======================================================================
      PDF BUILDER
+     -----------------------------------------------------------------------
+     WHY THIS IS NOT JUST html2pdf().from(sheet)
+     -----------------------------------------------------------------------
+     EXTRA BLANK PAGE
+       html2pdf screenshots the element into one canvas and cuts that canvas
+       into strips of  Math.floor(canvas.width * 297 / 210)  pixels, one PDF
+       page per strip. The sheet is 297mm = 1122.5197 CSS px tall; html2canvas
+       rounds the canvas height UP (1123 px -> 2246 canvas px at scale 2)
+       while one strip is 2245 canvas px. That 1 px overshoot becomes a whole
+       extra PDF page containing nothing but a white sliver.
+
+       Fix: for a one-page sheet html2canvas is given an explicit capture
+       size (794 x 1122.5 CSS px) so the canvas is exactly one strip tall,
+       and html2pdf's page-break pass (which can only inject padding into a
+       sheet that is already exactly one page) is switched off. If the
+       sheet is in its ".dc-sheet--overflow" state (content genuinely longer
+       than one page) the original page-break behaviour is kept, and only a
+       rounding-sized final sliver page is removed.
+
+     TAMIL FOOTER TEXT
+       html2canvas 1.4.1 draws text one "grapheme" at a time whenever an element
+       has a non-zero letter-spacing, and its grapheme splitter does not keep
+       Tamil vowel signs attached to their consonant. The footer tagline has
+       letter-spacing: 0.5px, so its Tamil came out scrambled (detached vowel
+       signs, dotted-circle placeholders).
+
+       Fix: in the export copy only, text with letter-spacing that contains
+       Tamil/Indic/Arabic/etc. is rebuilt as one inline <span> per grapheme
+       cluster, with the same spacing applied as a margin and letter-spacing
+       set to 0 on that element. Each cluster is then shaped as a whole and
+       the spacing seen in the preview is preserved.
+
+     LOGO POSITION
+       html2canvas 1.4.1 (bundled in html2pdf 0.10.1) does not implement
+       CSS "object-fit". The header logos use object-fit: contain inside a
+       fixed 15mm box, so in the browser a non-square logo is letterboxed and
+       centred, but in the PDF it was stretched to fill the whole box: its
+       visible artwork ended up larger and lower/higher than in the preview.
+
+       Fix: the export copy (never the live preview) swaps every image that
+       uses object-fit for a same-sized <div> with the equivalent
+       background-size / background-position, which html2canvas does render
+       correctly. Box size, flex alignment and the translateY(-50%) centring
+       are untouched, so the logos land exactly where the preview draws them.
+
+     The live, on-screen .dc-sheet is never modified: everything above is
+     done on a private clone (".dc-export-host").
      ======================================================================= */
+
+  const PDF_RENDER_SCALE = 2;
+  const PDF_CSS_PX_PER_MM = 96 / 25.4;
+  const PDF_A4_MM = { width: 210, height: 297 };
+
+  function getPdfPageCount(pdf) {
+    if (pdf && typeof pdf.getNumberOfPages === "function") {
+      return pdf.getNumberOfPages();
+    }
+
+    return pdf.internal.getNumberOfPages();
+  }
+
+  /* Scripts that need shaping (Arabic/Hebrew, Indic incl. Tamil, Thai, ...). */
+  var COMPLEX_SCRIPT_RE =
+    /[\u0590-\u08FF\u0900-\u0DFF\u0E00-\u0EFF\u0F00-\u0FFF\u1000-\u109F\u1780-\u17FF]/;
+
+  function splitIntoClusters(text) {
+    if (typeof Intl === "undefined" || typeof Intl.Segmenter !== "function") {
+      return null;
+    }
+
+    try {
+      var segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+      return Array.from(segmenter.segment(text), function (part) {
+        return part.segment;
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function hasOwnComplexText(element) {
+    for (var node = element.firstChild; node; node = node.nextSibling) {
+      if (node.nodeType === 3 && COMPLEX_SCRIPT_RE.test(node.nodeValue)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /*
+   * Walks the live page and its clone in parallel (same structure, same
+   * order). Elements with a non-zero letter-spacing that directly contain
+   * complex-script text are rewritten in the clone only.
+   */
+  function preserveComplexScriptSpacing(liveRoot, cloneRoot) {
+    var liveElements = liveRoot.querySelectorAll("*");
+    var cloneElements = cloneRoot.querySelectorAll("*");
+
+    for (var i = 0; i < liveElements.length; i++) {
+      var live = liveElements[i];
+      var clone = cloneElements[i];
+
+      if (!clone) continue;
+
+      var spacing = window.getComputedStyle(live).letterSpacing;
+      var spacingPx = parseFloat(spacing);
+
+      if (!spacing || spacing === "normal" || !spacingPx) continue;
+
+      if (!hasOwnComplexText(live)) {
+        /* Keep its spacing even if an ancestor is zeroed below. */
+        clone.style.letterSpacing = spacing;
+        continue;
+      }
+
+      /* html2canvas only shapes text correctly when this is exactly 0. */
+      clone.style.letterSpacing = "0px";
+
+      var textNodes = [];
+
+      for (var n = clone.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3) textNodes.push(n);
+      }
+
+      textNodes.forEach(function (textNode) {
+        var value = textNode.nodeValue;
+
+        if (!COMPLEX_SCRIPT_RE.test(value)) return;
+
+        var clusters = splitIntoClusters(value);
+
+        /* No Intl.Segmenter: keep correct shaping, drop only the spacing. */
+        if (!clusters) return;
+
+        var fragment = document.createDocumentFragment();
+
+        clusters.forEach(function (cluster) {
+          var span = document.createElement("span");
+
+          span.textContent = cluster;
+          span.style.marginRight = spacing;
+
+          fragment.appendChild(span);
+        });
+
+        textNode.parentNode.replaceChild(fragment, textNode);
+      });
+    }
+  }
+
+  function replaceObjectFitImages(liveRoot, cloneRoot) {
+    const liveImages = liveRoot.querySelectorAll("img");
+    const cloneImages = cloneRoot.querySelectorAll("img");
+
+    liveImages.forEach(function (liveImage, index) {
+      const cloneImage = cloneImages[index];
+
+      if (!cloneImage || !cloneImage.parentNode) return;
+
+      const style = window.getComputedStyle(liveImage);
+      const fit = style.objectFit;
+
+      if (!fit || fit === "fill") return;
+
+      const boxWidth = parseFloat(style.width) || 0;
+      const boxHeight = parseFloat(style.height) || 0;
+
+      let backgroundSize = "contain";
+
+      if (fit === "cover") {
+        backgroundSize = "cover";
+      } else if (fit === "none") {
+        backgroundSize = "auto";
+      } else if (fit === "scale-down") {
+        backgroundSize =
+          liveImage.naturalWidth > boxWidth ||
+          liveImage.naturalHeight > boxHeight
+            ? "contain"
+            : "auto";
+      }
+
+      const source = (liveImage.currentSrc || liveImage.src || "").replace(
+        /"/g,
+        "%22",
+      );
+
+      const replacement = document.createElement("div");
+
+      replacement.setAttribute("role", "img");
+      replacement.setAttribute("aria-label", liveImage.alt || "");
+
+      replacement.style.display = style.display === "inline" ? "block" : style.display;
+      replacement.style.boxSizing = "border-box";
+      replacement.style.width = style.width;
+      replacement.style.height = style.height;
+      replacement.style.marginTop = style.marginTop;
+      replacement.style.marginRight = style.marginRight;
+      replacement.style.marginBottom = style.marginBottom;
+      replacement.style.marginLeft = style.marginLeft;
+      replacement.style.flexGrow = style.flexGrow;
+      replacement.style.flexShrink = style.flexShrink;
+      replacement.style.alignSelf = style.alignSelf;
+      replacement.style.visibility = style.visibility;
+      replacement.style.backgroundImage = 'url("' + source + '")';
+      replacement.style.backgroundRepeat = "no-repeat";
+      replacement.style.backgroundSize = backgroundSize;
+      replacement.style.backgroundPosition = style.objectPosition || "50% 50%";
+
+      cloneImage.parentNode.replaceChild(replacement, cloneImage);
+    });
+  }
+
+  function buildPdfExportHost(sheet) {
+    const host = document.createElement("div");
+
+    host.className = "dc-export-host";
+
+    host.style.display = "block";
+    host.style.margin = "0";
+    host.style.padding = "0";
+    host.style.border = "0";
+    host.style.background = "#ffffff";
+
+    const copy = sheet.cloneNode(true);
+
+    preserveComplexScriptSpacing(sheet, copy);
+
+    copy.style.margin = "0";
+    copy.style.boxShadow = "none";
+
+    replaceObjectFitImages(sheet, copy);
+
+    host.appendChild(copy);
+
+    return host;
+  }
 
   function buildPdfBlob(sourceElement, filename) {
     return loadHtml2Pdf().then(function (html2pdf) {
@@ -311,32 +548,111 @@
         );
       }
 
+      const overflowing = sourceElement.classList.contains(
+        "dc-sheet--overflow",
+      );
+
+      /* Reproduce html2pdf's own slicing arithmetic. */
+      const exportWidthPx = Math.ceil(PDF_A4_MM.width * PDF_CSS_PX_PER_MM);
+
+      const canvasWidthPx = exportWidthPx * PDF_RENDER_SCALE;
+
+      const stripHeightPx = Math.floor(
+        canvasWidthPx * (PDF_A4_MM.height / PDF_A4_MM.width),
+      );
+
+      const pagePitchCssPx = stripHeightPx / PDF_RENDER_SCALE;
+
+      const exportHost = buildPdfExportHost(sourceElement);
+
+      const html2canvasOptions = {
+        scale: PDF_RENDER_SCALE,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        width: exportWidthPx,
+        scrollX: 0,
+        scrollY: 0,
+      };
+
+      if (!overflowing) {
+        /*
+         * One-page sheet: capture exactly one strip so the canvas is
+         * never taller than a single PDF page.
+         */
+        html2canvasOptions.height = pagePitchCssPx;
+      }
+
       const options = {
         margin: 0,
         filename: filename || "delivery-challan.pdf",
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          logging: false,
-        },
+        html2canvas: html2canvasOptions,
         jsPDF: {
           unit: "mm",
           format: "a4",
           orientation: "portrait",
         },
-        pagebreak: { mode: ["css", "legacy"] },
+        pagebreak: overflowing ? { mode: ["css", "legacy"] } : { mode: [] },
       };
 
-      const worker = html2pdf().set(options).from(sourceElement);
+      const previousScrollX = window.pageXOffset || 0;
+      const previousScrollY = window.pageYOffset || 0;
+
+      /*
+       * html2pdf's capture container is position:fixed; html2canvas offsets
+       * it by the window scroll position, so capture from the top.
+       */
+      window.scrollTo(0, 0);
+
+      function restoreScroll() {
+        window.scrollTo(previousScrollX, previousScrollY);
+      }
+
+      let capturedCanvasRows = 0;
+
+      const worker = html2pdf().set(options).from(exportHost);
 
       return worker
         .toPdf()
+        .get("canvas")
+        .then(function (canvas) {
+          capturedCanvasRows = canvas ? canvas.height : 0;
+          return canvas;
+        })
         .get("pdf")
-        .then(function () {
+        .then(function (pdf) {
+          if (!overflowing) {
+            /* A one-page sheet must never produce more than one page. */
+            while (getPdfPageCount(pdf) > 1) {
+              pdf.deletePage(getPdfPageCount(pdf));
+            }
+          } else if (getPdfPageCount(pdf) > 1) {
+            /*
+             * Overflowing sheet: a final page made only of the 1-2 px
+             * rounding remainder is not content; remove it.
+             */
+            const remainder = capturedCanvasRows % stripHeightPx;
+
+            if (remainder > 0 && remainder <= 2 * PDF_RENDER_SCALE) {
+              pdf.deletePage(getPdfPageCount(pdf));
+            }
+          }
+
           return worker.outputPdf("blob");
-        });
+        })
+        .then(
+          function (blob) {
+            restoreScroll();
+
+            return blob;
+          },
+          function (error) {
+            restoreScroll();
+
+            throw error;
+          },
+        );
     });
   }
 

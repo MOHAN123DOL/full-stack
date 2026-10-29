@@ -56,6 +56,18 @@
     headerGap: 4,
   };
 
+  /* Integer pixel size used ONLY when rasterising each page for the PDF.
+     210 x 297 mm at 96 dpi is 793.70 x 1122.52 px (fractional). Those
+     fractions are what let html2pdf see a page that is a hair taller than
+     one PDF page and emit an extra blank page. 794 x 1122 is the same size
+     rounded to whole pixels (1122 is exactly the page height html2pdf
+     itself uses internally), so one rasterised page always fits one PDF
+     page. The on-screen preview keeps using the exact mm-derived size. */
+  var PDF_PAGE_PX = {
+    width: 794,
+    height: 1122,
+  };
+
   /* ============================ STATIC LETTERHEAD ============================ */
 
   var LETTERHEAD = {
@@ -203,11 +215,38 @@
      PDF BUILDER
      ======================================================================= */
 
+  /* Clone one on-screen .qp-page into a clean, integer-sized copy for the
+     PDF. Screen-only decoration (border, shadow, margin) is removed so it
+     cannot add height or show up as a line in the PDF. Header, content and
+     footer are absolutely positioned inside the page, so they are untouched. */
+  function createExportPage(pageEl) {
+    var clone = pageEl.cloneNode(true);
+
+    clone.style.width = PDF_PAGE_PX.width + "px";
+    clone.style.height = PDF_PAGE_PX.height + "px";
+    clone.style.margin = "0";
+    clone.style.border = "none";
+    clone.style.boxShadow = "none";
+    clone.style.overflow = "hidden";
+
+    return clone;
+  }
+
   function buildPdfBlob(pagesHost, filename) {
     return loadHtml2Pdf().then(function (html2pdf) {
       if (!pagesHost) {
         throw new Error(
           "PDF generation failed: pages host element was not found.",
+        );
+      }
+
+      var pageEls = Array.prototype.slice.call(
+        pagesHost.querySelectorAll(".qp-page"),
+      );
+
+      if (!pageEls.length) {
+        throw new Error(
+          "PDF generation failed: no quotation pages were found.",
         );
       }
 
@@ -220,20 +259,95 @@
           useCORS: true,
           backgroundColor: "#ffffff",
           logging: false,
+          scrollX: 0,
+          scrollY: 0,
         },
         jsPDF: {
           unit: "mm",
           format: "a4",
           orientation: "portrait",
         },
-        pagebreak: { mode: ["css", "legacy"] },
+        // Every page is rasterised on its own, so html2pdf must not try to
+        // insert its own page-break spacers inside a page.
+        pagebreak: { mode: [] },
       };
 
-      var worker = html2pdf().set(options).from(pagesHost);
+      // html2canvas captures at the current scroll offset; start from 0.
+      var previousScrollX = window.pageXOffset || 0;
+      var previousScrollY = window.pageYOffset || 0;
+      window.scrollTo(0, 0);
 
-      return worker.toPdf().get("pdf").then(function () {
-        return worker.outputPdf("blob");
+      // Off-screen holder: html2pdf reads the source element's offsetWidth,
+      // so the page copies must be attached to the document while it runs.
+      var holder = document.createElement("div");
+      holder.style.position = "fixed";
+      holder.style.left = "-100000px";
+      holder.style.top = "0";
+      holder.style.width = PDF_PAGE_PX.width + "px";
+      holder.style.pointerEvents = "none";
+      document.body.appendChild(holder);
+
+      var exportPages = pageEls.map(function (pageEl) {
+        var clone = createExportPage(pageEl);
+        holder.appendChild(clone);
+        return clone;
       });
+
+      function cleanup() {
+        if (holder.parentNode) {
+          holder.parentNode.removeChild(holder);
+        }
+        window.scrollTo(previousScrollX, previousScrollY);
+      }
+
+      // One canvas per .qp-page, one PDF page per canvas — instead of
+      // capturing the whole .qp-pages column as a single tall image and
+      // letting html2pdf slice it.
+      var worker = html2pdf().set(options);
+
+      exportPages.forEach(function (pageNode, index) {
+        if (index === 0) {
+          worker = worker.from(pageNode).toContainer().toCanvas().toPdf();
+        } else {
+          worker = worker
+            .get("pdf")
+            .then(function (pdf) {
+              pdf.addPage();
+            })
+            .from(pageNode)
+            .toContainer()
+            .toCanvas()
+            .toPdf();
+        }
+      });
+
+      return worker
+        .get("pdf")
+        .then(function (pdf) {
+          var actualPages = pdf.internal.getNumberOfPages();
+
+          if (actualPages !== exportPages.length) {
+            console.warn(
+              "[QuotationPrint] PDF has " +
+                actualPages +
+                " page(s) but " +
+                exportPages.length +
+                " were expected.",
+            );
+          }
+
+          return worker.outputPdf("blob");
+        })
+        .then(
+          function (blob) {
+            cleanup();
+            return blob;
+          },
+          function (error) {
+            cleanup();
+            throw error;
+          },
+        );
     });
   }
 
@@ -839,7 +953,7 @@
       : [];
     var terms = Array.isArray(data.terms) ? data.terms : [];
     var signatures = data.signatures || {};
-    var companyName = data.companyName || LETTERHEAD.name;
+    var companyName = LETTERHEAD.name;
 
     /* ---- totals ---- */
     var computedSubtotal = items.reduce(function (sum, it) {

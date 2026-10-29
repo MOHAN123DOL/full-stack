@@ -498,7 +498,7 @@ a { color: inherit; text-decoration: none; }
 /* 3-column row at the top */
 .poi-top-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1.2fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 14px 16px;
 }
 @media (max-width: 900px) { .poi-top-grid { grid-template-columns: 1fr; } }

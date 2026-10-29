@@ -43,7 +43,8 @@ const STATUS_CHOICES = [
 ];
 
 const isPaid = (row) =>
-  row?.is_paid ?? String(row?.payment_status || "").toLowerCase() === "paid";
+  Boolean(row?.is_paid) ||
+  String(row?.payment_status || "").trim().toLowerCase() === "paid";
 
 const statusKey = (row) => (isPaid(row) ? "paid" : "pending");
 
@@ -641,9 +642,9 @@ export default function AdminPendingPayments() {
                   <dd>
                     <select
                       className="pending-status-select pending-status-select--full"
-                      value={draftStatus}
+                      value={isPaid(selectedInvoice) ? "paid" : draftStatus}
                       onChange={(e) => setDraftStatus(e.target.value)}
-                      disabled={saving}
+                      disabled={saving || isPaid(selectedInvoice)}
                       aria-label="Set payment status"
                     >
                       {STATUS_CHOICES.map((o) => (
@@ -652,6 +653,11 @@ export default function AdminPendingPayments() {
                         </option>
                       ))}
                     </select>
+                    {isPaid(selectedInvoice) && (
+                      <small className="pending-locked-message">
+                        Payment completed. Status is locked.
+                      </small>
+                    )}
                   </dd>
                 </div>
               </dl>
@@ -677,7 +683,11 @@ export default function AdminPendingPayments() {
                 type="button"
                 className="pending-btn pending-btn--primary"
                 onClick={handleSaveStatus}
-                disabled={saving || draftStatus === statusKey(selectedInvoice)}
+                disabled={
+                  saving ||
+                  isPaid(selectedInvoice) ||
+                  draftStatus === statusKey(selectedInvoice)
+                }
               >
                 <CheckCircle2 size={15} aria-hidden="true" />
                 {saving ? "Saving…" : "Save Status"}

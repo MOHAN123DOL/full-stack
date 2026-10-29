@@ -91,7 +91,7 @@ function extractError(err, fallback = "Something went wrong.") {
 }
 
 /* ==========================================================================
-   DROPDOWN OPTIONS (Title Case to match Django choices)
+   DROPDOWN OPTIONS
    ========================================================================== */
 
 const DEPARTMENTS = [
@@ -324,7 +324,7 @@ function useAttendanceApi() {
 }
 
 /* ==========================================================================
-   CONTEXT PROVIDER (kept for backwards compat)
+   CONTEXT PROVIDER
    ========================================================================== */
 
 const AttendanceContext = createContext(null);
@@ -491,7 +491,7 @@ function FilterControls({ filters, onChange, onClear, showStatus = false }) {
 }
 
 /* ==========================================================================
-   EMPLOYEE SEARCH SELECT (server-side, debounced, paginated)
+   EMPLOYEE SEARCH SELECT
    ========================================================================== */
 
 function EmployeeSearchSelect({ value, onChange, filters }) {
@@ -507,8 +507,22 @@ function EmployeeSearchSelect({ value, onChange, filters }) {
   const [selected, setSelected] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const debounced = useDebounce(search, 400);
+  const debouncedSearch = useDebounce(search, 300);
+  // Search typed in the filter bar should also filter the employee dropdown.
+  const debouncedFilterSearch = useDebounce(filters.search || "", 300);
+  const apiSearch = debouncedSearch.trim() || debouncedFilterSearch.trim();
   const wrapRef = useRef(null);
+
+  // Start from the first page whenever the top-level filters change.
+  useEffect(() => {
+    setPage(1);
+  }, [
+    debouncedFilterSearch,
+    filters.department,
+    filters.branch,
+    filters.employment_type,
+    filters.work_location,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -519,7 +533,7 @@ function EmployeeSearchSelect({ value, onChange, filters }) {
       setError("");
       try {
         const data = await getEmployees({
-          search: debounced,
+          search: apiSearch,
           department: filters.department,
           branch: filters.branch,
           employment_type: filters.employment_type,
@@ -547,9 +561,10 @@ function EmployeeSearchSelect({ value, onChange, filters }) {
     };
   }, [
     open,
-    debounced,
+    apiSearch,
     page,
     reloadKey,
+    debouncedFilterSearch,
     filters.department,
     filters.branch,
     filters.employment_type,
@@ -608,7 +623,7 @@ function EmployeeSearchSelect({ value, onChange, filters }) {
     : "";
 
   return (
-    <div ref={wrapRef} style={{ position: "relative", minWidth: 280 }}>
+    <div ref={wrapRef} style={{ position: "relative", minWidth: 280, zIndex: 50 }}>
       <span className="aw-field-label">Employee</span>
       <input
         className="aw-input"
@@ -638,10 +653,10 @@ function EmployeeSearchSelect({ value, onChange, filters }) {
             background: "#fff",
             border: "1px solid var(--aw-border)",
             borderRadius: "var(--aw-radius-sm)",
-            boxShadow: "var(--aw-shadow)",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
             maxHeight: 320,
             overflowY: "auto",
-            zIndex: 200,
+            zIndex: 999, // Ensures it overlaps filters below
           }}
         >
           {loading && (
@@ -858,7 +873,7 @@ function AttendanceFormModal({
   }
 
   async function handleSubmit(e) {
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
     if (!validate()) return;
 
     setSaving(true);
@@ -947,17 +962,8 @@ function AttendanceFormModal({
 
         <form className="aw-form" onSubmit={handleSubmit}>
           <div className="aw-form-grid">
-            <div className="aw-field aw-field-wide">
-              <EmployeeSearchSelect
-                value={form.employeeId}
-                onChange={(v) => set("employeeId", v)}
-                filters={employeeFilters}
-              />
-              {errors.employeeId && (
-                <span className="aw-error">{errors.employeeId}</span>
-              )}
-            </div>
-
+            
+            {/* 1. Employee Filters - displayed above employee selection */}
             <div className="aw-field aw-field-wide">
               <FilterControls
                 filters={employeeFilters}
@@ -972,6 +978,29 @@ function AttendanceFormModal({
                   })
                 }
               />
+            </div>
+
+            {/* 2. Employee Search - displayed below filters */}
+            <div
+              className="aw-field aw-field-wide"
+              style={{ position: "relative", zIndex: 50 }}
+            >
+              <EmployeeSearchSelect
+                value={form.employeeId}
+                onChange={(v) => {
+                  set("employeeId", v);
+                  setErrors((prev) => ({ ...prev, employeeId: null }));
+                }}
+                filters={employeeFilters}
+              />
+              {errors.employeeId && (
+                <span
+                  className="aw-error"
+                  style={{ marginTop: 4, display: "block" }}
+                >
+                  {errors.employeeId}
+                </span>
+              )}
             </div>
 
             <label className="aw-field">
@@ -1115,7 +1144,7 @@ function AttendanceFormModal({
    DAILY TAB
    ========================================================================== */
 
-function DailyTab({ onAdd, onEdit }) {
+function DailyTab({ onAdd, onEdit, refreshKey }) {
   const { getAttendance, deleteAttendance } = useAttendance();
 
   const [date, setDate] = useState(todayISO());
@@ -1136,7 +1165,7 @@ function DailyTab({ onAdd, onEdit }) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
+  const [localReloadKey, setLocalReloadKey] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -1180,7 +1209,8 @@ function DailyTab({ onAdd, onEdit }) {
     filters.employment_type,
     filters.work_location,
     filters.status,
-    reloadKey,
+    refreshKey,       // <--- Trigger from parent
+    localReloadKey,   // <--- Trigger from retry button
     getAttendance,
   ]);
 
@@ -1263,7 +1293,7 @@ function DailyTab({ onAdd, onEdit }) {
         </div>
       ) : error ? (
         <div style={{ padding: 24 }}>
-          <Error onRetry={() => setReloadKey((k) => k + 1)} />
+          <Error onRetry={() => setLocalReloadKey((k) => k + 1)} />
           <div style={{ marginTop: 8, fontSize: 13, color: "#a52626" }}>
             {error}
           </div>
@@ -1754,10 +1784,7 @@ function MonthlyTab({ onFixMissing }) {
 }
 
 /* ==========================================================================
-   EMPLOYEE SUMMARY TAB (Option A)
-   - If an employee is selected: call employee-summary?employee=<id>
-   - If no employee selected: fall back to filtered employee list from
-     /erp/attendance/employees/ (so users can browse/filter without picking)
+   EMPLOYEE SUMMARY TAB
    ========================================================================== */
 
 function EmployeeSummaryTab() {
@@ -2270,6 +2297,7 @@ const TABS = [
 export default function AttendanceWages() {
   const [activeTab, setActiveTab] = useState("daily");
   const [modal, setModal] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handleBack = () => window.history.back();
 
@@ -2284,11 +2312,8 @@ export default function AttendanceWages() {
   }
   function handleSaved() {
     setModal(null);
-    // Trigger a soft refresh by re-rendering — the tab components
-    // re-fetch on mount and on filter change. For the Daily tab, an
-    // explicit refresh happens after Create/Edit because the modal
-    // closes and DailyTab remounts.
-    window.dispatchEvent(new Event("aw-refresh"));
+    // Trigger a refresh of the tabs by incrementing the refreshKey
+    setRefreshKey((k) => k + 1);
   }
   function handleFixMissing(employeeId, date) {
     setModal({
@@ -2360,7 +2385,11 @@ export default function AttendanceWages() {
         </div>
 
         {activeTab === "daily" && (
-          <DailyTab onAdd={openAdd} onEdit={openEdit} />
+          <DailyTab 
+            onAdd={openAdd} 
+            onEdit={openEdit} 
+            refreshKey={refreshKey} 
+          />
         )}
         {activeTab === "weekly" && <WeeklyTab />}
         {activeTab === "monthly" && <MonthlyTab onFixMissing={handleFixMissing} />}

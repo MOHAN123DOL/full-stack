@@ -584,3 +584,49 @@ body {
     border-left: 1px solid #040404;
     border-right: 1px solid #0a0a0a;
 }
+
+/* Alignment fixes: keep header logos inside the brand row so they do not
+   overlap the Delivery Challan reference dates below. */
+.dc-brand {
+  min-height: 17.5mm;
+  overflow: visible;
+}
+
+.dc-logo-wrap {
+  width: 15mm;
+  height: 15mm;
+  max-width: 15mm;
+  max-height: 15mm;
+}
+
+.dc-logo-wrap img {
+  width: 15mm !important;
+  height: 15mm !important;
+  max-width: 15mm;
+  max-height: 15mm;
+  object-fit: contain;
+}
+
+/* Give the customer and reference sections consistent top spacing. */
+.dc-customer {
+  padding-top: 2mm;
+}
+
+.dc-reference {
+  padding-top: 2mm;
+  padding-right: 2.5mm;
+}
+
+/* Keep date entries in the reference column within its available width. */
+.dc-reference-row {
+  min-width: 0;
+}
+
+.dc-reference-row > .dc-reference-entry:last-child {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dc-reference-row > .dc-reference-entry:last-child .dc-reference-value {
+  white-space: nowrap;
+}

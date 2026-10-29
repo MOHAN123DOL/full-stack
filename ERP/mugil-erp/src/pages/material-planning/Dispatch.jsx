@@ -422,13 +422,17 @@ export default function Dispatch() {
   /* ============================================================
      Derived lists
      ============================================================ */
+  // Ready for Dispatch contains only assemblies that still have a balance.
+  // Fully dispatched assemblies are shown in Dispatch History instead.
   const rows = useMemo(
     () =>
-      assemblies.map((a) => ({
-        ...a,
-        dwgText: a.dwgText || (a.dwgs || []).join(" + "),
-        dcText: (a.dcReferences || []).join(" "),
-      })),
+      assemblies
+        .filter((a) => Number(a.balanceQty ?? 0) > 0)
+        .map((a) => ({
+          ...a,
+          dwgText: a.dwgText || (a.dwgs || []).join(" + "),
+          dcText: (a.dcReferences || []).join(" "),
+        })),
     [assemblies]
   );
 
@@ -661,7 +665,12 @@ export default function Dispatch() {
         },
         { headers: authHeaders() }
       );
-      await fetchReady({ silent: true });
+      // Refresh both lists after dispatch. Fully dispatched assemblies
+      // disappear from Ready for Dispatch and their shipment appears in History.
+      await Promise.all([
+        fetchReady({ silent: true }),
+        fetchHistory({ silent: true }),
+      ]);
       closeDispatch();
     } catch (err) {
       setFormError(getApiError(err, "Failed to save dispatch."));

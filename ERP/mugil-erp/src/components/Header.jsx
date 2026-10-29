@@ -111,7 +111,28 @@ export default function Header({ navLinks = [] }) {
    */
   const handleProfile = () => {
     setSupportOpen(false);
-    navigate("/profile");
+
+    // Prefer the authenticated user's role. Fall back to profile API data
+    // in case the auth object does not include a user type.
+    const userType = String(
+      user?.user_type ??
+      user?.userType ??
+      user?.user_type_name ??
+      user?.role ??
+      profileData?.user_type ??
+      profileData?.userType ??
+      profileData?.userTypeName ??
+      profileData?.role ??
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+    if (userType === "admin" || userType === "administrator") {
+      navigate("/admin/profile");
+    } else {
+      navigate("/profile");
+    }
   };
 
 

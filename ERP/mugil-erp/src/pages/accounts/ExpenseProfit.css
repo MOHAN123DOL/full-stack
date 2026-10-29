@@ -957,3 +957,134 @@
   color: #6366f1;
   margin-left: 2px;
 }
+/* ============================================================
+   JOURNAL MONTH & YEAR FILTER
+   ============================================================ */
+
+.journal-period-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.journal-period-filter select {
+  height: 42px;
+  min-width: 130px;
+  padding: 0 36px 0 12px;
+
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: #334155;
+
+  background-color: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+
+  outline: none;
+  cursor: pointer;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.journal-period-filter select:hover {
+  border-color: #94a3b8;
+}
+
+.journal-period-filter select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.journal-period-filter select option {
+  padding: 10px;
+  color: #334155;
+  background-color: #ffffff;
+}
+
+/* Year dropdown */
+
+.journal-period-filter select[aria-label="Filter by year"] {
+  min-width: 100px;
+}
+
+/* ============================================================
+   JOURNAL FILTER BAR LAYOUT
+   ============================================================ */
+
+.journal-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  padding: 16px 0;
+  flex-wrap: wrap;
+}
+
+.journal-search {
+  flex: 1;
+  min-width: 220px;
+}
+
+.journal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   RESPONSIVE FILTERS
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .journal-filters {
+    gap: 12px;
+  }
+
+  .journal-search {
+    flex-basis: 100%;
+  }
+
+  .journal-period-filter {
+    flex: 1;
+  }
+
+  .journal-period-filter select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 576px) {
+  .journal-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .journal-search {
+    width: 100%;
+  }
+
+  .journal-period-filter {
+    width: 100%;
+  }
+
+  .journal-period-filter select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .journal-tabs {
+    width: 100%;
+  }
+
+  .journal-tabs .journal-tab {
+    flex: 1;
+    text-align: center;
+  }
+}

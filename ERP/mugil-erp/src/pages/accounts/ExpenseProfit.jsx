@@ -22,6 +22,16 @@ const JOURNAL_ENDPOINT = "/erp/journal/";
 const PO_OPTIONS_ENDPOINT = "/erp/journal/po-options/";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
+const MONTH_OPTIONS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+const getLocalYearMonth = () => {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+};
+
 /* ---------- option lists ---------- */
 const CATEGORY_OPTIONS = [
   "Purchase",
@@ -70,8 +80,11 @@ export default function ExpenseProfit() {
   const [submitError, setSubmitError] = useState("");
 
   /* Filters */
+  const initialPeriod = getLocalYearMonth();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState(initialPeriod.month);
+  const [selectedYear, setSelectedYear] = useState(initialPeriod.year);
 
   /* Add form */
   const [showExpenseForm, setShowExpenseForm] = useState(false);
@@ -92,6 +105,10 @@ export default function ExpenseProfit() {
       setLoadError("");
 
       const response = await api.get(JOURNAL_ENDPOINT, {
+        params: {
+          month: selectedMonth,
+          year: selectedYear,
+        },
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
@@ -113,7 +130,7 @@ export default function ExpenseProfit() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, selectedMonth, selectedYear]);
 
   useEffect(() => {
     loadRecords();
@@ -382,6 +399,40 @@ export default function ExpenseProfit() {
                 )}
               </div>
 
+              <div
+                className="journal-period-filter"
+                style={{ display: "flex", gap: 8, alignItems: "center" }}
+              >
+                <select
+                  aria-label="Filter by month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                  style={{ minWidth: 130, padding: "9px 10px" }}
+                >
+                  {MONTH_OPTIONS.map((monthName, index) => (
+                    <option key={monthName} value={index + 1}>
+                      {monthName}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  aria-label="Filter by year"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  style={{ minWidth: 90, padding: "9px 10px" }}
+                >
+                  {Array.from(
+                    { length: 7 },
+                    (_, index) => new Date().getFullYear() - 5 + index,
+                  ).map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="journal-tabs">
                 {[
                   { value: "all", label: "All" },
@@ -433,7 +484,7 @@ export default function ExpenseProfit() {
                   <tbody>
                     {filteredRecords.length > 0 ? (
                       filteredRecords.map((record, index) => (
-                        <tr key={record.id}>
+                        <tr key={record.id ?? record.record_number ?? `${record.source_type || "journal"}-${record.category || "row"}-${index}`}>
                           <td className="journal-table__num">{index + 1}</td>
                           <td>{formatDate(record.date)}</td>
                           <td>

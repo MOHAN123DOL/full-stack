@@ -942,21 +942,19 @@ export default function DwgBom() {
   }
 
   // ===============================================================
-  // RENDER
+  // RENDER — project management only
   // ===============================================================
   return (
     <PageShell>
-      {/* Page Header */}
       <div className="page-header-wrap">
         <div className="page-header-left">
           <button className="back-button" onClick={handleBack}>
-            <ArrowLeft size={16} strokeWidth={2} />
-            Back
+            <ArrowLeft size={16} strokeWidth={2} /> Back
           </button>
           <div className="page-header-title-group">
-            <h1 className="page-header-title">DWG &amp; BOM</h1>
+            <h1 className="page-header-title">Project Setup</h1>
             <p className="page-header-subtitle">
-              Manage projects, drawings and material requirements.
+              Manage projects used for Purchase Order integration. Drawing and BOM management is not required here.
             </p>
           </div>
         </div>
@@ -978,494 +976,183 @@ export default function DwgBom() {
         </div>
       )}
 
-      {!error && (
-        <>
-          {/* ============ Project Panel ============ */}
-          <section className="panel">
-            <div className="panel-head">
-              <div className="panel-head-title">
-                <FolderKanban size={16} strokeWidth={1.8} /> Project
-              </div>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => setShowAddProject(true)}
-                disabled={isLoading}
-              >
-                <Plus size={14} /> Add Project
-              </button>
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <div className="panel-head-title">
+              <FolderKanban size={16} strokeWidth={1.8} /> Projects
             </div>
-            <div className="panel-body">
-              {/* Filter */}
-              <div className="dwgbom-select-project">
-                <label>
-                  Search Project
-                  {projectSearch.trim() && (
-                    <span className="dwgbom-match-count">
-                      {" "}
-                      — {projectMatchCount} match
-                      {projectMatchCount === 1 ? "" : "es"}
-                      {projectMatchCount > PROJECT_OPTIONS_LIMIT &&
-                        ` (showing first ${PROJECT_OPTIONS_LIMIT})`}
-                    </span>
-                  )}
-                </label>
-                <div className="dwgbom-project-search">
-                  <Search size={15} />
-                  <input
-                    type="text"
-                    placeholder="Filter by project name, code, or description..."
-                    value={projectSearch}
-                    onChange={(e) => setProjectSearch(e.target.value)}
-                    disabled={isLoading || projectsList.length === 0}
-                  />
-                  {projectSearch && (
-                    <button
-                      type="button"
-                      className="dwgbom-project-search-clear"
-                      onClick={() => setProjectSearch("")}
-                      aria-label="Clear search"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
+            <p className="panel-head-subtitle">
+              Select or create a project. Link its Purchase Orders in the PO Integration page.
+            </p>
+          </div>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setProjectForm(emptyProjectForm);
+              setProjectErrors({});
+              setShowAddProject(true);
+            }}
+            disabled={isLoading}
+          >
+            <Plus size={14} /> Add Project
+          </button>
+        </div>
 
-              {/* Select */}
-              <div className="dwgbom-select-project">
-                <label>Select Existing Project</label>
-                <select
-                  value={
-                    selectedProjectId != null ? String(selectedProjectId) : ""
-                  }
-                  onChange={(e) => selectProject(e.target.value)}
-                  disabled={isLoading || filteredProjectOptions.length === 0}
+        <div className="panel-body">
+          <div className="dwgbom-select-project">
+            <label>
+              Search Project
+              {projectSearch.trim() && (
+                <span className="dwgbom-match-count">
+                  {" "}— {projectMatchCount} match{projectMatchCount === 1 ? "" : "es"}
+                  {projectMatchCount > PROJECT_OPTIONS_LIMIT && ` (showing first ${PROJECT_OPTIONS_LIMIT})`}
+                </span>
+              )}
+            </label>
+            <div className="dwgbom-project-search">
+              <Search size={15} />
+              <input
+                type="text"
+                placeholder="Filter by project name, code, or description..."
+                value={projectSearch}
+                onChange={(e) => setProjectSearch(e.target.value)}
+                disabled={isLoading || projectsList.length === 0}
+              />
+              {projectSearch && (
+                <button
+                  type="button"
+                  className="dwgbom-project-search-clear"
+                  onClick={() => setProjectSearch("")}
+                  aria-label="Clear search"
                 >
-                  {filteredProjectOptions.length === 0 && (
-                    <option value="">
-                      {projectsList.length === 0
-                        ? "No projects available"
-                        : "No projects match your search"}
-                    </option>
-                  )}
-                  {filteredProjectOptions.map((p) => (
-                    <option key={p.id} value={String(p.id)}>
-                      {p.name} ({p.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedProject && (
-                <div className="dwgbom-project-summary">
-                  <div>
-                    <span className="dwgbom-project-name">
-                      {toDisplayString(selectedProject.name)}
-                    </span>{" "}
-                    <span className="dwgbom-project-code mono">
-                      {toDisplayString(selectedProject.code)}
-                    </span>
-                  </div>
-                  <p className="dwgbom-project-desc">
-                    {toDisplayString(selectedProject.description) || "—"}
-                  </p>
-                  {(selectedProject.startDate || selectedProject.endDate) && (
-                    <div className="dwgbom-project-dates">
-                      <span>
-                        <span className="dwgbom-project-dates-label">
-                          Project Start Date:
-                        </span>{" "}
-                        {selectedProject.startDate || "—"}
-                      </span>
-                      <span>
-                        <span className="dwgbom-project-dates-label">
-                          Expected Project End Date:
-                        </span>{" "}
-                        {selectedProject.endDate || "—"}
-                      </span>
-                    </div>
-                  )}
-                  <StatusBadge status={selectedProject.status} />
-                </div>
+                  <X size={14} />
+                </button>
               )}
             </div>
-          </section>
+          </div>
 
-          {/* ============ Drawing Panel ============ */}
+          <div className="dwgbom-select-project">
+            <label>Select Project</label>
+            <select
+              value={selectedProjectId != null ? String(selectedProjectId) : ""}
+              onChange={(e) => selectProject(e.target.value)}
+              disabled={isLoading || filteredProjectOptions.length === 0}
+            >
+              {filteredProjectOptions.length === 0 && (
+                <option value="">
+                  {projectsList.length === 0 ? "No projects available" : "No projects match your search"}
+                </option>
+              )}
+              {filteredProjectOptions.map((p) => (
+                <option key={p.id} value={String(p.id)}>
+                  {p.name} ({p.code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {isLoading && <Loading />}
+
+          {!isLoading && !error && projectsList.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-icon"><FolderKanban size={20} /></div>
+              <p className="empty-state-title">No projects available</p>
+              <p className="empty-state-desc">Add a project to start linking Purchase Orders.</p>
+            </div>
+          )}
+
           {selectedProject && (
-            <section className="panel">
-              <div className="panel-head">
-                <div>
-                  <div className="panel-head-title">
-                    <FileStack size={16} strokeWidth={1.8} /> Drawings
-                  </div>
-                  <p className="panel-head-subtitle">
-                    {toDisplayString(selectedProject.name)}
-                  </p>
+            <div className="dwgbom-project-summary">
+              <div>
+                <span className="dwgbom-project-name">{toDisplayString(selectedProject.name)}</span>{" "}
+                <span className="dwgbom-project-code mono">{toDisplayString(selectedProject.code)}</span>
+              </div>
+              <p className="dwgbom-project-desc">{toDisplayString(selectedProject.description) || "—"}</p>
+              {(selectedProject.startDate || selectedProject.endDate) && (
+                <div className="dwgbom-project-dates">
+                  <span>
+                    <span className="dwgbom-project-dates-label">Project Start Date:</span>{" "}
+                    {selectedProject.startDate || "—"}
+                  </span>
+                  <span>
+                    <span className="dwgbom-project-dates-label">Expected Project End Date:</span>{" "}
+                    {selectedProject.endDate || "—"}
+                  </span>
                 </div>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => setShowAddDrawing(true)}
-                  disabled={isLoading}
-                >
-                  <Plus size={14} /> Add DWG
-                </button>
-              </div>
-              <div className="panel-body">
-                {isLoading && projectDrawings.length === 0 ? (
-                  <Loading />
-                ) : projectDrawings.length === 0 ? (
-                  <div className="empty-state">
-                    <div className="empty-state-icon">
-                      <FileText size={20} strokeWidth={1.7} />
-                    </div>
-                    <p className="empty-state-title">No drawings yet</p>
-                    <p className="empty-state-desc">
-                      Add the first drawing for{" "}
-                      {toDisplayString(selectedProject.name)} to begin building
-                      its BOM.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="dwgbom-drawing-grid">
-                    {projectDrawings.map((d) => (
-                      <button
-                        key={d.id}
-                        className={`dwgbom-drawing-card ${
-                          String(d.id) === String(selectedDrawingId)
-                            ? "dwgbom-drawing-card-active"
-                            : ""
-                        }`}
-                        onClick={() => setSelectedDrawingId(Number(d.id))}
-                      >
-                        <span className="dwgbom-drawing-number mono">
-                          {toDisplayString(d.dwgNumber)}
-                        </span>
-                        <span className="dwgbom-drawing-name">
-                          {toDisplayString(d.name)}
-                        </span>
-                        <span className="dwgbom-drawing-meta">
-                          {toDisplayString(d.revision)} · {d.date || "—"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </section>
+              )}
+              <StatusBadge status={selectedProject.status} />
+            </div>
           )}
+        </div>
+      </section>
 
-          {/* ============ BOM Panel ============ */}
-          {selectedDrawing && (
-            <section className="panel">
-              <div className="panel-head">
-                <div>
-                  <div className="panel-head-title">
-                    <ListChecks size={16} strokeWidth={1.8} /> BOM Materials
-                  </div>
-                  <p className="panel-head-subtitle">
-                    {toDisplayString(selectedProject?.name)} &nbsp;·&nbsp;{" "}
-                    {toDisplayString(selectedDrawing.dwgNumber)} —{" "}
-                    {toDisplayString(selectedDrawing.name)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="panel-toolbar">
-                <div className="panel-toolbar-search">
-                  <Search size={14} />
-                  <input
-                    placeholder="Search BOM (description, material code, item)..."
-                    value={bomSearch}
-                    onChange={(e) => setBomSearch(e.target.value)}
-                  />
-                </div>
-                <select
-                  className="panel-toolbar-filter"
-                  value={materialCodeFilter}
-                  onChange={(e) => setMaterialCodeFilter(e.target.value)}
-                >
-                  <option value="">All Material Codes</option>
-                  {materialCodeOptions.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="panel-toolbar-filter"
-                  value={materialSpecFilter}
-                  onChange={(e) => setMaterialSpecFilter(e.target.value)}
-                >
-                  <option value="">All Material Specns</option>
-                  {materialSpecOptions.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="panel-toolbar-filter"
-                  value={unitFilter}
-                  onChange={(e) => setUnitFilter(e.target.value)}
-                >
-                  <option value="">All Units</option>
-                  {unitOptions.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
-                    </option>
-                  ))}
-                </select>
-                <span className="panel-toolbar-spacer" />
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() =>
-                    showToast(
-                      "Import BOM — connect a Django endpoint to enable this",
-                    )
-                  }
-                  disabled={saving}
-                >
-                  <FileUp size={14} /> Import BOM
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleSaveAllBom}
-                  disabled={saving || bomList.length === 0}
-                >
-                  <Save size={14} /> {saving ? "Saving..." : "Save BOM"}
-                </button>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={openAddBom}
-                  disabled={saving}
-                >
-                  <Plus size={14} /> Add Material
-                </button>
-              </div>
-
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      {bomColumns.map((col) => (
-                        <th key={col.key}>{col.label}</th>
-                      ))}
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isLoading && filteredBom.length === 0 && (
-                      <tr>
-                        <td colSpan={bomColumns.length + 1}>
-                          <Loading />
-                        </td>
-                      </tr>
-                    )}
-
-                    {!isLoading &&
-                      filteredBom.map((item) => (
-                        <tr key={item.id}>
-                          <td>{toDisplayString(item.variantNumber)}</td>
-                          <td>{toDisplayString(item.itemNumber)}</td>
-                          <td>
-                            <DescriptionCell description={item.description} />
-                          </td>
-                          <td className="cell-muted">
-                            {toDisplayString(item.std)}
-                          </td>
-                          <td className="cell-mono cell-muted">
-                            {toDisplayString(item.drawingNumber)}
-                          </td>
-                          <td>{toDisplayString(item.itemNo)}</td>
-                          <td className="cell-muted">
-                            {toDisplayString(item.varNo)}
-                          </td>
-                          <td className="cell-mono">
-                            {toDisplayString(item.materialCode)}
-                          </td>
-                          <td>{toDisplayString(item.materialSpecn)}</td>
-                          <td className="cell-muted">
-                            {toDisplayString(item.acp)}
-                          </td>
-                          <td className="cell-muted">
-                            {toDisplayString(item.di)}
-                          </td>
-                          <td>{toDisplayString(item.unit)}</td>
-                          <td className="cell-muted">{item.unitWeight}</td>
-                          <td>
-                            <strong>{item.quantity}</strong>
-                          </td>
-                          <td>
-                            <div className="table-row-actions">
-                              <button
-                                onClick={() => openEditBom(item)}
-                                aria-label="Edit"
-                                disabled={saving}
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              <button
-                                className="danger"
-                                onClick={() => setDeleteTarget(item)}
-                                aria-label="Delete"
-                                disabled={saving}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-
-                    {!isLoading && filteredBom.length === 0 && (
-                      <tr>
-                        <td colSpan={bomColumns.length + 1}>
-                          <div className="empty-state">
-                            <p className="empty-state-title">
-                              No BOM items match your filters
-                            </p>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="dwgbom-bom-note">
-                <strong>Quantity</strong> is the controlling value for material
-                availability. <strong>Unit Weight</strong> is informational only
-                and is never used to calculate stock or PO consumption.
-              </div>
-            </section>
-          )}
-        </>
-      )}
-
-      {/* ============= Add Project Modal ============= */}
       <Modal
         open={showAddProject}
         title="Add Project"
-        subtitle="Create a new project to attach drawings and BOM to."
+        subtitle="Create a project for Purchase Order integration."
         onClose={() => !saving && setShowAddProject(false)}
       >
         <div className="form-section">
           {projectErrors.submit && (
-            <div className="form-error-text" style={{ marginBottom: 12 }}>
-              {projectErrors.submit}
-            </div>
+            <div className="form-error-text" style={{ marginBottom: 12 }}>{projectErrors.submit}</div>
           )}
           <div className="form-grid">
-            <div
-              className={`form-field ${
-                projectErrors.name ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Project Name<span className="required-mark">*</span>
-              </label>
+            <div className={`form-field ${projectErrors.name ? "form-field-error" : ""}`}>
+              <label>Project Name<span className="required-mark">*</span></label>
               <input
                 value={projectForm.name}
-                onChange={(e) =>
-                  setProjectForm({ ...projectForm, name: e.target.value })
-                }
+                onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
                 placeholder="e.g. BHEL Boiler Fabrication"
                 disabled={saving}
               />
-              {projectErrors.name && (
-                <span className="form-error-text">{projectErrors.name}</span>
-              )}
+              {projectErrors.name && <span className="form-error-text">{projectErrors.name}</span>}
             </div>
-            <div
-              className={`form-field ${
-                projectErrors.code ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Project Code<span className="required-mark">*</span>
-              </label>
+            <div className={`form-field ${projectErrors.code ? "form-field-error" : ""}`}>
+              <label>Project Code<span className="required-mark">*</span></label>
               <input
                 value={projectForm.code}
-                onChange={(e) =>
-                  setProjectForm({ ...projectForm, code: e.target.value })
-                }
+                onChange={(e) => setProjectForm({ ...projectForm, code: e.target.value })}
                 placeholder="e.g. BHEL-2026-001"
                 disabled={saving}
               />
-              {projectErrors.code && (
-                <span className="form-error-text">{projectErrors.code}</span>
-              )}
+              {projectErrors.code && <span className="form-error-text">{projectErrors.code}</span>}
             </div>
             <div className="form-field form-field-full">
               <label>Project Description</label>
               <textarea
                 rows={2}
                 value={projectForm.description}
-                onChange={(e) =>
-                  setProjectForm({
-                    ...projectForm,
-                    description: e.target.value,
-                  })
-                }
+                onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })}
                 disabled={saving}
               />
             </div>
-            <div
-              className={`form-field ${
-                projectErrors.startDate ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Project Start Date<span className="required-mark">*</span>
-              </label>
+            <div className={`form-field ${projectErrors.startDate ? "form-field-error" : ""}`}>
+              <label>Project Start Date<span className="required-mark">*</span></label>
               <input
                 type="date"
                 value={projectForm.startDate}
-                onChange={(e) =>
-                  setProjectForm({ ...projectForm, startDate: e.target.value })
-                }
+                onChange={(e) => setProjectForm({ ...projectForm, startDate: e.target.value })}
                 disabled={saving}
               />
-              {projectErrors.startDate && (
-                <span className="form-error-text">
-                  {projectErrors.startDate}
-                </span>
-              )}
+              {projectErrors.startDate && <span className="form-error-text">{projectErrors.startDate}</span>}
             </div>
-            <div
-              className={`form-field ${
-                projectErrors.endDate ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Expected Project End Date
-                <span className="required-mark">*</span>
-              </label>
+            <div className={`form-field ${projectErrors.endDate ? "form-field-error" : ""}`}>
+              <label>Expected Project End Date<span className="required-mark">*</span></label>
               <input
                 type="date"
                 value={projectForm.endDate}
                 min={projectForm.startDate || undefined}
-                onChange={(e) =>
-                  setProjectForm({ ...projectForm, endDate: e.target.value })
-                }
+                onChange={(e) => setProjectForm({ ...projectForm, endDate: e.target.value })}
                 disabled={saving}
               />
-              {projectErrors.endDate && (
-                <span className="form-error-text">{projectErrors.endDate}</span>
-              )}
-              <span className="form-hint">
-                Planned target date — not the actual production completion or
-                dispatch date.
-              </span>
+              {projectErrors.endDate && <span className="form-error-text">{projectErrors.endDate}</span>}
             </div>
             <div className="form-field">
               <label>Project Status</label>
               <select
                 value={projectForm.status}
-                onChange={(e) =>
-                  setProjectForm({ ...projectForm, status: e.target.value })
-                }
+                onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}
                 disabled={saving}
               >
                 <option>Active</option>
@@ -1476,478 +1163,12 @@ export default function DwgBom() {
           </div>
         </div>
         <div className="form-actions">
-          <button
-            className="btn btn-secondary"
-            onClick={() => setShowAddProject(false)}
-            disabled={saving}
-          >
-            Cancel
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleAddProject}
-            disabled={saving}
-          >
+          <button className="btn btn-secondary" onClick={() => setShowAddProject(false)} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleAddProject} disabled={saving}>
             {saving ? "Saving..." : "Add Project"}
           </button>
         </div>
       </Modal>
-
-      {/* ============= Add Drawing Modal ============= */}
-      <Modal
-        open={showAddDrawing}
-        title="Add Drawing"
-        subtitle={selectedProject ? `For ${selectedProject.name}` : ""}
-        onClose={() => !saving && setShowAddDrawing(false)}
-      >
-        <div className="form-section">
-          {drawingErrors.submit && (
-            <div className="form-error-text" style={{ marginBottom: 12 }}>
-              {drawingErrors.submit}
-            </div>
-          )}
-          <div className="form-grid">
-            <div
-              className={`form-field ${
-                drawingErrors.dwgNumber ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                DWG Number<span className="required-mark">*</span>
-              </label>
-              <input
-                value={drawingForm.dwgNumber}
-                onChange={(e) =>
-                  setDrawingForm({ ...drawingForm, dwgNumber: e.target.value })
-                }
-                placeholder="e.g. DWG-005"
-                disabled={saving}
-              />
-              {drawingErrors.dwgNumber && (
-                <span className="form-error-text">
-                  {drawingErrors.dwgNumber}
-                </span>
-              )}
-            </div>
-            <div
-              className={`form-field ${
-                drawingErrors.name ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                DWG Name / Title<span className="required-mark">*</span>
-              </label>
-              <input
-                value={drawingForm.name}
-                onChange={(e) =>
-                  setDrawingForm({ ...drawingForm, name: e.target.value })
-                }
-                disabled={saving}
-              />
-              {drawingErrors.name && (
-                <span className="form-error-text">{drawingErrors.name}</span>
-              )}
-            </div>
-            <div
-              className={`form-field ${
-                drawingErrors.revision ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Drawing Revision<span className="required-mark">*</span>
-              </label>
-              <input
-                value={drawingForm.revision}
-                onChange={(e) =>
-                  setDrawingForm({ ...drawingForm, revision: e.target.value })
-                }
-                placeholder="e.g. REV-01"
-                disabled={saving}
-              />
-              {drawingErrors.revision && (
-                <span className="form-error-text">
-                  {drawingErrors.revision}
-                </span>
-              )}
-            </div>
-            <div
-              className={`form-field ${
-                drawingErrors.date ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Drawing Date<span className="required-mark">*</span>
-              </label>
-              <input
-                type="date"
-                value={drawingForm.date}
-                onChange={(e) =>
-                  setDrawingForm({ ...drawingForm, date: e.target.value })
-                }
-                disabled={saving}
-              />
-              {drawingErrors.date && (
-                <span className="form-error-text">{drawingErrors.date}</span>
-              )}
-            </div>
-            <div className="form-field">
-              <label>Drawing File</label>
-              <input
-                value={drawingForm.file}
-                onChange={(e) =>
-                  setDrawingForm({ ...drawingForm, file: e.target.value })
-                }
-                placeholder="DWG-005.pdf"
-                disabled={saving}
-              />
-            </div>
-            <div className="form-field form-field-full">
-              <label>Remarks</label>
-              <textarea
-                rows={2}
-                value={drawingForm.remarks}
-                onChange={(e) =>
-                  setDrawingForm({ ...drawingForm, remarks: e.target.value })
-                }
-                disabled={saving}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="form-actions">
-          <button
-            className="btn btn-secondary"
-            onClick={() => setShowAddDrawing(false)}
-            disabled={saving}
-          >
-            Cancel
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleAddDrawing}
-            disabled={saving}
-          >
-            {saving ? "Saving..." : "Add DWG"}
-          </button>
-        </div>
-      </Modal>
-
-      {/* ============= BOM Modal — Separate Description Fields ============= */}
-      <Modal
-        open={bomModalOpen}
-        title={editingBomId ? "Edit BOM Material" : "Add BOM Material"}
-        subtitle={selectedDrawing ? selectedDrawing.dwgNumber : ""}
-        onClose={() => !saving && setBomModalOpen(false)}
-        wide={true}
-      >
-        <div className="form-section">
-          {bomErrors.submit && (
-            <div className="form-error-text" style={{ marginBottom: 12 }}>
-              {bomErrors.submit}
-            </div>
-          )}
-
-          <div className="form-grid">
-            <div className="form-field">
-              <label>Variant Number</label>
-              <input
-                value={bomForm.variantNumber}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, variantNumber: e.target.value })
-                }
-                disabled={saving}
-              />
-            </div>
-            <div className="form-field">
-              <label>Item Number</label>
-              <input
-                value={bomForm.itemNumber}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, itemNumber: e.target.value })
-                }
-                disabled={saving}
-              />
-            </div>
-
-            {/* ---------- DESCRIPTION BLOCK ---------- */}
-            <div
-              className={`form-field form-field-full ${
-                bomErrors.description ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Description<span className="required-mark">*</span>
-              </label>
-
-              <div className="form-grid form-grid-inner">
-                <div className="form-field">
-                  <label className="form-sublabel">Material Type</label>
-                  <input
-                    value={bomForm.description.materialType}
-                    onChange={(e) =>
-                      setBomDescriptionField("materialType", e.target.value)
-                    }
-                    placeholder="Plate / Pipe / Channel"
-                    disabled={saving}
-                  />
-                </div>
-
-                <div className="form-field">
-                  <label className="form-sublabel">Thickness</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={bomForm.description.thickness}
-                    onChange={(e) =>
-                      setBomDescriptionField("thickness", e.target.value)
-                    }
-                    placeholder="e.g. 6"
-                    disabled={saving}
-                  />
-                </div>
-
-                <div className="form-field">
-                  <label className="form-sublabel">Length</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={bomForm.description.length}
-                    onChange={(e) =>
-                      setBomDescriptionField("length", e.target.value)
-                    }
-                    placeholder="e.g. 530"
-                    disabled={saving}
-                  />
-                </div>
-
-                <div className="form-field">
-                  <label className="form-sublabel">Width</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={bomForm.description.width}
-                    onChange={(e) =>
-                      setBomDescriptionField("width", e.target.value)
-                    }
-                    placeholder="e.g. 530"
-                    disabled={saving}
-                  />
-                </div>
-
-                <div className="form-field">
-                  <label className="form-sublabel">Grade</label>
-                  <input
-                    value={bomForm.description.grade}
-                    onChange={(e) =>
-                      setBomDescriptionField("grade", e.target.value)
-                    }
-                    placeholder="IS2062 E250A"
-                    disabled={saving}
-                  />
-                </div>
-
-                <div className="form-field form-field-full">
-                  <label className="form-sublabel">Remarks</label>
-                  <input
-                    value={bomForm.description.remarks}
-                    onChange={(e) =>
-                      setBomDescriptionField("remarks", e.target.value)
-                    }
-                    placeholder="Optional free text"
-                    disabled={saving}
-                  />
-                </div>
-              </div>
-
-              {bomErrors.description && (
-                <span className="form-error-text">
-                  {bomErrors.description}
-                </span>
-              )}
-            </div>
-            {/* ---------- /DESCRIPTION BLOCK ---------- */}
-
-            <div className="form-field">
-              <label>STD</label>
-              <input
-                value={bomForm.std}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, std: e.target.value })
-                }
-                disabled={saving}
-              />
-            </div>
-            <div className="form-field">
-              <label>Drawing Number</label>
-              <input
-                value={bomForm.drawingNumber}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, drawingNumber: e.target.value })
-                }
-                disabled={saving}
-              />
-            </div>
-            <div className="form-field">
-              <label>Item No</label>
-              <input
-                value={bomForm.itemNo}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, itemNo: e.target.value })
-                }
-                disabled={saving}
-              />
-            </div>
-            <div className="form-field">
-              <label>Var No</label>
-              <input
-                value={bomForm.varNo}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, varNo: e.target.value })
-                }
-                disabled={saving}
-              />
-            </div>
-            <div
-              className={`form-field ${
-                bomErrors.materialCode ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Material Code<span className="required-mark">*</span>
-              </label>
-              <input
-                value={bomForm.materialCode}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, materialCode: e.target.value })
-                }
-                disabled={saving}
-              />
-              {bomErrors.materialCode && (
-                <span className="form-error-text">
-                  {bomErrors.materialCode}
-                </span>
-              )}
-            </div>
-            <div className="form-field">
-              <label>Material Specn</label>
-              <input
-                value={bomForm.materialSpecn}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, materialSpecn: e.target.value })
-                }
-                placeholder="IS2062 E250A"
-                disabled={saving}
-              />
-            </div>
-            <div className="form-field">
-              <label>A/C/P</label>
-              <input
-                value={bomForm.acp}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, acp: e.target.value })
-                }
-                disabled={saving}
-              />
-            </div>
-            <div className="form-field">
-              <label>DI</label>
-              <input
-                value={bomForm.di}
-                onChange={(e) => setBomForm({ ...bomForm, di: e.target.value })}
-                disabled={saving}
-              />
-            </div>
-            <div
-              className={`form-field ${
-                bomErrors.unit ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Unit<span className="required-mark">*</span>
-              </label>
-              <select
-                value={bomForm.unit}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, unit: e.target.value })
-                }
-                disabled={saving}
-              >
-                <option>Nos</option>
-                <option>Mtr</option>
-                <option>Kg</option>
-                <option>Set</option>
-              </select>
-            </div>
-            <div className="form-field">
-              <label>Unit Weight</label>
-              <input
-                type="number"
-                step="0.01"
-                value={bomForm.unitWeight}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, unitWeight: e.target.value })
-                }
-                disabled={saving}
-              />
-              <span className="form-hint">
-                Informational only — not the controlling quantity.
-              </span>
-            </div>
-            <div
-              className={`form-field ${
-                bomErrors.quantity ? "form-field-error" : ""
-              }`}
-            >
-              <label>
-                Quantity<span className="required-mark">*</span>
-              </label>
-              <input
-                type="number"
-                value={bomForm.quantity}
-                onChange={(e) =>
-                  setBomForm({ ...bomForm, quantity: e.target.value })
-                }
-                disabled={saving}
-              />
-              {bomErrors.quantity && (
-                <span className="form-error-text">{bomErrors.quantity}</span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="form-actions">
-          <button
-            className="btn btn-secondary"
-            onClick={() => setBomModalOpen(false)}
-            disabled={saving}
-          >
-            Cancel
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleSaveBomItem}
-            disabled={saving}
-          >
-            {saving
-              ? "Saving..."
-              : editingBomId
-                ? "Save Changes"
-                : "Add Material"}
-          </button>
-        </div>
-      </Modal>
-
-      <ConfirmDialog
-        open={!!deleteTarget}
-        title="Delete BOM item?"
-        message={
-          deleteTarget
-            ? `This BOM item will be removed from the drawing.`
-            : ""
-        }
-        onCancel={() => !saving && setDeleteTarget(null)}
-        onConfirm={handleDeleteBom}
-      />
     </PageShell>
   );
 }

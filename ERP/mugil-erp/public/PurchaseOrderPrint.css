@@ -76,7 +76,11 @@ body {
 }
 
 /* =========================================================================
-   PAGE HOST
+   PAGE HOST (screen preview)
+   -------------------------------------------------------------------------
+   Centers the A4 pages horizontally in the preview. Screen-only: the print
+   rules below reset this to display:block, and the PDF export uses its own
+   private host (.pop-export-host), so neither is affected.
    ========================================================================= */
 
 .pop-pages {
@@ -84,13 +88,19 @@ body {
   flex-direction: column;
   align-items: center;
 
-  gap: 18px;
+  gap: 16px;
 
-  padding: 16px 0 40px;
+  padding: 16px 0;
 }
 
 /* =========================================================================
    A4 PAGE
+   -------------------------------------------------------------------------
+   A page is a plain white sheet. It deliberately has NO border, NO
+   box-shadow and NO margin. Those used to be declared here for an on-screen
+   "paper" look and then cancelled by a separate "!important" override block;
+   anything that screenshots the live DOM (html2canvas) captured whichever of
+   the two won, which is how a frame could end up in the PDF.
    ========================================================================= */
 
 .pop-page {
@@ -101,14 +111,46 @@ body {
   width: 793.7008px;
   height: 1122.5197px;
 
+  margin: 0;
+
   overflow: hidden;
 
   background: #fff;
 
-  border: 1px solid #a9a9a9;
+  border: 0;
+  box-shadow: none;
+}
 
-  box-shadow:
-    0 3px 12px rgba(0, 0, 0, 0.14);
+/* =========================================================================
+   PDF EXPORT HOST
+   -------------------------------------------------------------------------
+   Built by buildPdfExportHost() in PurchaseOrderPrint.js and handed to
+   html2pdf instead of the live preview. Nothing on screen or in print
+   depends on it. The inline styles set by the script are authoritative;
+   these rules are a second layer of the same guarantee.
+   ========================================================================= */
+
+.pop-export-host {
+  display: block;
+
+  margin: 0;
+  padding: 0;
+
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+
+  background: #fff;
+}
+
+.pop-export-host .pop-page {
+  margin: 0;
+
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+
+  background: #fff;
 }
 
 /* =========================================================================
@@ -644,4 +686,3 @@ body {
     page-break-inside: avoid;
   }
 }
-

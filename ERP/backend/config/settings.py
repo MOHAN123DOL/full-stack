@@ -114,21 +114,28 @@ TEMPLATES = [
 # ============================================================
 # DATABASE
 # ============================================================
-
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "erp"),
-        "USER": os.getenv("DB_USER", "erpuser"),
-        "PASSWORD": os.getenv("DB_PASSWORD", ""),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
-        "OPTIONS": {
-            "connect_timeout": 10,
-        },
-        "CONN_MAX_AGE": 60,
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
+
+
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "NAME": os.getenv("DB_NAME", "erp"),
+#         "USER": os.getenv("DB_USER", "erpuser"),
+#         "PASSWORD": os.getenv("DB_PASSWORD", ""),
+#         "HOST": os.getenv("DB_HOST", "localhost"),
+#         "PORT": os.getenv("DB_PORT", "5432"),
+#         "OPTIONS": {
+#             "connect_timeout": 10,
+#         },
+#         "CONN_MAX_AGE": 60,
+#     }
+# }
 
 
 # ============================================================
@@ -184,7 +191,8 @@ REFRESH_COOKIE_NAMES = {
 }
 
 REFRESH_COOKIE_PATH = "/api/erp/"
-REFRESH_COOKIE_SECURE = not DEBUG
+# REFRESH_COOKIE_SECURE = not DEBUG
+REFRESH_COOKIE_SECURE = False
 REFRESH_COOKIE_HTTPONLY = True
 REFRESH_COOKIE_SAMESITE = "Lax"
 REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60
@@ -221,7 +229,7 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 # Do NOT use:
-# CORS_ALLOW_ALL_ORIGINS = True
+
 
 
 # ============================================================
@@ -233,6 +241,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+
 ]
 
 
@@ -244,7 +253,8 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 
 if not DEBUG:
-    SESSION_COOKIE_SECURE = True
+    #SESSION_COOKIE_SECURE = True\
+    SESSION_COOKIE_SECURE = False
 
 
 # ============================================================
@@ -254,7 +264,8 @@ if not DEBUG:
 CSRF_COOKIE_SAMESITE = "Lax"
 
 if not DEBUG:
-    CSRF_COOKIE_SECURE = True
+    #CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = False
 
 
 # ============================================================

@@ -34,20 +34,42 @@ function loadQuotationPrintEngine() {
 
   quotationPrintEnginePromise = new Promise((resolve, reject) => {
     const existing = document.querySelector(
-      'script[data-quotation-print-engine="true"]',
+      'script[data-quotation-print-engine="true"]'
     );
     if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () =>
-        reject(new Error("QuotationPrint.js failed to load")),
-      );
+      if (typeof window.generateQuotationPrint === "function") {
+        resolve();
+        return;
+      }
+      const onLoad = () => {
+        if (typeof window.generateQuotationPrint === "function") {
+          resolve();
+        } else {
+          quotationPrintEnginePromise = null;
+          reject(new Error("QuotationPrint.js loaded but did not register generateQuotationPrint"));
+        }
+      };
+      const onError = () => {
+        quotationPrintEnginePromise = null;
+        reject(new Error("QuotationPrint.js failed to load"));
+      };
+      existing.addEventListener("load", onLoad, { once: true });
+      existing.addEventListener("error", onError, { once: true });
       return;
     }
+    
     const script = document.createElement("script");
     script.src = "/QuotationPrint.js";
     script.async = true;
     script.dataset.quotationPrintEngine = "true";
-    script.onload = () => resolve();
+    script.onload = () => {
+      if (typeof window.generateQuotationPrint === "function") {
+        resolve();
+      } else {
+        quotationPrintEnginePromise = null;
+        reject(new Error("QuotationPrint.js loaded but did not register generateQuotationPrint"));
+      }
+    };
     script.onerror = () => {
       quotationPrintEnginePromise = null;
       reject(new Error("QuotationPrint.js failed to load"));
@@ -791,27 +813,47 @@ export default function QuotationForm() {
 
   // ============================================================
   // CLEAR FORM
+  // Keeps Quotation Number and Customer details,
+  // resets everything else.
   // ============================================================
   const clearForm = async () => {
-    if (!window.confirm("Clear all fields and start a new Quotation?")) return;
+    if (
+      !window.confirm(
+        "Clear all fields? The Quotation Number and Customer details will be kept.",
+      )
+    )
+      return;
+
+    // Snapshot the fields that must survive the reset.
+    const preservedQuotationNumber = data.quotationNumber;
+    const preservedVendor = data.vendor;
+    const preservedSelectedCustomerId = selectedCustomerId;
+    const preservedOriginalVendor = originalVendor;
 
     localStorage.removeItem(DRAFT_KEY);
 
+    // Build a fresh quotation, then restore the preserved fields.
     const fresh = normalizeQuoteData(initialQuoteData());
+    setData({
+      ...fresh,
+      quotationNumber: preservedQuotationNumber,
+      vendor: preservedVendor,
+    });
 
-    setData(fresh);
     setErrors({});
     setSavedAt(null);
-    setSelectedCustomerId("");
-    setOriginalVendor(null);
     setCustomerActionError("");
     setSubmitError("");
     setQuotationNumberError("");
     setNumberChoice("auto");
 
-    if (accessToken) {
-      await loadQuotationNumber();
-    }
+    // Restore customer selection state (do NOT re-load quotation number).
+    setSelectedCustomerId(preservedSelectedCustomerId);
+    setOriginalVendor(preservedOriginalVendor);
+
+    // NOTE: intentionally do NOT call loadQuotationNumber() here,
+    // because that endpoint returns the previous quotation's data
+    // and would re-populate the fields we just cleared.
   };
 
   // ============================================================

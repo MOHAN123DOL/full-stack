@@ -528,7 +528,7 @@ export default function POIntegration() {
               <div className="page-header-title-group">
                 <h1 className="page-header-title">PO Integration</h1>
                 <p className="page-header-subtitle">
-                  Link project integrations to Purchase Order descriptions.
+                  Integrate Purchase Orders directly with a project.
                 </p>
               </div>
             </div>
@@ -727,11 +727,8 @@ export default function POIntegration() {
                         <th>PO Number</th>
                         <th>Item Code</th>
                         <th>Description</th>
-                        <th>Material</th>
-                        <th>L × W × T</th>
                         <th>PO Qty</th>
                         <th>Integrated</th>
-                        <th>Remaining</th>
                         <th>Unit</th>
                         <th>Integrate Qty</th>
                       </tr>
@@ -739,7 +736,7 @@ export default function POIntegration() {
                     <tbody>
                       {dataLoading && (
                         <tr>
-                          <td colSpan={10}>
+                          <td colSpan={7}>
                             <Loading />
                           </td>
                         </tr>
@@ -750,10 +747,6 @@ export default function POIntegration() {
                           const key = rowKeyOf(p);
                           const q = quantities[key] ?? "";
                           const filled = q !== "" && Number(q) > 0;
-                          const dims = [p.length, p.width, p.thickness]
-                            .filter(Boolean)
-                            .join(" × ");
-
                           return (
                             <tr
                               key={key}
@@ -775,18 +768,9 @@ export default function POIntegration() {
                                 {p.poItemCode || "—"}
                               </td>
                               <td>{p.description || "—"}</td>
-                              <td className="cell-muted">
-                                {p.material || "—"}
-                              </td>
-                              <td className="cell-muted">{dims || "—"}</td>
                               <td>{fmt(p.poQuantity)}</td>
                               <td className="cell-muted">
                                 {fmt(p.poIntegrated)}
-                              </td>
-                              <td>
-                                <strong className="poi-remaining">
-                                  {fmt(p.poRemaining)}
-                                </strong>
                               </td>
                               <td>{p.unit || "—"}</td>
                               <td>
@@ -813,7 +797,7 @@ export default function POIntegration() {
 
                       {!dataLoading && filteredPoItems.length === 0 && (
                         <tr>
-                          <td colSpan={10}>
+                          <td colSpan={7}>
                             <div className="empty-state">
                               <div className="empty-state-icon">
                                 <AlertCircle size={20} strokeWidth={1.7} />

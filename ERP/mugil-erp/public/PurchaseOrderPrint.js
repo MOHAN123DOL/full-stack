@@ -316,7 +316,95 @@
 
   /* =======================================================================
      PDF BUILDER
+     -----------------------------------------------------------------------
+     WHY THIS IS NOT JUST html2pdf().from(pagesHost)
+     -----------------------------------------------------------------------
+     html2pdf.js does not know about our explicit .pop-page elements. It
+     screenshots the whole host into ONE tall canvas and then slices that
+     canvas into A4-sized strips:
+
+         stripHeight = Math.floor(canvas.width * (297 / 210))     (canvas px)
+         pdfPages    = Math.ceil(canvas.height / stripHeight)
+
+     html2canvas sizes that canvas with Math.ceil(), and a real A4 page is
+     297mm = 1122.5197 CSS px tall, which is NOT a whole number of strips:
+
+         1 page : canvas.height = 2246   strip = 2245   ->  2 PDF pages
+         2 pages: canvas.height = 4492   strip = 2245   ->  3 PDF pages
+         9 pages: canvas.height = 20206  strip = 2245   -> 10 PDF pages
+
+     The 1-2 px overshoot becomes a whole extra PDF page that contains only
+     a white sliver. That is the "blank page" (it is always exactly one
+     page, and it is always the last one).
+
+     The fix is to make the screenshot's geometry exactly match the strips:
+
+       1. Export from a private host (".pop-export-host"), never from the
+          live preview: pages are cloned, every page is forced to exactly
+          one strip tall (strip / scale = 1122.5 CSS px), and border,
+          outline, shadow and margin are forced to zero inline, so no
+          stylesheet rule (or stale cached copy of it) can leak a frame
+          into the PDF.
+       2. html2canvas is given an explicit width/height (794 x N * 1122.5)
+          so canvas.height === N * stripHeight exactly. No Math.ceil
+          overshoot, therefore exactly N PDF pages.
+       3. html2pdf's "avoid-all" page-break mode is switched off. Pages are
+          already explicit; avoid-all walks every element and injects
+          padding <div>s whenever an element straddles a 1122px boundary.
+       4. The window is scrolled to the top while capturing. html2pdf's
+          capture container is position:fixed, and html2canvas offsets it
+          by window.scrollY, so a scrolled preview produced shifted or
+          completely blank pages.
+       5. Safety net: if the PDF still ends up with more pages than there
+          are .pop-page elements, the surplus trailing pages are deleted.
      ======================================================================= */
+
+  var PDF_RENDER_SCALE = 2;
+
+  function getPdfPageCount(pdf) {
+    if (pdf && typeof pdf.getNumberOfPages === "function") {
+      return pdf.getNumberOfPages();
+    }
+
+    return pdf.internal.getNumberOfPages();
+  }
+
+  function buildPdfExportHost(livePages, exportWidthPx, pagePitchCssPx) {
+    var host = document.createElement("div");
+
+    host.className = "pop-export-host";
+
+    host.style.display = "block";
+    host.style.position = "static";
+    host.style.width = exportWidthPx + "px";
+    host.style.margin = "0";
+    host.style.padding = "0";
+    host.style.border = "0";
+    host.style.outline = "0";
+    host.style.boxShadow = "none";
+    host.style.background = "#ffffff";
+
+    livePages.forEach(function (livePage) {
+      var copy = livePage.cloneNode(true);
+
+      copy.style.margin = "0";
+      copy.style.border = "0";
+      copy.style.outline = "0";
+      copy.style.boxShadow = "none";
+      copy.style.background = "#ffffff";
+      copy.style.flex = "none";
+
+      /*
+       * Exactly one html2pdf strip tall, so that
+       * N pages === N strips with no remainder.
+       */
+      copy.style.height = pagePitchCssPx + "px";
+
+      host.appendChild(copy);
+    });
+
+    return host;
+  }
 
   function buildPdfBlob(pagesHost, filename) {
     return loadHtml2Pdf().then(function (html2pdf) {
@@ -326,31 +414,112 @@
         );
       }
 
+      var livePages = Array.prototype.slice.call(
+        pagesHost.querySelectorAll(".pop-page"),
+      );
+
+      if (!livePages.length) {
+        throw new Error(
+          "PDF generation failed: no pages were rendered.",
+        );
+      }
+
+      var pageCount = livePages.length;
+
+      /*
+       * Reproduce html2pdf's own slicing arithmetic so the capture can be
+       * made to line up with it exactly.
+       */
+      var exportWidthPx = Math.ceil(PAGE_MM.width * MM_TO_PX);
+
+      var canvasWidthPx = exportWidthPx * PDF_RENDER_SCALE;
+
+      var stripHeightPx = Math.floor(
+        canvasWidthPx * (PAGE_MM.height / PAGE_MM.width),
+      );
+
+      var pagePitchCssPx = stripHeightPx / PDF_RENDER_SCALE;
+
+      var exportHost = buildPdfExportHost(
+        livePages,
+        exportWidthPx,
+        pagePitchCssPx,
+      );
+
       var options = {
         margin: 0,
         filename: filename || "purchase-order.pdf",
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: {
-          scale: 2,
+          scale: PDF_RENDER_SCALE,
           useCORS: true,
           backgroundColor: "#ffffff",
           logging: false,
+
+          /*
+           * Explicit capture size => canvas.height is exactly
+           * pageCount * stripHeightPx (no Math.ceil overshoot).
+           */
+          width: exportWidthPx,
+          height: pageCount * pagePitchCssPx,
+
+          scrollX: 0,
+          scrollY: 0,
         },
         jsPDF: {
           unit: "mm",
           format: "a4",
           orientation: "portrait",
         },
-        pagebreak: { mode: ["css", "legacy"] },
+
+        /*
+         * Pages are already explicit .pop-page elements. "avoid-all"
+         * would inject padding <div>s into the capture.
+         */
+        pagebreak: {
+          mode: [],
+        },
       };
+
+      var previousScrollX = window.pageXOffset || 0;
+      var previousScrollY = window.pageYOffset || 0;
+
+      window.scrollTo(0, 0);
+
+      function restoreScroll() {
+        window.scrollTo(previousScrollX, previousScrollY);
+      }
 
       var worker = html2pdf()
         .set(options)
-        .from(pagesHost);
+        .from(exportHost);
 
-      return worker.toPdf().get("pdf").then(function () {
-        return worker.outputPdf("blob");
-      });
+      return worker
+        .toPdf()
+        .get("pdf")
+        .then(function (pdf) {
+          /*
+           * Safety net: never emit more PDF pages than rendered
+           * .pop-page elements.
+           */
+          while (getPdfPageCount(pdf) > pageCount) {
+            pdf.deletePage(getPdfPageCount(pdf));
+          }
+
+          return worker.outputPdf("blob");
+        })
+        .then(
+          function (blob) {
+            restoreScroll();
+
+            return blob;
+          },
+          function (error) {
+            restoreScroll();
+
+            throw error;
+          },
+        );
     });
   }
 

@@ -1172,3 +1172,47 @@
   font-size: 0.85rem;
   border: 1px solid #fecaca;
 }
+/* Plain mode for the hero section (removes the dark blue background) */
+.po-hero--plain {
+  background: transparent !important;
+  color: var(--text-color, #111827) !important;
+  box-shadow: none !important;
+  padding: 0 0 24px 0 !important;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 24px;
+}
+
+.po-hero--plain .po-hero__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.po-hero--plain .po-hero__heading h1 {
+  color: #111827 !important; /* Dark text for light background */
+  margin-bottom: 4px;
+}
+
+.po-hero--plain .po-hero__heading p {
+  color: #6b7280 !important; /* Gray subtitle */
+}
+
+.po-hero--plain .erp-back-button {
+  color: #4b5563 !important;
+}
+
+/* Make the status cards look like subtle gray boxes on white */
+.po-hero--plain .po-status__card {
+  background: #f3f4f6 !important; 
+  border: 1px solid #e5e7eb !important;
+  color: #111827 !important;
+}
+
+.po-hero--plain .po-status__label {
+  color: #6b7280 !important;
+}
+
+.po-hero--plain .po-status__card strong {
+  color: #111827 !important;
+}

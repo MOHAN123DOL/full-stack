@@ -14,27 +14,55 @@ import Error from "./error.jsx";
 ========================================================= */
 
 const IconUser = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M20 21a8 8 0 0 0-16 0" />
     <circle cx="12" cy="7" r="4" />
   </svg>
 );
 
 const IconMail = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="3" y="5" width="18" height="14" rx="2" />
     <polyline points="3,7 12,13 21,7" />
   </svg>
 );
 
 const IconPhone = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
   </svg>
 );
 
 const IconBriefcase = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="3" y="7" width="18" height="13" rx="2" />
     <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     <path d="M3 12h18" />
@@ -43,17 +71,34 @@ const IconBriefcase = () => (
 );
 
 const IconBuilding = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="4" y="3" width="16" height="18" rx="1" />
-    <path d="M8 7h2" /><path d="M14 7h2" />
-    <path d="M8 11h2" /><path d="M14 11h2" />
-    <path d="M8 15h2" /><path d="M14 15h2" />
+    <path d="M8 7h2" />
+    <path d="M14 7h2" />
+    <path d="M8 11h2" />
+    <path d="M14 11h2" />
+    <path d="M8 15h2" />
+    <path d="M14 15h2" />
     <path d="M10 21v-3h4v3" />
   </svg>
 );
 
 const IconGlobe = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="12" cy="12" r="9" />
     <line x1="3" y1="12" x2="21" y2="12" />
     <path d="M12 3a14 14 0 0 1 0 18" />
@@ -62,7 +107,14 @@ const IconGlobe = () => (
 );
 
 const IconCalendar = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="3" y="4" width="18" height="17" rx="2" />
     <line x1="16" y1="2" x2="16" y2="6" />
     <line x1="8" y1="2" x2="8" y2="6" />
@@ -71,28 +123,56 @@ const IconCalendar = () => (
 );
 
 const IconClock = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="12" cy="12" r="9" />
     <polyline points="12,7 12,12 15,14" />
   </svg>
 );
 
 const IconShield = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M12 3l8 4v5c0 5.5-3.5 8.5-8 9-4.5-.5-8-3.5-8-9V7l8-4z" />
     <polyline points="9,12 11,14 15,10" />
   </svg>
 );
 
 const IconLock = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="4" y="10" width="16" height="11" rx="2" />
     <path d="M8 10V7a4 4 0 0 1 8 0v3" />
   </svg>
 );
 
 const IconInfo = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="12" cy="12" r="9" />
     <line x1="12" y1="10" x2="12" y2="16" />
     <circle cx="12" cy="7" r="0.5" fill="currentColor" />
@@ -100,7 +180,14 @@ const IconInfo = () => (
 );
 
 const IconArrowLeft = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <line x1="19" y1="12" x2="5" y2="12" />
     <polyline points="12,19 5,12 12,5" />
   </svg>
@@ -113,36 +200,75 @@ const IconLogout = () => (
 );
 
 const IconClose = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+  >
     <line x1="18" y1="6" x2="6" y2="18" />
     <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
 
 const IconPencil = () => (
-  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    width="14"
+    height="14"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M12 20h9" />
     <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
   </svg>
 );
 
 const IconTrash = () => (
-  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    width="14"
+    height="14"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="3 6 5 6 21 6" />
     <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-    <path d="M10 11v6" /><path d="M14 11v6" />
+    <path d="M10 11v6" />
+    <path d="M14 11v6" />
     <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
   </svg>
 );
 
 const IconChevronLeft = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="15,18 9,12 15,6" />
   </svg>
 );
 
 const IconChevronRight = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="9,6 15,12 9,18" />
   </svg>
 );
@@ -152,12 +278,28 @@ const IconChevronRight = () => (
 ========================================================= */
 
 const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 const WEEKDAY_NAMES = [
-  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
 ];
 
 const WEEKDAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -172,13 +314,13 @@ const parseDateKey = (key) => {
 };
 
 const STATUS_META = {
-  PRESENT:     { label: "Present",                    tone: "present" },
-  NOT_ENTERED: { label: "Attendance Not Entered",     tone: "pending" },
-  HALF_DAY:    { label: "Half Day",                   tone: "pending" },
-  ABSENT:      { label: "Absent",                     tone: "leave" },
-  LEAVE:       { label: "Leave",                      tone: "leave" },
-  HOLIDAY:     { label: "Holiday",                    tone: "off" },
-  WEEKLY_OFF:  { label: "Weekly Off",                 tone: "off" },
+  PRESENT: { label: "Present", tone: "present" },
+  NOT_ENTERED: { label: "Attendance Not Entered", tone: "pending" },
+  HALF_DAY: { label: "Half Day", tone: "pending" },
+  ABSENT: { label: "Absent", tone: "leave" },
+  LEAVE: { label: "Leave", tone: "leave" },
+  HOLIDAY: { label: "Holiday", tone: "off" },
+  WEEKLY_OFF: { label: "Weekly Off", tone: "off" },
 };
 
 const RAW_STATUS_LABELS = {
@@ -193,16 +335,27 @@ const RAW_STATUS_LABELS = {
 };
 
 const normalizeStatus = (raw) => {
-  switch (String(raw || "").trim().toUpperCase()) {
+  switch (
+    String(raw || "")
+      .trim()
+      .toUpperCase()
+  ) {
     case "PRESENT":
-    case "WFH": return "PRESENT";
-    case "HALF_DAY": return "HALF_DAY";
-    case "ABSENT": return "ABSENT";
+    case "WFH":
+      return "PRESENT";
+    case "HALF_DAY":
+      return "HALF_DAY";
+    case "ABSENT":
+      return "ABSENT";
     case "PAID_LEAVE":
-    case "UNPAID_LEAVE": return "LEAVE";
-    case "HOLIDAY": return "HOLIDAY";
-    case "WEEKLY_OFF": return "WEEKLY_OFF";
-    default: return "NOT_ENTERED";
+    case "UNPAID_LEAVE":
+      return "LEAVE";
+    case "HOLIDAY":
+      return "HOLIDAY";
+    case "WEEKLY_OFF":
+      return "WEEKLY_OFF";
+    default:
+      return "NOT_ENTERED";
   }
 };
 
@@ -251,7 +404,8 @@ const getAttendanceErrorMessage = (error) => {
   if (status === 401) return "Your session has expired. Please sign in again.";
   if (status === 403) return "You don't have permission to view attendance.";
   if (status === 404) return "The attendance service could not be found.";
-  if (status >= 500) return "The server had a problem. Please try again shortly.";
+  if (status >= 500)
+    return "The server had a problem. Please try again shortly.";
   if (!error?.response) return "Network error. Please check your connection.";
   return error.response?.data?.message || "Something went wrong.";
 };
@@ -268,7 +422,12 @@ function StatCard({ icon, label, value, tone }) {
     <div className="profile-stat-card">
       <div className={`profile-stat-icon tone-${tone}`}>{icon}</div>
       <div className="profile-stat-content">
-        <span className={"profile-stat-value" + (value === "Not available" ? " is-muted" : "")}>
+        <span
+          className={
+            "profile-stat-value" +
+            (value === "Not available" ? " is-muted" : "")
+          }
+        >
           {value}
         </span>
         <span className="profile-stat-label">{label}</span>
@@ -283,7 +442,12 @@ function InfoItem({ icon, label, value }) {
       <div className="profile-info-icon">{icon}</div>
       <div className="profile-info-content">
         <span className="profile-info-label">{label}</span>
-        <span className={"profile-info-value" + (value === "Not available" ? " is-muted" : "")}>
+        <span
+          className={
+            "profile-info-value" +
+            (value === "Not available" ? " is-muted" : "")
+          }
+        >
           {value}
         </span>
       </div>
@@ -313,12 +477,25 @@ function CircularProgress({ value, max, label, sublabel, muted = false }) {
   return (
     <div className="profile-circular-container">
       <svg className="profile-circular-svg" viewBox="0 0 200 200">
-        <circle className="profile-circular-bg" cx="100" cy="100" r={radius} strokeWidth="12" fill="none" />
+        <circle
+          className="profile-circular-bg"
+          cx="100"
+          cy="100"
+          r={radius}
+          strokeWidth="12"
+          fill="none"
+        />
         <circle
           className="profile-circular-progress"
-          cx="100" cy="100" r={radius}
-          stroke={getColor()} strokeWidth="12" fill="none"
-          strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset}
+          cx="100"
+          cy="100"
+          r={radius}
+          stroke={getColor()}
+          strokeWidth="12"
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
           transform="rotate(-90 100 100)"
         />
       </svg>
@@ -339,7 +516,9 @@ function WorkHoursCard({ hoursWorked, targetHours, sublabel, muted = false }) {
           <h3 className="profile-card-title">Work Hours</h3>
           <p className="profile-card-subtitle">Today's attendance</p>
         </div>
-        <div className="profile-card-icon clock"><IconClock /></div>
+        <div className="profile-card-icon clock">
+          <IconClock />
+        </div>
       </div>
       <CircularProgress
         value={hoursWorked}
@@ -376,15 +555,22 @@ function AttendanceSummary({ monthLabel, counts, unavailable }) {
 
       <div className="profile-summary-grid">
         {items.map((item) => (
-          <div key={item.key} className={`profile-summary-card tone-${item.key}`}>
-            <span className="profile-summary-value">{unavailable ? "–" : item.value}</span>
+          <div
+            key={item.key}
+            className={`profile-summary-card tone-${item.key}`}
+          >
+            <span className="profile-summary-value">
+              {unavailable ? "–" : item.value}
+            </span>
             <span className="profile-summary-label">{item.label}</span>
           </div>
         ))}
       </div>
 
       <div
-        className={"profile-summary-bar" + (unavailable || !total ? " is-empty" : "")}
+        className={
+          "profile-summary-bar" + (unavailable || !total ? " is-empty" : "")
+        }
         role="img"
         aria-label={
           unavailable
@@ -392,7 +578,8 @@ function AttendanceSummary({ monthLabel, counts, unavailable }) {
             : items.map((i) => `${i.label} ${i.value}`).join(", ")
         }
       >
-        {!unavailable && total > 0 &&
+        {!unavailable &&
+          total > 0 &&
           items
             .filter((i) => i.value > 0)
             .map((item) => (
@@ -546,11 +733,19 @@ function AttendanceCalendarCard({
           <p>{error}</p>
           <div className="profile-calendar-state-actions">
             {errorStatus === 401 ? (
-              <button type="button" className="profile-calendar-retry" onClick={onSignIn}>
+              <button
+                type="button"
+                className="profile-calendar-retry"
+                onClick={onSignIn}
+              >
                 Sign in again
               </button>
             ) : (
-              <button type="button" className="profile-calendar-retry" onClick={onRetry}>
+              <button
+                type="button"
+                className="profile-calendar-retry"
+                onClick={onRetry}
+              >
                 Try Again
               </button>
             )}
@@ -559,7 +754,9 @@ function AttendanceCalendarCard({
       ) : (
         <>
           <div className="profile-calendar-weekdays" aria-hidden="true">
-            {WEEKDAY_HEADERS.map((name) => <span key={name}>{name}</span>)}
+            {WEEKDAY_HEADERS.map((name) => (
+              <span key={name}>{name}</span>
+            ))}
           </div>
           <div
             className="profile-calendar-grid"
@@ -569,7 +766,12 @@ function AttendanceCalendarCard({
           >
             {cells}
           </div>
-          <p className={"profile-calendar-loading" + (loading ? " is-visible" : "")} role="status">
+          <p
+            className={
+              "profile-calendar-loading" + (loading ? " is-visible" : "")
+            }
+            role="status"
+          >
             {loading ? "Loading attendance..." : ""}
           </p>
         </>
@@ -577,16 +779,37 @@ function AttendanceCalendarCard({
 
       {adminMode ? (
         <ul className="profile-calendar-legend" aria-label="Legend">
-          <li><span className="profile-legend-dot tone-present" />Present</li>
-          <li><span className="profile-legend-dot tone-leave" />Absent / Leave</li>
-          <li><span className="profile-legend-dot tone-pending" />Not entered</li>
+          <li>
+            <span className="profile-legend-dot tone-present" />
+            Present
+          </li>
+          <li>
+            <span className="profile-legend-dot tone-leave" />
+            Absent / Leave
+          </li>
+          <li>
+            <span className="profile-legend-dot tone-pending" />
+            Not entered
+          </li>
         </ul>
       ) : (
         <ul className="profile-calendar-legend" aria-label="Legend">
-          <li><span className="profile-legend-dot tone-present" />Present</li>
-          <li><span className="profile-legend-dot tone-pending" />Not Entered</li>
-          <li><span className="profile-legend-dot tone-leave" />Leave / Absent</li>
-          <li><span className="profile-legend-dot tone-off" />Holiday / Weekly Off</li>
+          <li>
+            <span className="profile-legend-dot tone-present" />
+            Present
+          </li>
+          <li>
+            <span className="profile-legend-dot tone-pending" />
+            Not Entered
+          </li>
+          <li>
+            <span className="profile-legend-dot tone-leave" />
+            Leave / Absent
+          </li>
+          <li>
+            <span className="profile-legend-dot tone-off" />
+            Holiday / Weekly Off
+          </li>
         </ul>
       )}
     </section>
@@ -596,7 +819,11 @@ function AttendanceCalendarCard({
 function AttendanceDetails({ dateKey, record, status }) {
   const { title, subtitle } = formatLongDate(dateKey);
   const meta = STATUS_META[status];
-  const rawStatus = record ? String(record.status || "").trim().toUpperCase() : "";
+  const rawStatus = record
+    ? String(record.status || "")
+        .trim()
+        .toUpperCase()
+    : "";
   const statusLabel = record
     ? RAW_STATUS_LABELS[rawStatus] || rawStatus || meta.label
     : STATUS_META.NOT_ENTERED.label;
@@ -626,7 +853,9 @@ function AttendanceDetails({ dateKey, record, status }) {
           <h3>{title}</h3>
           <span>{subtitle}</span>
         </div>
-        <span className={`profile-status-pill tone-${meta.tone}`}>{statusLabel}</span>
+        <span className={`profile-status-pill tone-${meta.tone}`}>
+          {statusLabel}
+        </span>
       </div>
 
       {record ? (
@@ -667,29 +896,36 @@ function AdminDayDetails({ dateKey, counts }) {
       {counts ? (
         <dl className="profile-day-details-list">
           <div className="profile-day-details-row">
-            <dt>Present</dt><dd>{counts.present}</dd>
+            <dt>Present</dt>
+            <dd>{counts.present}</dd>
           </div>
           <div className="profile-day-details-row">
-            <dt>Absent</dt><dd>{counts.absent}</dd>
+            <dt>Absent</dt>
+            <dd>{counts.absent}</dd>
           </div>
           <div className="profile-day-details-row">
-            <dt>On Leave</dt><dd>{counts.leave}</dd>
+            <dt>On Leave</dt>
+            <dd>{counts.leave}</dd>
           </div>
           {counts.holiday > 0 && (
             <div className="profile-day-details-row">
-              <dt>Holiday</dt><dd>{counts.holiday}</dd>
+              <dt>Holiday</dt>
+              <dd>{counts.holiday}</dd>
             </div>
           )}
           {counts.weekly_off > 0 && (
             <div className="profile-day-details-row">
-              <dt>Weekly Off</dt><dd>{counts.weekly_off}</dd>
+              <dt>Weekly Off</dt>
+              <dd>{counts.weekly_off}</dd>
             </div>
           )}
           <div className="profile-day-details-row">
-            <dt>Not Marked</dt><dd>{counts.not_marked}</dd>
+            <dt>Not Marked</dt>
+            <dd>{counts.not_marked}</dd>
           </div>
           <div className="profile-day-details-row">
-            <dt>Total Active</dt><dd>{counts.total}</dd>
+            <dt>Total Active</dt>
+            <dd>{counts.total}</dd>
           </div>
         </dl>
       ) : (
@@ -714,7 +950,9 @@ function ToggleSwitch({ checked, onChange, disabled = false, label }) {
         (checked ? " is-on" : "") +
         (disabled ? " is-disabled" : "")
       }
-      onClick={() => { if (!disabled) onChange(!checked); }}
+      onClick={() => {
+        if (!disabled) onChange(!checked);
+      }}
     >
       <span className="profile-switch-thumb" />
     </button>
@@ -765,7 +1003,7 @@ export default function Profile() {
   /* ---- Two-step modal ---- */
   const [isTwoStepModalOpen, setIsTwoStepModalOpen] = useState(false);
   const [twoStepStep, setTwoStepStep] = useState("send"); // send | verify | done
-  const [twoStepEmail, setTwoStepEmail] = useState("");   // user-editable
+  const [twoStepEmail, setTwoStepEmail] = useState(""); // user-editable
   const [twoStepOtp, setTwoStepOtp] = useState("");
   const [twoStepLoading, setTwoStepLoading] = useState(false);
   const [twoStepError, setTwoStepError] = useState("");
@@ -819,8 +1057,10 @@ export default function Profile() {
 
   let workHoursSublabel = `Target ${targetHours}h`;
   if (!todayAttendance) {
-    if (todayAttendanceState === "loading") workHoursSublabel = "Loading attendance...";
-    else if (todayAttendanceState === "error") workHoursSublabel = "Attendance unavailable";
+    if (todayAttendanceState === "loading")
+      workHoursSublabel = "Loading attendance...";
+    else if (todayAttendanceState === "error")
+      workHoursSublabel = "Attendance unavailable";
     else workHoursSublabel = "Attendance not entered";
   }
 
@@ -868,7 +1108,9 @@ export default function Profile() {
       setProfileLoading(false);
     }
 
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, [authLoading, isAuthenticated, accessToken]);
 
   /* =======================================================
@@ -885,7 +1127,7 @@ export default function Profile() {
     setTwoStepEnabled(Boolean(security.two_step_enabled));
     setPasswordOtpEnabled(Boolean(security.password_otp_enabled));
     setLoginOtpEnabled(Boolean(security.login_otp_enabled));
-    
+
     // Pre-fill 2FA email if we have it
     if (security.verification_email) {
       setTwoStepEmail(security.verification_email);
@@ -908,26 +1150,25 @@ export default function Profile() {
     };
 
     return {
-      username:      pick("username", "user_name", "name") || "User",
-      accountId:     pick("accountId", "account_id", "id") || "Not available",
-      profilePhoto:  pick("profilePhoto", "profile_photo") || null,
-      email:         pick("email") || "Not available",
-      phone:         pick("phone") || "Not available",
-      role:          pick("role") || "Not available",
-      department:    pick("department") || "Not available",
-      employeeId:    pick("employeeId", "employee_id") || "Not available",
-      joiningDate:   pick("joiningDate", "joining_date") || "Not available",
-      lastLogin:     pick("lastLogin", "last_login") || "Not available",
+      username: pick("username", "user_name", "name") || "User",
+      accountId: pick("accountId", "account_id", "id") || "Not available",
+      profilePhoto: pick("profilePhoto", "profile_photo") || null,
+      email: pick("email") || "Not available",
+      phone: pick("phone") || "Not available",
+      role: pick("role") || "Not available",
+      department: pick("department") || "Not available",
+      employeeId: pick("employeeId", "employee_id") || "Not available",
+      joiningDate: pick("joiningDate", "joining_date") || "Not available",
+      lastLogin: pick("lastLogin", "last_login") || "Not available",
     };
   }, [raw]);
 
-  const userType = String(
-    profileData?.usertype ?? profileData?.userType ?? profileData?.user_type ?? "",
-  ).trim().toLowerCase();
-  const isAdmin = userType === "admin";
+  const isAdmin = false; // This component is for normal/department users only.
 
   const hasValidProfileEmail =
-    Boolean(data.email) && data.email !== "Not available" && isValidEmail(data.email);
+    Boolean(data.email) &&
+    data.email !== "Not available" &&
+    isValidEmail(data.email);
 
   /* =======================================================
      LOAD PERSONAL ATTENDANCE (non-admin only)
@@ -958,19 +1199,24 @@ export default function Profile() {
 
         if (!payload?.success) {
           setAttendanceRecords([]);
-          setAttendanceError(payload?.message || "Attendance could not be retrieved.");
+          setAttendanceError(
+            payload?.message || "Attendance could not be retrieved.",
+          );
           if (isCurrentMonth) setTodayAttendanceState("error");
           return;
         }
 
-        const records = Array.isArray(payload.data?.records) ? payload.data.records : [];
+        const records = Array.isArray(payload.data?.records)
+          ? payload.data.records
+          : [];
         setAttendanceRecords(records);
 
         if (isCurrentMonth) {
           const t = getTodayParts();
           const todayDateKey = toDateKey(t.year, t.month, t.day);
           setTodayAttendance(
-            records.find((r) => String(r.date).slice(0, 10) === todayDateKey) || null,
+            records.find((r) => String(r.date).slice(0, 10) === todayDateKey) ||
+              null,
           );
           setTodayAttendanceState("ready");
         }
@@ -996,13 +1242,20 @@ export default function Profile() {
     if (isAdmin) return; // admin doesn't fetch personal attendance
     fetchAttendance(calendarYear, calendarMonth);
   }, [
-    authLoading, isAuthenticated, accessToken,
-    calendarYear, calendarMonth, fetchAttendance, isAdmin,
+    authLoading,
+    isAuthenticated,
+    accessToken,
+    calendarYear,
+    calendarMonth,
+    fetchAttendance,
+    isAdmin,
   ]);
 
   useEffect(() => {
     const counter = attendanceRequestId;
-    return () => { counter.current += 1; };
+    return () => {
+      counter.current += 1;
+    };
   }, []);
 
   /* =======================================================
@@ -1072,7 +1325,8 @@ export default function Profile() {
   };
 
   const daysInMonth = new Date(calendarYear, calendarMonth, 0).getDate();
-  const leadingBlanks = (new Date(calendarYear, calendarMonth - 1, 1).getDay() + 6) % 7;
+  const leadingBlanks =
+    (new Date(calendarYear, calendarMonth - 1, 1).getDay() + 6) % 7;
 
   const attendanceCounts = useMemo(() => {
     const counts = { present: 0, notEntered: 0, leave: 0, halfDay: 0, off: 0 };
@@ -1122,10 +1376,25 @@ export default function Profile() {
   }, [data.username]);
 
   const stats = [
-    { icon: <IconBriefcase />, label: "ROLE",       value: data.role,        tone: "blue"   },
-    { icon: <IconBuilding />,  label: "DEPARTMENT", value: data.department,  tone: "green"  },
-    { icon: <IconCalendar />,  label: "JOINED",     value: data.joiningDate, tone: "orange" },
-    { icon: <IconClock />,     label: "LAST LOGIN", value: data.lastLogin,   tone: "gray"   },
+    { icon: <IconBriefcase />, label: "ROLE", value: data.role, tone: "blue" },
+    {
+      icon: <IconBuilding />,
+      label: "DEPARTMENT",
+      value: data.department,
+      tone: "green",
+    },
+    {
+      icon: <IconCalendar />,
+      label: "JOINED",
+      value: data.joiningDate,
+      tone: "orange",
+    },
+    {
+      icon: <IconClock />,
+      label: "LAST LOGIN",
+      value: data.lastLogin,
+      tone: "gray",
+    },
   ];
 
   /* =======================================================
@@ -1181,7 +1450,8 @@ export default function Profile() {
         setPhotoError("Your session has expired. Please sign in again.");
       } else {
         setPhotoError(
-          error.response?.data?.message || "Unable to upload photo. Please try again.",
+          error.response?.data?.message ||
+            "Unable to upload photo. Please try again.",
         );
       }
     } finally {
@@ -1213,7 +1483,8 @@ export default function Profile() {
         setPhotoError("Your session has expired. Please sign in again.");
       } else {
         setPhotoError(
-          error.response?.data?.message || "Unable to remove photo. Please try again.",
+          error.response?.data?.message ||
+            "Unable to remove photo. Please try again.",
         );
       }
     } finally {
@@ -1267,7 +1538,10 @@ export default function Profile() {
   };
 
   const handleTwoStepToggle = async (nextValue) => {
-    if (nextValue) { openTwoStepModal(); return; }
+    if (nextValue) {
+      openTwoStepModal();
+      return;
+    }
 
     setSecurityError("");
     setSecuritySaving((p) => ({ ...p, twoStep: true }));
@@ -1321,7 +1595,8 @@ export default function Profile() {
     } catch (error) {
       console.error("Send two-step OTP failed:", error);
       setTwoStepError(
-        error?.response?.data?.message || "Unable to send OTP. Please try again.",
+        error?.response?.data?.message ||
+          "Unable to send OTP. Please try again.",
       );
       const retryAfter = error?.response?.data?.retry_after;
       if (retryAfter) setResendSeconds(retryAfter);
@@ -1369,7 +1644,8 @@ export default function Profile() {
     } catch (error) {
       console.error("Verify two-step OTP failed:", error);
       setTwoStepError(
-        error?.response?.data?.message || "Invalid or expired OTP. Please try again.",
+        error?.response?.data?.message ||
+          "Invalid or expired OTP. Please try again.",
       );
     } finally {
       setTwoStepLoading(false);
@@ -1387,7 +1663,8 @@ export default function Profile() {
       console.error("Update password-OTP failed:", error);
       setPasswordOtpEnabled(prev);
       setSecurityError(
-        error?.response?.data?.message || "Unable to update password OTP preference.",
+        error?.response?.data?.message ||
+          "Unable to update password OTP preference.",
       );
     } finally {
       setSecuritySaving((p) => ({ ...p, passwordOtp: false }));
@@ -1405,7 +1682,8 @@ export default function Profile() {
       console.error("Update login-OTP failed:", error);
       setLoginOtpEnabled(prev);
       setSecurityError(
-        error?.response?.data?.message || "Unable to update login OTP preference.",
+        error?.response?.data?.message ||
+          "Unable to update login OTP preference.",
       );
     } finally {
       setSecuritySaving((p) => ({ ...p, loginOtp: false }));
@@ -1416,7 +1694,12 @@ export default function Profile() {
      PASSWORD MODAL & OTP LOGIC
   ======================================================= */
   const openPasswordModal = () => {
-    setPasswordForm({ oldPassword: "", newPassword: "", confirmPassword: "", otp: "" });
+    setPasswordForm({
+      oldPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+      otp: "",
+    });
     setPasswordError("");
     setPasswordFieldErrors({});
     setPasswordUpdated(false);
@@ -1428,7 +1711,12 @@ export default function Profile() {
   const closePasswordModal = () => {
     if (passwordLoading) return;
     setIsPasswordModalOpen(false);
-    setPasswordForm({ oldPassword: "", newPassword: "", confirmPassword: "", otp: "" });
+    setPasswordForm({
+      oldPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+      otp: "",
+    });
     setPasswordError("");
     setPasswordFieldErrors({});
     setPasswordUpdated(false);
@@ -1450,28 +1738,34 @@ export default function Profile() {
 
     if (!oldPassword) errors.oldPassword = "Current password is required.";
     if (!newPassword) errors.newPassword = "New password is required.";
-    if (!confirmPassword) errors.confirmPassword = "Please confirm your new password.";
+    if (!confirmPassword)
+      errors.confirmPassword = "Please confirm your new password.";
 
     if (newPassword && (newPassword.length < 8 || newPassword.length > 32)) {
       errors.newPassword = "Password must be 8–32 characters.";
     }
     if (newPassword && !/[A-Z]/.test(newPassword)) {
-      errors.newPassword = "Password must contain at least one uppercase letter.";
+      errors.newPassword =
+        "Password must contain at least one uppercase letter.";
     }
     if (newPassword && !/[a-z]/.test(newPassword)) {
-      errors.newPassword = "Password must contain at least one lowercase letter.";
+      errors.newPassword =
+        "Password must contain at least one lowercase letter.";
     }
     if (newPassword && !/[0-9]/.test(newPassword)) {
       errors.newPassword = "Password must contain at least one number.";
     }
     if (newPassword && !/[^A-Za-z0-9]/.test(newPassword)) {
-      errors.newPassword = "Password must contain at least one special character.";
+      errors.newPassword =
+        "Password must contain at least one special character.";
     }
     if (oldPassword && newPassword && oldPassword === newPassword) {
-      errors.newPassword = "New password must be different from the current password.";
+      errors.newPassword =
+        "New password must be different from the current password.";
     }
     if (newPassword && confirmPassword && newPassword !== confirmPassword) {
-      errors.confirmPassword = "New password and confirm password do not match.";
+      errors.confirmPassword =
+        "New password and confirm password do not match.";
     }
 
     setPasswordFieldErrors(errors);
@@ -1484,12 +1778,17 @@ export default function Profile() {
     setPasswordOtpError("");
 
     try {
-      await api.post("/erp/profile/security/password-change/send-otp/", {}, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
+      await api.post(
+        "/erp/profile/security/password-change/send-otp/",
+        {},
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
     } catch (error) {
       setPasswordOtpError(
-        error?.response?.data?.message || "Unable to send OTP. Please try again."
+        error?.response?.data?.message ||
+          "Unable to send OTP. Please try again.",
       );
     } finally {
       setPasswordOtpLoading(false);
@@ -1539,7 +1838,12 @@ export default function Profile() {
 
       if (response.data?.success) {
         setPasswordUpdated(true);
-        setPasswordForm({ oldPassword: "", newPassword: "", confirmPassword: "", otp: "" });
+        setPasswordForm({
+          oldPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+          otp: "",
+        });
         setPasswordFieldErrors({});
         setPasswordOtpRequired(false);
       } else {
@@ -1547,13 +1851,13 @@ export default function Profile() {
       }
     } catch (error) {
       console.error("Change password error:", error);
-      
+
       const responseData = error.response?.data;
-      
+
       if (responseData?.errors) {
         setPasswordFieldErrors(responseData.errors);
       }
-      
+
       // If backend suddenly demands OTP
       if (responseData?.otp_required) {
         setPasswordOtpRequired(true);
@@ -1563,7 +1867,10 @@ export default function Profile() {
       if (error.response?.status === 401) {
         setPasswordError("Your session has expired. Please sign in again.");
       } else {
-        setPasswordError(responseData?.message || "Unable to change password. Please try again.");
+        setPasswordError(
+          responseData?.message ||
+            "Unable to change password. Please try again.",
+        );
       }
     } finally {
       setPasswordLoading(false);
@@ -1571,12 +1878,31 @@ export default function Profile() {
   };
 
   const passwordRequirements = [
-    { label: "8–32 characters", valid: passwordForm.newPassword.length >= 8 && passwordForm.newPassword.length <= 32 },
-    { label: "One uppercase letter", valid: /[A-Z]/.test(passwordForm.newPassword) },
-    { label: "One lowercase letter", valid: /[a-z]/.test(passwordForm.newPassword) },
+    {
+      label: "8–32 characters",
+      valid:
+        passwordForm.newPassword.length >= 8 &&
+        passwordForm.newPassword.length <= 32,
+    },
+    {
+      label: "One uppercase letter",
+      valid: /[A-Z]/.test(passwordForm.newPassword),
+    },
+    {
+      label: "One lowercase letter",
+      valid: /[a-z]/.test(passwordForm.newPassword),
+    },
     { label: "One number", valid: /[0-9]/.test(passwordForm.newPassword) },
-    { label: "One special character", valid: /[^A-Za-z0-9]/.test(passwordForm.newPassword) },
-    { label: "Different from current password", valid: Boolean(passwordForm.newPassword) && passwordForm.newPassword !== passwordForm.oldPassword },
+    {
+      label: "One special character",
+      valid: /[^A-Za-z0-9]/.test(passwordForm.newPassword),
+    },
+    {
+      label: "Different from current password",
+      valid:
+        Boolean(passwordForm.newPassword) &&
+        passwordForm.newPassword !== passwordForm.oldPassword,
+    },
   ];
 
   /* =======================================================
@@ -1614,41 +1940,67 @@ export default function Profile() {
           <nav className="profile-nav">
             <button
               type="button"
-              className={"profile-nav-item" + (activeNav === "profile" ? " is-active" : "")}
+              className={
+                "profile-nav-item" +
+                (activeNav === "profile" ? " is-active" : "")
+              }
               onClick={() => scrollToSection("profile", "profile-top")}
             >
-              <IconUser /><span>Profile</span>
+              <IconUser />
+              <span>Profile</span>
             </button>
 
             <button
               type="button"
-              className={"profile-nav-item" + (activeNav === "attendance" ? " is-active" : "")}
-              onClick={() => scrollToSection("attendance", "profile-attendance-calendar")}
+              className={
+                "profile-nav-item" +
+                (activeNav === "attendance" ? " is-active" : "")
+              }
+              onClick={() =>
+                scrollToSection("attendance", "profile-attendance-calendar")
+              }
             >
-              <IconCalendar /><span>{isAdmin ? "Company Attendance" : "Attendance"}</span>
+              <IconCalendar />
+              <span>{isAdmin ? "Company Attendance" : "Attendance"}</span>
             </button>
 
             {!isAdmin && (
               <button
                 type="button"
-                className={"profile-nav-item" + (activeNav === "hours" ? " is-active" : "")}
+                className={
+                  "profile-nav-item" +
+                  (activeNav === "hours" ? " is-active" : "")
+                }
                 onClick={() => scrollToSection("hours", "profile-work-hours")}
               >
-                <IconClock /><span>Work Hours</span>
+                <IconClock />
+                <span>Work Hours</span>
               </button>
             )}
 
-            <button type="button" className="profile-nav-item" onClick={openPasswordModal}>
-              <IconLock /><span>Security</span>
+            <button
+              type="button"
+              className="profile-nav-item"
+              onClick={openPasswordModal}
+            >
+              <IconLock />
+              <span>Security</span>
             </button>
 
-            <button type="button" className="profile-nav-item" onClick={handleBack}>
-              <IconArrowLeft /><span>Go Back</span>
+            <button
+              type="button"
+              className="profile-nav-item"
+              onClick={handleBack}
+            >
+              <IconArrowLeft />
+              <span>Go Back</span>
             </button>
           </nav>
 
           <div className="profile-side-promo">
-            <div className="profile-side-promo-icon"><IconShield /></div>
+            <div className="profile-side-promo-icon">
+              <IconShield />
+            </div>
             <h4>Keep your account secure</h4>
             <p>Update your password regularly to protect your ERP account.</p>
             <button
@@ -1667,7 +2019,12 @@ export default function Profile() {
         <div className="profile-content" id="profile-top">
           <div className="profile-topbar">
             <div className="profile-search-bar">
-              <button type="button" className="profile-back-btn" onClick={handleBack} aria-label="Back">
+              <button
+                type="button"
+                className="profile-back-btn"
+                onClick={handleBack}
+                aria-label="Back"
+              >
                 <IconArrowLeft />
               </button>
               <div className="profile-search-text">
@@ -1684,7 +2041,11 @@ export default function Profile() {
           <div className="profile-top-actions">
             <div className="profile-top-user">
               <span className="profile-top-avatar">
-                {data.profilePhoto ? <img src={data.profilePhoto} alt="" /> : initials}
+                {data.profilePhoto ? (
+                  <img src={data.profilePhoto} alt="" />
+                ) : (
+                  initials
+                )}
               </span>
             </div>
             <button
@@ -1716,10 +2077,16 @@ export default function Profile() {
                       className="profile-avatar-edit"
                       onClick={() => avatarInputRef.current?.click()}
                       disabled={photoUploading || photoRemoving}
-                      title={photoUploading ? "Uploading…" : "Change profile photo"}
+                      title={
+                        photoUploading ? "Uploading…" : "Change profile photo"
+                      }
                       aria-label="Change profile photo"
                     >
-                      {photoUploading ? <span className="profile-avatar-spinner" /> : <IconPencil />}
+                      {photoUploading ? (
+                        <span className="profile-avatar-spinner" />
+                      ) : (
+                        <IconPencil />
+                      )}
                     </button>
 
                     {data.profilePhoto && (
@@ -1728,10 +2095,16 @@ export default function Profile() {
                         className="profile-avatar-remove"
                         onClick={handlePhotoRemove}
                         disabled={photoUploading || photoRemoving}
-                        title={photoRemoving ? "Removing…" : "Remove profile photo"}
+                        title={
+                          photoRemoving ? "Removing…" : "Remove profile photo"
+                        }
                         aria-label="Remove profile photo"
                       >
-                        {photoRemoving ? <span className="profile-avatar-spinner" /> : <IconTrash />}
+                        {photoRemoving ? (
+                          <span className="profile-avatar-spinner" />
+                        ) : (
+                          <IconTrash />
+                        )}
                       </button>
                     )}
 
@@ -1749,12 +2122,19 @@ export default function Profile() {
                     Active
                   </span>
 
-                  {photoError && <p className="profile-avatar-error">{photoError}</p>}
+                  {photoError && (
+                    <p className="profile-avatar-error">{photoError}</p>
+                  )}
                 </div>
 
                 <div className="profile-hero-info">
                   <h2 className="profile-hero-name">{data.username}</h2>
-                  <p className={"profile-hero-email" + (data.email === "Not available" ? " is-muted" : "")}>
+                  <p
+                    className={
+                      "profile-hero-email" +
+                      (data.email === "Not available" ? " is-muted" : "")
+                    }
+                  >
                     {data.email}
                   </p>
                   <div className="profile-hero-tags">
@@ -1767,7 +2147,9 @@ export default function Profile() {
 
             {/* STATS */}
             <div className="profile-stats-grid">
-              {stats.map((stat, index) => <StatCard key={index} {...stat} />)}
+              {stats.map((stat, index) => (
+                <StatCard key={index} {...stat} />
+              ))}
             </div>
 
             {/* ATTENDANCE SUMMARY — NON-ADMIN ONLY */}
@@ -1780,11 +2162,19 @@ export default function Profile() {
             )}
 
             {/* BOTTOM ROW: Personal info + (work hours for non-admin) */}
-            <div 
-              className="profile-main-grid" 
-              style={{ display: "flex", flexDirection: "column", width: "100%", gap: "24px" }}
+            <div
+              className="profile-main-grid"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                width: "100%",
+                gap: "24px",
+              }}
             >
-              <div className="profile-card profile-info-card" style={{ width: "100%" }}>
+              <div
+                className="profile-card profile-info-card"
+                style={{ width: "100%" }}
+              >
                 <div className="profile-card-header">
                   <div>
                     <h3 className="profile-card-title">Personal Information</h3>
@@ -1796,20 +2186,53 @@ export default function Profile() {
                 </div>
 
                 <div className="profile-info-grid">
-                  <InfoItem icon={<IconUser />} label="Username" value={data.username} />
-                  <InfoItem icon={<IconMail />} label="Email" value={data.email} />
-                  <InfoItem icon={<IconPhone />} label="Phone" value={data.phone} />
-                  <InfoItem icon={<IconBriefcase />} label="Role" value={data.role} />
-                  <InfoItem icon={<IconBuilding />} label="Department" value={data.department} />
-                  <InfoItem icon={<IconGlobe />} label="Employee ID" value={data.employeeId} />
-                  <InfoItem icon={<IconCalendar />} label="Joined" value={data.joiningDate} />
-                  <InfoItem icon={<IconClock />} label="Last Login" value={data.lastLogin} />
+                  <InfoItem
+                    icon={<IconUser />}
+                    label="Username"
+                    value={data.username}
+                  />
+                  <InfoItem
+                    icon={<IconMail />}
+                    label="Email"
+                    value={data.email}
+                  />
+                  <InfoItem
+                    icon={<IconPhone />}
+                    label="Phone"
+                    value={data.phone}
+                  />
+                  <InfoItem
+                    icon={<IconBriefcase />}
+                    label="Role"
+                    value={data.role}
+                  />
+                  <InfoItem
+                    icon={<IconBuilding />}
+                    label="Department"
+                    value={data.department}
+                  />
+                  <InfoItem
+                    icon={<IconGlobe />}
+                    label="Employee ID"
+                    value={data.employeeId}
+                  />
+                  <InfoItem
+                    icon={<IconCalendar />}
+                    label="Joined"
+                    value={data.joiningDate}
+                  />
+                  <InfoItem
+                    icon={<IconClock />}
+                    label="Last Login"
+                    value={data.lastLogin}
+                  />
                 </div>
 
                 <div className="profile-info-footer">
                   <p className="profile-info-note">
                     <IconInfo />
-                    Information is managed by HR/Admin. Contact your HR department for updates.
+                    Information is managed by HR/Admin. Contact your HR
+                    department for updates.
                   </p>
                 </div>
               </div>
@@ -1828,7 +2251,10 @@ export default function Profile() {
 
             {/* ADMIN ONLY: EXTRA SECURITY OPTIONS */}
             {isAdmin && (
-              <div className="profile-card profile-admin-card" id="profile-admin-security">
+              <div
+                className="profile-card profile-admin-card"
+                id="profile-admin-security"
+              >
                 <div className="profile-card-header">
                   <div>
                     <h3 className="profile-card-title">Admin Security</h3>
@@ -1841,7 +2267,9 @@ export default function Profile() {
 
                 <div className="profile-admin-options">
                   <div className="profile-admin-option">
-                    <span className="profile-admin-option-icon"><IconShield /></span>
+                    <span className="profile-admin-option-icon">
+                      <IconShield />
+                    </span>
                     <div className="profile-admin-option-text">
                       <h4>Two-Step Authentication</h4>
                       <p>
@@ -1861,10 +2289,14 @@ export default function Profile() {
                   {twoStepEnabled && (
                     <>
                       <div className="profile-admin-option">
-                        <span className="profile-admin-option-icon"><IconLock /></span>
+                        <span className="profile-admin-option-icon">
+                          <IconLock />
+                        </span>
                         <div className="profile-admin-option-text">
                           <h4>Change Password with OTP</h4>
-                          <p>Ask for an email OTP when changing your password.</p>
+                          <p>
+                            Ask for an email OTP when changing your password.
+                          </p>
                         </div>
                         <ToggleSwitch
                           checked={passwordOtpEnabled}
@@ -1875,7 +2307,9 @@ export default function Profile() {
                       </div>
 
                       <div className="profile-admin-option">
-                        <span className="profile-admin-option-icon"><IconMail /></span>
+                        <span className="profile-admin-option-icon">
+                          <IconMail />
+                        </span>
                         <div className="profile-admin-option-text">
                           <h4>Login with OTP</h4>
                           <p>Ask for an email OTP every time you sign in.</p>
@@ -1892,7 +2326,9 @@ export default function Profile() {
                 </div>
 
                 {securityError && (
-                  <p className="profile-error" role="alert">{securityError}</p>
+                  <p className="profile-error" role="alert">
+                    {securityError}
+                  </p>
                 )}
 
                 <div className="profile-info-footer">
@@ -1933,7 +2369,8 @@ export default function Profile() {
                 counts={adminDayCounts?.[selectedDateKey] || null}
               />
             ) : (
-              !attendanceError && !attendanceLoading && (
+              !attendanceError &&
+              !attendanceLoading && (
                 <AttendanceDetails
                   dateKey={selectedDateKey}
                   record={getAttendanceRecord(selectedDateKey)}
@@ -1950,7 +2387,9 @@ export default function Profile() {
         <div
           className="profile-modal-overlay"
           role="presentation"
-          onMouseDown={(e) => { if (e.target === e.currentTarget) closePasswordModal(); }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closePasswordModal();
+          }}
         >
           <div
             className="profile-modal"
@@ -1964,10 +2403,17 @@ export default function Profile() {
                 <h2 id="change-password-title" className="profile-modal-title">
                   Change Password
                 </h2>
-                <p className="profile-modal-subtitle">Update your account password</p>
+                <p className="profile-modal-subtitle">
+                  Update your account password
+                </p>
               </div>
               {!passwordLoading && (
-                <button type="button" className="profile-modal-close" onClick={closePasswordModal} aria-label="Close">
+                <button
+                  type="button"
+                  className="profile-modal-close"
+                  onClick={closePasswordModal}
+                  aria-label="Close"
+                >
                   <IconClose />
                 </button>
               )}
@@ -1975,9 +2421,15 @@ export default function Profile() {
 
             {passwordUpdated ? (
               <div className="profile-modal-success">
-                <div className="profile-modal-success-icon"><IconShield /></div>
+                <div className="profile-modal-success-icon">
+                  <IconShield />
+                </div>
                 <p>Password updated successfully!</p>
-                <button type="button" className="profile-btn-primary" onClick={() => setIsPasswordModalOpen(false)}>
+                <button
+                  type="button"
+                  className="profile-btn-primary"
+                  onClick={() => setIsPasswordModalOpen(false)}
+                >
                   Done
                 </button>
               </div>
@@ -1986,26 +2438,38 @@ export default function Profile() {
                 <div className="profile-form-group">
                   <label htmlFor="oldPassword">Current Password</label>
                   <input
-                    id="oldPassword" type="password" name="oldPassword"
-                    value={passwordForm.oldPassword} onChange={handlePasswordFieldChange}
-                    placeholder="Enter current password" autoComplete="current-password"
+                    id="oldPassword"
+                    type="password"
+                    name="oldPassword"
+                    value={passwordForm.oldPassword}
+                    onChange={handlePasswordFieldChange}
+                    placeholder="Enter current password"
+                    autoComplete="current-password"
                     disabled={passwordLoading}
                   />
                   {passwordFieldErrors.oldPassword && (
-                    <p className="profile-field-error">{passwordFieldErrors.oldPassword}</p>
+                    <p className="profile-field-error">
+                      {passwordFieldErrors.oldPassword}
+                    </p>
                   )}
                 </div>
 
                 <div className="profile-form-group">
                   <label htmlFor="newPassword">New Password</label>
                   <input
-                    id="newPassword" type="password" name="newPassword"
-                    value={passwordForm.newPassword} onChange={handlePasswordFieldChange}
-                    placeholder="Enter new password" autoComplete="new-password"
+                    id="newPassword"
+                    type="password"
+                    name="newPassword"
+                    value={passwordForm.newPassword}
+                    onChange={handlePasswordFieldChange}
+                    placeholder="Enter new password"
+                    autoComplete="new-password"
                     disabled={passwordLoading}
                   />
                   {passwordFieldErrors.newPassword && (
-                    <p className="profile-field-error">{passwordFieldErrors.newPassword}</p>
+                    <p className="profile-field-error">
+                      {passwordFieldErrors.newPassword}
+                    </p>
                   )}
                 </div>
 
@@ -2013,7 +2477,9 @@ export default function Profile() {
                   <span>Password requirements</span>
                   <ul>
                     {passwordRequirements.map((req, i) => (
-                      <li key={i} className={req.valid ? "valid" : ""}>{req.label}</li>
+                      <li key={i} className={req.valid ? "valid" : ""}>
+                        {req.label}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -2021,41 +2487,71 @@ export default function Profile() {
                 <div className="profile-form-group">
                   <label htmlFor="confirmPassword">Confirm New Password</label>
                   <input
-                    id="confirmPassword" type="password" name="confirmPassword"
-                    value={passwordForm.confirmPassword} onChange={handlePasswordFieldChange}
-                    placeholder="Confirm new password" autoComplete="new-password"
+                    id="confirmPassword"
+                    type="password"
+                    name="confirmPassword"
+                    value={passwordForm.confirmPassword}
+                    onChange={handlePasswordFieldChange}
+                    placeholder="Confirm new password"
+                    autoComplete="new-password"
                     disabled={passwordLoading}
                   />
                   {passwordFieldErrors.confirmPassword && (
-                    <p className="profile-field-error">{passwordFieldErrors.confirmPassword}</p>
+                    <p className="profile-field-error">
+                      {passwordFieldErrors.confirmPassword}
+                    </p>
                   )}
                 </div>
 
                 {/* --- OTP FIELD (shows if admin requires OTP) --- */}
                 {passwordOtpRequired && (
-                  <div className="profile-form-group" style={{ marginTop: "16px" }}>
+                  <div
+                    className="profile-form-group"
+                    style={{ marginTop: "16px" }}
+                  >
                     <label htmlFor="otp">Verification Code (OTP)</label>
                     <input
-                      id="otp" type="text" name="otp"
-                      value={passwordForm.otp} onChange={handlePasswordFieldChange}
-                      placeholder="Enter 6-digit code" maxLength={6}
+                      id="otp"
+                      type="text"
+                      name="otp"
+                      value={passwordForm.otp}
+                      onChange={handlePasswordFieldChange}
+                      placeholder="Enter 6-digit code"
+                      maxLength={6}
                       disabled={passwordLoading}
                     />
                     <p className="profile-admin-modal-hint">
                       A code was sent to your verified email address.
                     </p>
-                    {passwordOtpError && <p className="profile-field-error">{passwordOtpError}</p>}
+                    {passwordOtpError && (
+                      <p className="profile-field-error">{passwordOtpError}</p>
+                    )}
                   </div>
                 )}
 
-                {passwordError && <p className="profile-error">{passwordError}</p>}
+                {passwordError && (
+                  <p className="profile-error">{passwordError}</p>
+                )}
 
                 <div className="profile-modal-actions">
-                  <button type="button" className="profile-btn-secondary" onClick={closePasswordModal} disabled={passwordLoading}>
+                  <button
+                    type="button"
+                    className="profile-btn-secondary"
+                    onClick={closePasswordModal}
+                    disabled={passwordLoading}
+                  >
                     Cancel
                   </button>
-                  <button type="submit" className="profile-btn-primary" disabled={passwordLoading || passwordOtpLoading}>
-                    {passwordLoading ? "Updating..." : passwordOtpLoading ? "Sending OTP..." : "Update Password"}
+                  <button
+                    type="submit"
+                    className="profile-btn-primary"
+                    disabled={passwordLoading || passwordOtpLoading}
+                  >
+                    {passwordLoading
+                      ? "Updating..."
+                      : passwordOtpLoading
+                        ? "Sending OTP..."
+                        : "Update Password"}
                   </button>
                 </div>
               </form>
@@ -2069,7 +2565,9 @@ export default function Profile() {
         <div
           className="profile-modal-overlay"
           role="presentation"
-          onMouseDown={(e) => { if (e.target === e.currentTarget) closeTwoStepModal(); }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeTwoStepModal();
+          }}
         >
           <div
             className="profile-modal"
@@ -2090,7 +2588,12 @@ export default function Profile() {
                 </p>
               </div>
               {!twoStepLoading && (
-                <button type="button" className="profile-modal-close" onClick={closeTwoStepModal} aria-label="Close">
+                <button
+                  type="button"
+                  className="profile-modal-close"
+                  onClick={closeTwoStepModal}
+                  aria-label="Close"
+                >
                   <IconClose />
                 </button>
               )}
@@ -2119,17 +2622,28 @@ export default function Profile() {
                   />
                 </div>
 
-                {twoStepError && <p className="profile-error">{twoStepError}</p>}
+                {twoStepError && (
+                  <p className="profile-error">{twoStepError}</p>
+                )}
 
                 <div className="profile-modal-actions">
-                  <button type="button" className="profile-btn-secondary" onClick={closeTwoStepModal} disabled={twoStepLoading}>
+                  <button
+                    type="button"
+                    className="profile-btn-secondary"
+                    onClick={closeTwoStepModal}
+                    disabled={twoStepLoading}
+                  >
                     Cancel
                   </button>
                   <button
                     type="button"
                     className="profile-btn-primary"
                     onClick={handleSendTwoStepOtp}
-                    disabled={twoStepLoading || !twoStepEmail.trim() || !isValidEmail(twoStepEmail)}
+                    disabled={
+                      twoStepLoading ||
+                      !twoStepEmail.trim() ||
+                      !isValidEmail(twoStepEmail)
+                    }
                   >
                     {twoStepLoading ? "Sending..." : "Send OTP"}
                   </button>
@@ -2157,10 +2671,14 @@ export default function Profile() {
                     placeholder="______"
                     disabled={twoStepLoading}
                   />
-                  <p className="profile-admin-modal-hint">Code sent to {twoStepEmail}</p>
+                  <p className="profile-admin-modal-hint">
+                    Code sent to {twoStepEmail}
+                  </p>
                 </div>
 
-                {twoStepError && <p className="profile-error">{twoStepError}</p>}
+                {twoStepError && (
+                  <p className="profile-error">{twoStepError}</p>
+                )}
 
                 <div className="profile-admin-resend">
                   {resendSeconds > 0 ? (
@@ -2178,10 +2696,19 @@ export default function Profile() {
                 </div>
 
                 <div className="profile-modal-actions">
-                  <button type="button" className="profile-btn-secondary" onClick={closeTwoStepModal} disabled={twoStepLoading}>
+                  <button
+                    type="button"
+                    className="profile-btn-secondary"
+                    onClick={closeTwoStepModal}
+                    disabled={twoStepLoading}
+                  >
                     Cancel
                   </button>
-                  <button type="submit" className="profile-btn-primary" disabled={twoStepLoading}>
+                  <button
+                    type="submit"
+                    className="profile-btn-primary"
+                    disabled={twoStepLoading}
+                  >
                     {twoStepLoading ? "Verifying..." : "Verify & Enable"}
                   </button>
                 </div>
@@ -2191,9 +2718,15 @@ export default function Profile() {
             {/* ---------- STEP 3: DONE ---------- */}
             {twoStepStep === "done" && (
               <div className="profile-modal-success">
-                <div className="profile-modal-success-icon"><IconShield /></div>
+                <div className="profile-modal-success-icon">
+                  <IconShield />
+                </div>
                 <p>Two-step authentication enabled!</p>
-                <button type="button" className="profile-btn-primary" onClick={closeTwoStepModal}>
+                <button
+                  type="button"
+                  className="profile-btn-primary"
+                  onClick={closeTwoStepModal}
+                >
                   Done
                 </button>
               </div>
@@ -2203,7 +2736,11 @@ export default function Profile() {
       )}
 
       {/* PHOTO TOAST */}
-      {photoToast && <div className="emp-toast" role="status">{photoToast}</div>}
+      {photoToast && (
+        <div className="emp-toast" role="status">
+          {photoToast}
+        </div>
+      )}
     </div>
   );
 }

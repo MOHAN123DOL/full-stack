@@ -101,8 +101,42 @@ body {
   position: relative;
   background: #ffffff;
   overflow: hidden;
+
+  /*
+   * Screen-preview "paper" shadow only. There is deliberately NO border
+   * here: a border shifts the absolutely positioned header/content/footer
+   * by 1px and gets photographed into the PDF. The PDF is never built from
+   * this element's live styling - see .tip-export-host below.
+   */
   box-shadow: 0 10px 40px rgba(15, 23, 42, 0.18);
-  border: 1px solid #e2e8f0;
+  border: 0;
+}
+
+/* ========================================================================
+   PDF EXPORT HOST
+   Built by buildPdfExportHost() in ProformaInvoicePrint.js and handed to
+   html2pdf instead of the live preview. No gap, no padding, no shadow, no
+   border: pages are stacked edge to edge so they line up with the A4
+   strips html2pdf cuts. Inline styles set by the script are authoritative;
+   these rules are a second layer of the same guarantee.
+   ======================================================================== */
+
+.tip-export-host {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: #ffffff;
+}
+
+.tip-export-host .tip-page {
+  margin: 0;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: #ffffff;
 }
 
 /* ========================================================================

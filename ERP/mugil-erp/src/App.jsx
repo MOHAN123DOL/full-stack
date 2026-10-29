@@ -25,6 +25,7 @@ import DeliveryChallan from "./pages/accounts/Deliverychallanform";
 import ProformaInvoiceForm from "./pages/accounts/Proformainvoiceform";
 import Employees, { EmployeesProvider } from "./pages/hr/Employees.jsx";
 import Profile from "./components/Profile.jsx";
+import ProfileAdmin from "./components/ProfileAdmin.jsx";
 import Salary from "./pages/hr/Salary.jsx";
 import Attendance from "./pages/hr/Attendancewages.jsx";
 import { AttendanceProvider } from "./pages/hr/Attendancewages.jsx";
@@ -432,6 +433,9 @@ export default function App() {
   <Route index element={<Navigate to="dashboard" replace />} />
 
   <Route path="dashboard" element={<AdminDashboard />} />
+
+  {/* Admin-specific profile page */}
+  <Route path="profile" element={<ProfileAdmin />} />
 
   <Route path="statistics" element={<AdminStatistics />} />
 

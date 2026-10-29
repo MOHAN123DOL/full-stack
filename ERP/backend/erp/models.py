@@ -6004,3 +6004,65 @@ class EmailOTP(models.Model):
         otp.is_used = True
         otp.save(update_fields=["is_used"])
         return otp
+
+
+
+
+from django.db import models
+from decimal import Decimal
+
+
+class PaymentRecord(models.Model):
+
+    class DocumentType(models.TextChoices):
+        PO = "PO", "Purchase Order"
+        DC = "DC", "Delivery Challan"
+        PI = "PI", "Proforma Invoice"
+        TI = "TI", "Tax Invoice"
+        QO = "QO", "Quotation"
+
+    class PaymentDirection(models.TextChoices):
+        OUTGOING = "OUTGOING", "Payment to Supplier"
+        INCOMING = "INCOMING", "Payment from Customer"
+
+    document_type = models.CharField(
+        max_length=10,
+        choices=DocumentType.choices,
+        db_index=True,
+    )
+
+    document_number = models.CharField(
+        max_length=100,
+        db_index=True,
+    )
+
+    payment_direction = models.CharField(
+        max_length=10,
+        choices=PaymentDirection.choices,
+    )
+
+    paid_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+
+    paid_date = models.DateField(
+        auto_now_add=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return (
+            f"{self.document_type} - "
+            f"{self.document_number} - "
+            f"{self.paid_amount}"
+        )
+
+

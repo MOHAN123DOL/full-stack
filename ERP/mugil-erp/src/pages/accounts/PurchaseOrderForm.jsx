@@ -1252,30 +1252,53 @@ export default function PurchaseOrderForm() {
 
   // ==========================================================
   // CLEAR FORM
+  // Keeps PO Number and Customer details (vendor + selection),
+  // resets everything else.
   // ==========================================================
 
   const clearForm = useCallback(async () => {
-    if (!window.confirm("Clear all fields and start a new Purchase Order?")) {
+    if (
+      !window.confirm(
+        "Clear all fields? The PO Number and Customer details will be kept.",
+      )
+    ) {
       return;
     }
 
+    // Snapshot the fields that must survive the reset.
+    const preservedPoNumber = data.poNumber;
+    const preservedVendor = data.vendor;
+    const preservedSelectedCustomerId = selectedCustomerId;
+    const preservedOriginalVendor = originalVendor;
+
     localStorage.removeItem(DRAFT_KEY);
 
-    setData(buildFreshData());
+    // Build a fresh PO, then restore the preserved fields.
+    setData(() => {
+      const fresh = buildFreshData();
+      return {
+        ...fresh,
+        poNumber: preservedPoNumber, // keep PO number
+        vendor: preservedVendor, // keep customer details
+      };
+    });
+
     setColumns(normalizePOColumns(createDefaultColumns("po")));
     setErrors({});
     setSavedAt(null);
-    setSelectedCustomerId("");
-    setOriginalVendor(null);
     setCustomerActionError("");
     setSubmitError("");
     setIncludeAmountDetails(true);
     setNumberChoice("auto");
 
-    if (accessToken) {
-      await loadPONumber(accessToken);
-    }
-  }, [accessToken, loadPONumber]);
+    // Restore customer selection state (do NOT re-load PO number).
+    setSelectedCustomerId(preservedSelectedCustomerId);
+    setOriginalVendor(preservedOriginalVendor);
+
+    // NOTE: intentionally do NOT call loadPONumber(accessToken) here,
+    // because that endpoint returns the previous PO's data and would
+    // re-populate the vendor / items we just cleared.
+  }, [data.poNumber, data.vendor, selectedCustomerId, originalVendor]);
 
   // ==========================================================
   // CREATE PO + PREVIEW
@@ -1612,7 +1635,8 @@ export default function PurchaseOrderForm() {
 
       <div className="po-page">
         <div className="po-container">
-          <section className="po-hero">
+          {/* HERO / HEADER SECTION (Plain - No Blue Box) */}
+          <section className="po-hero po-hero--plain">
             <div className="po-hero__top">
               <Link to="/accounts" className="erp-back-button">
                 <ArrowLeft size={16} />
@@ -1622,7 +1646,7 @@ export default function PurchaseOrderForm() {
               <div className="po-hero__actions">
                 <button
                   type="button"
-                  className="po-btn po-btn--ghost"
+                  className="po-btn po-btn--secondary" // <-- TO THIS
                   onClick={clearForm}
                   disabled={submitting}
                 >
@@ -1675,11 +1699,6 @@ export default function PurchaseOrderForm() {
                   <strong>
                     {savedAt ? savedAt.toLocaleTimeString() : "--"}
                   </strong>
-                </div>
-
-                <div className="po-status__card">
-                  <span className="po-status__label">Items</span>
-                  <strong>{data.items.length}</strong>
                 </div>
               </div>
             </div>
@@ -2351,7 +2370,7 @@ export default function PurchaseOrderForm() {
             <div className="po-footerbar__actions">
               <button
                 type="button"
-                className="po-btn po-btn--ghost"
+                className="po-btn po-btn--secondary" // <-- TO THIS
                 onClick={clearForm}
                 disabled={submitting}
               >

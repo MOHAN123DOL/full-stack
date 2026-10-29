@@ -497,32 +497,34 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                   />
                 </Field>
                 <Field label="Department" required error={errors.department}>
-                  <select
+                  <input
+                    type="text"
+                    list="departments-list"
                     value={data.department}
                     onChange={(e) => set("department", e.target.value)}
                     disabled={saving}
-                  >
-                    <option value="">Select department</option>
+                    placeholder="Select or type department"
+                  />
+                  <datalist id="departments-list">
                     {DEPARTMENTS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
+                      <option key={d} value={d} />
                     ))}
-                  </select>
+                  </datalist>
                 </Field>
                 <Field label="Designation" required error={errors.designation}>
-                  <select
+                  <input
+                    type="text"
+                    list="designations-list"
                     value={data.designation}
                     onChange={(e) => set("designation", e.target.value)}
                     disabled={saving}
-                  >
-                    <option value="">Select designation</option>
+                    placeholder="Select or type designation"
+                  />
+                  <datalist id="designations-list">
                     {DESIGNATIONS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
+                      <option key={d} value={d} />
                     ))}
-                  </select>
+                  </datalist>
                 </Field>
                 <Field label="Branch / Location" required error={errors.branch}>
                   <input
@@ -606,45 +608,49 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                   />
                 </Field>
                 <Field label="Country" required error={errors.country}>
-                  <select
+                  <input
+                    type="text"
+                    list="countries-list"
                     value={data.country}
                     onChange={(e) => set("country", e.target.value)}
                     disabled={saving}
-                  >
+                    placeholder="Select or type country"
+                  />
+                  <datalist id="countries-list">
                     {COUNTRIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
+                      <option key={c} value={c} />
                     ))}
-                  </select>
+                  </datalist>
                 </Field>
                 <Field label="State" required error={errors.state}>
-                  <select
+                  <input
+                    type="text"
+                    list="states-list"
                     value={data.state}
                     onChange={(e) => set("state", e.target.value)}
                     disabled={saving}
-                  >
-                    <option value="">Select state</option>
+                    placeholder="Select or type state"
+                  />
+                  <datalist id="states-list">
                     {STATES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
+                      <option key={c} value={c} />
                     ))}
-                  </select>
+                  </datalist>
                 </Field>
                 <Field label="City" required error={errors.city}>
-                  <select
+                  <input
+                    type="text"
+                    list="cities-list"
                     value={data.city}
                     onChange={(e) => set("city", e.target.value)}
                     disabled={saving}
-                  >
-                    <option value="">Select city</option>
+                    placeholder="Select or type city"
+                  />
+                  <datalist id="cities-list">
                     {CITIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
+                      <option key={c} value={c} />
                     ))}
-                  </select>
+                  </datalist>
                 </Field>
                 <Field label="District">
                   <input
