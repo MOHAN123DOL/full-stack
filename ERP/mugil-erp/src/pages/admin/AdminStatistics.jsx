@@ -33,6 +33,18 @@ const PERIOD_OPTIONS = [
   { value: "custom", label: "Custom" },
 ];
 
+const PERIOD_DESCRIPTIONS = {
+  day: "daily",
+  week: "weekly",
+  month: "month-wise (last 12 months)",
+  quarter: "quarterly",
+  year: "yearly",
+  custom: "month-wise custom range",
+};
+
+// More than this many groups -> use compact, rotated value labels
+const DENSE_THRESHOLD = 6;
+
 /* ============================================================
    FORMATTERS & HELPERS
    ============================================================ */
@@ -49,6 +61,21 @@ const formatCompactCurrency = (value) => {
   if (number >= 100000) return `₹${(number / 100000).toFixed(1)}L`;
   if (number >= 1000) return `₹${(number / 1000).toFixed(1)}K`;
   return `₹${number.toFixed(0)}`;
+};
+
+// Signed currency for profit / loss
+const formatSignedCurrency = (value) => {
+  const number = Number(value || 0);
+  const sign = number < 0 ? "-" : "";
+  return `${sign}${formatCurrency(Math.abs(number))}`;
+};
+
+// "YYYY-MM-DD" -> local Date (avoids UTC shifting the day)
+const parseISODate = (value) => {
+  if (!value) return null;
+  const [y, m, d] = String(value).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
 };
 
 const EXPENSE_CATEGORY_COLORS = {
@@ -75,9 +102,11 @@ const PO_STATUS_COLORS = {
    ============================================================ */
 
 function RevenueExpenseChart({ data, period }) {
+  const dense = data.length > DENSE_THRESHOLD;
+
   const width = 1000;
   const height = 430;
-  const padding = { top: 55, right: 42, bottom: 76, left: 82 };
+  const padding = { top: dense ? 72 : 55, right: 42, bottom: 76, left: 82 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
@@ -85,7 +114,7 @@ function RevenueExpenseChart({ data, period }) {
     ...data.map((item) => Math.max(item.revenue, item.expenses)),
     1
   );
-  const chartMax = maxValue * 1.2;
+  const chartMax = maxValue * (dense ? 1.25 : 1.2);
   const groupWidth = chartWidth / Math.max(data.length, 1);
   const barWidth = Math.min(30, Math.max(14, groupWidth * 0.22));
   const barGap = Math.min(9, Math.max(4, groupWidth * 0.07));
@@ -99,6 +128,40 @@ function RevenueExpenseChart({ data, period }) {
     .join(" ");
 
   const gridLines = 5;
+
+  // Value label: horizontal for few groups, rotated for many (prevents overlap)
+  const renderValueLabel = (x, value, className, delay) => {
+    if (dense && value <= 0) return null; // skip "₹0" clutter on empty months
+    const y = getY(value) - (dense ? 8 : 10);
+
+    if (!dense) {
+      return (
+        <text
+          x={x}
+          y={y}
+          textAnchor="middle"
+          className={`statistics-data-label ${className} statistics-fade-in`}
+          style={{ "--delay": `${delay}s` }}
+        >
+          {formatCompactCurrency(value)}
+        </text>
+      );
+    }
+
+    return (
+      <g transform={`rotate(-90 ${x} ${y})`}>
+        <text
+          x={x}
+          y={y + 4}
+          textAnchor="start"
+          className={`statistics-data-label ${className} statistics-fade-in`}
+          style={{ "--delay": `${delay}s`, fontSize: 11 }}
+        >
+          {formatCompactCurrency(value)}
+        </text>
+      </g>
+    );
+  };
 
   return (
     <div className="statistics-chart-shell">
@@ -184,24 +247,20 @@ function RevenueExpenseChart({ data, period }) {
                   style={{ "--delay": `${expenseDelay}s` }}
                   fill="url(#statisticsExpenseGradient)"
                 />
-                <text
-                  x={revenueX + barWidth / 2}
-                  y={getY(item.revenue) - 10}
-                  textAnchor="middle"
-                  className="statistics-data-label statistics-data-label-revenue statistics-fade-in"
-                  style={{ "--delay": `${revenueDelay + 0.5}s` }}
-                >
-                  {formatCompactCurrency(item.revenue)}
-                </text>
-                <text
-                  x={expenseX + barWidth / 2}
-                  y={getY(item.expenses) - 10}
-                  textAnchor="middle"
-                  className="statistics-data-label statistics-data-label-expense statistics-fade-in"
-                  style={{ "--delay": `${expenseDelay + 0.5}s` }}
-                >
-                  {formatCompactCurrency(item.expenses)}
-                </text>
+
+                {renderValueLabel(
+                  revenueX + barWidth / 2,
+                  item.revenue,
+                  "statistics-data-label-revenue",
+                  revenueDelay + 0.5
+                )}
+                {renderValueLabel(
+                  expenseX + barWidth / 2,
+                  item.expenses,
+                  "statistics-data-label-expense",
+                  expenseDelay + 0.5
+                )}
+
                 <text x={center} y={height - 31} textAnchor="middle" className="statistics-axis-label statistics-x-label">
                   {item.label}
                 </text>
@@ -230,7 +289,106 @@ function RevenueExpenseChart({ data, period }) {
 
       <div className="statistics-chart-footnote">
         <Activity size={14} />
-        <span>Showing {period} performance • Bars animate from zero on load</span>
+        <span>
+          Showing {PERIOD_DESCRIPTIONS[period] || period} performance • Bars animate from zero on load
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   TABLE: PERIOD BREAKDOWN (Month / Revenue / Expenses / P&L)
+   ============================================================ */
+
+function PeriodBreakdownTable({ data }) {
+  const totals = data.reduce(
+    (acc, row) => ({
+      revenue: acc.revenue + row.revenue,
+      expenses: acc.expenses + row.expenses,
+      profit_loss: acc.profit_loss + row.profit_loss,
+    }),
+    { revenue: 0, expenses: 0, profit_loss: 0 }
+  );
+
+  const cell = {
+    padding: "12px 16px",
+    textAlign: "right",
+    whiteSpace: "nowrap",
+    borderBottom: "1px solid rgba(110, 150, 175, 0.14)",
+  };
+  const headCell = {
+    ...cell,
+    fontSize: 12,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    opacity: 0.7,
+    fontWeight: 600,
+  };
+  const firstCol = { textAlign: "left" };
+
+  const plColor = (value) =>
+    value > 0 ? "#27d17f" : value < 0 ? "#ff4f8b" : "inherit";
+
+  return (
+    <div className="statistics-chart-shell">
+      <div className="statistics-chart-header">
+        <div>
+          <span className="statistics-chart-eyebrow">DETAILED REPORT</span>
+          <h2>Profit &amp; Loss Breakdown</h2>
+          <p>Revenue, expenses and profit/loss for every period in the timeline.</p>
+        </div>
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+          <thead>
+            <tr>
+              <th style={{ ...headCell, ...firstCol }}>Period</th>
+              <th style={headCell}>Revenue</th>
+              <th style={headCell}>Expenses</th>
+              <th style={headCell}>Profit / Loss</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => {
+              const empty = row.revenue === 0 && row.expenses === 0;
+              return (
+                <tr key={row.key} style={empty ? { opacity: 0.55 } : undefined}>
+                  <td style={{ ...cell, ...firstCol }}>{row.label}</td>
+                  <td style={cell}>{formatCurrency(row.revenue)}</td>
+                  <td style={cell}>{formatCurrency(row.expenses)}</td>
+                  <td style={{ ...cell, color: plColor(row.profit_loss), fontWeight: 600 }}>
+                    {formatSignedCurrency(row.profit_loss)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {data.length > 1 && (
+            <tfoot>
+              <tr>
+                <td style={{ ...cell, ...firstCol, fontWeight: 700, borderBottom: "none" }}>Total</td>
+                <td style={{ ...cell, fontWeight: 700, borderBottom: "none" }}>
+                  {formatCurrency(totals.revenue)}
+                </td>
+                <td style={{ ...cell, fontWeight: 700, borderBottom: "none" }}>
+                  {formatCurrency(totals.expenses)}
+                </td>
+                <td
+                  style={{
+                    ...cell,
+                    fontWeight: 700,
+                    borderBottom: "none",
+                    color: plColor(totals.profit_loss),
+                  }}
+                >
+                  {formatSignedCurrency(totals.profit_loss)}
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
       </div>
     </div>
   );
@@ -514,7 +672,7 @@ export default function AdminStatistics() {
         throw new Error("Invalid statistics data response.");
       }
 
-      setData(response.data.data);
+      setData(response.data.data ? { ...response.data.data, range: response.data.range } : null);
     } catch (err) {
       console.error("Failed to fetch statistics:", err);
       setError(err?.response?.data?.message || "Failed to load statistics.");
@@ -523,22 +681,44 @@ export default function AdminStatistics() {
     }
   }, [accessToken, period, customStart, customEnd]);
 
-  // This useEffect runs every time the page mounts, 
-  // and every time period/customStart/customEnd changes
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
   // Derived data with fallbacks
   const kpis = data?.kpis || { revenue: 0, expenses: 0, outstanding: 0, projects: 0 };
-  const chartData = data?.chart_data || [];
   const expenseBreakdown = data?.expense_breakdown || [];
   const poStatus = data?.po_status || [];
 
+  // Normalise chart rows: numbers only, profit_loss always present
+  const chartData = useMemo(() => {
+    const rows = Array.isArray(data?.chart_data) ? data.chart_data : [];
+    return rows.map((row, index) => {
+      const revenue = Number(row.revenue) || 0;
+      const expenses = Number(row.expenses) || 0;
+      return {
+        key: row.key || `row-${index}`,
+        label: row.label || row.key || "",
+        revenue,
+        expenses,
+        profit_loss:
+          row.profit_loss !== undefined && row.profit_loss !== null
+            ? Number(row.profit_loss) || 0
+            : revenue - expenses,
+      };
+    });
+  }, [data]);
+
+  // True when at least one bucket has real money movement
+  const hasActivity = chartData.some((row) => row.revenue !== 0 || row.expenses !== 0);
+
   const rangeLabel = useMemo(() => {
     if (!data?.range) return "—";
-    const start = new Date(data.range.start).toLocaleDateString("en-IN");
-    const end = new Date(data.range.end).toLocaleDateString("en-IN");
+    const startDate = parseISODate(data.range.start);
+    const endDate = parseISODate(data.range.end);
+    if (!startDate || !endDate) return "—";
+    const start = startDate.toLocaleDateString("en-IN");
+    const end = endDate.toLocaleDateString("en-IN");
     return `${start} — ${end}`;
   }, [data]);
 
@@ -663,12 +843,12 @@ export default function AdminStatistics() {
                 data={
                   chartData.length > 0
                     ? chartData
-                    : [{ key: "empty", label: "No Data", revenue: 0, expenses: 0 }]
+                    : [{ key: "empty", label: "No Data", revenue: 0, expenses: 0, profit_loss: 0 }]
                 }
                 period={period}
               />
 
-              {chartData.length === 0 && (
+              {!hasActivity && (
                 <div className="statistics-chart-empty-overlay">
                   <div className="statistics-chart-empty-icon">
                     <CircleDollarSign size={18} />
@@ -686,6 +866,13 @@ export default function AdminStatistics() {
               />
             </div>
           </section>
+
+          {/* PERIOD-BY-PERIOD PROFIT / LOSS TABLE */}
+          {chartData.length > 0 && (
+            <section className="statistics-visual-section">
+              <PeriodBreakdownTable data={chartData} />
+            </section>
+          )}
 
           {/* PURCHASE ORDER STATUS */}
           <section className="statistics-visual-section statistics-po-card">

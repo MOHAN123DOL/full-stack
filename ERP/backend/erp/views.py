@@ -4853,20 +4853,28 @@ def _customer_block(customer):
         "stateCode": customer.state_code or "",
     }
 
+from decimal import Decimal
+
+from django.db.models import Sum, Prefetch
+from django.db.models.functions import Coalesce
+
 
 @method_decorator(csrf_protect, name="dispatch")
 class AccountsReportAPIView(APIView):
     """
     GET /erp/accounts-report/
-    GET /erp/accounts-report/?type=PO   (optional filter)
+    GET /erp/accounts-report/?type=PO
+
+    PO received status is calculated from MaterialGRN.
+    PO payment status remains separate.
     """
 
-    permission_classes = [AllowAny]   # session cookie is the real gate
+    permission_classes = [AllowAny]
 
     def get(self, request, document_type=None):
 
         # ============================================================
-        # 1. Session check (HttpOnly refresh cookie)
+        # 1. SESSION CHECK
         # ============================================================
         cookie_name = get_refresh_cookie_name("accounts")
 
@@ -4914,7 +4922,7 @@ class AccountsReportAPIView(APIView):
             )
 
         # ============================================================
-        # 2. Accounts-department check
+        # 2. ACCOUNTS DEPARTMENT CHECK
         # ============================================================
         if user.user_type != User.UserType.ACCOUNTS:
             return Response(
@@ -4926,9 +4934,13 @@ class AccountsReportAPIView(APIView):
             )
 
         # ============================================================
-        # 3. Optional filter by document type
+        # 3. DOCUMENT TYPE FILTER
         # ============================================================
-        type_filter = (document_type or request.query_params.get("type") or "ALL").upper()
+        type_filter = (
+            document_type
+            or request.query_params.get("type")
+            or "ALL"
+        ).upper()
 
         def want(short):
             return type_filter == "ALL" or type_filter == short
@@ -4936,10 +4948,126 @@ class AccountsReportAPIView(APIView):
         rows = []
 
         # ============================================================
-        # 4. PURCHASE ORDERS
+        # 4. PURCHASE ORDERS + MATERIAL GRN STATUS
         # ============================================================
         if want("PO"):
-            for po in PurchaseOrder.objects.all().order_by("-created_at"):
+
+            purchase_orders = list(
+                PurchaseOrder.objects.all().order_by("-created_at")
+            )
+
+            po_ids = [po.id for po in purchase_orders]
+
+            # Fetch all PO items and their GRN records efficiently.
+            po_items = (
+                PurchaseOrderItem.objects
+                .filter(purchase_order_id__in=po_ids)
+                .prefetch_related(
+                    Prefetch(
+                        "material_grns",
+                        queryset=MaterialGRN.objects.order_by("created_at"),
+                    )
+                )
+            )
+
+            # Group PO items by purchase order.
+            items_by_po = {}
+
+            for item in po_items:
+                items_by_po.setdefault(
+                    item.purchase_order_id, []
+                ).append(item)
+
+            # Build each PO response.
+            for po in purchase_orders:
+
+                ordered_total = Decimal("0.000")
+                received_total = Decimal("0.000")
+
+                grn_details = []
+
+                po_line_items = items_by_po.get(po.id, [])
+
+                for item in po_line_items:
+
+                    ordered_qty = Decimal(str(item.quantity or 0))
+
+                    grn_records = list(item.material_grns.all())
+
+                    received_qty = sum(
+                        (
+                            Decimal(str(grn.received_qty or 0))
+                            for grn in grn_records
+                        ),
+                        Decimal("0.000"),
+                    )
+
+                    remaining_qty = max(
+                        ordered_qty - received_qty,
+                        Decimal("0.000"),
+                    )
+
+                    ordered_total += ordered_qty
+                    received_total += received_qty
+
+                    item_status = self.get_received_status(
+                        ordered_qty,
+                        received_qty,
+                    )
+
+                    grn_details.append({
+                        "purchase_order_item_id": item.id,
+
+                        "material": (
+                            grn_records[0].material
+                            if grn_records
+                            else ""
+                        ),
+
+                        "description": (
+                            grn_records[0].description
+                            if grn_records
+                            else ""
+                        ),
+
+                        "ordered_qty": float(ordered_qty),
+                        "received_qty": float(received_qty),
+                        "remaining_qty": float(remaining_qty),
+
+                        "status": item_status,
+
+                        "grn_numbers": [
+                            grn.grn_number
+                            for grn in grn_records
+                        ],
+
+                        "grn_records": [
+                            {
+                                "grn_number": grn.grn_number,
+                                "grn_date": _iso(grn.grn_date),
+                                "received_qty": float(
+                                    grn.received_qty
+                                ),
+                                "receiving_unit": grn.receiving_unit,
+                                "received_by": grn.received_by,
+                                "remarks": grn.remarks,
+                            }
+                            for grn in grn_records
+                        ],
+                    })
+
+                # Overall PO received status.
+                received_status = self.get_received_status(
+                    ordered_total,
+                    received_total,
+                )
+
+                remaining_total = max(
+                    ordered_total - received_total,
+                    Decimal("0.000"),
+                )
+
+                # Existing PO document data.
                 doc_data = po.document_data or {
                     "poNumber": po.po_number,
                     "poDate": _iso(po.po_date),
@@ -4968,8 +5096,20 @@ class AccountsReportAPIView(APIView):
                     "type": "Purchase Order",
                     "short": "PO",
                     "document_number": po.po_number,
-                    "payment_status": po.payment_status or "Pending",
-                    "delivery_status": po.delivery_status or "Pending",
+
+                    # Payment status is independent of GRN.
+                        "payment_status": po.payment_status or "Pending",
+                        "delivery_status": po.delivery_status or "Pending",
+                        "received_status": received_status,
+                        "grn_summary": {
+                            "ordered_qty": float(ordered_total),
+                            "received_qty": float(received_total),
+                            "remaining_qty": float(remaining_total),
+                        },
+                        "grn_details": grn_details,
+                                            # Item-wise GRN information.
+                    
+
                     "path": "/accounts/po",
                     "document_data": doc_data,
                 })
@@ -4978,13 +5118,16 @@ class AccountsReportAPIView(APIView):
         # 5. QUOTATIONS
         # ============================================================
         if want("QO"):
+
             qs = (
                 Quotation.objects
                 .select_related("customer")
                 .all()
                 .order_by("-created_at")
             )
+
             for qo in qs:
+
                 doc_data = {
                     "quotationNumber": qo.quotation_number,
                     "quotationDate": _iso(qo.quotation_date),
@@ -5018,13 +5161,16 @@ class AccountsReportAPIView(APIView):
         # 6. DELIVERY CHALLANS
         # ============================================================
         if want("DC"):
+
             qs = (
                 DeliveryChallan.objects
                 .select_related("customer")
                 .all()
                 .order_by("-created_at")
             )
+
             for dc in qs:
+
                 doc_data = {
                     "dcNumber": dc.dc_number,
                     "dcDate": _iso(dc.dc_date),
@@ -5056,7 +5202,9 @@ class AccountsReportAPIView(APIView):
         # 7. TAX INVOICES
         # ============================================================
         if want("TI"):
+
             for ti in TaxInvoice.objects.all().order_by("-created_at"):
+
                 doc_data = ti.document_data or {
                     "invoiceNumber": ti.invoice_number,
                     "invoiceDate": _iso(ti.invoice_date),
@@ -5084,7 +5232,9 @@ class AccountsReportAPIView(APIView):
         # 8. PROFORMA INVOICES
         # ============================================================
         if want("PI"):
+
             for pi in ProformaInvoice.objects.all().order_by("-created_at"):
+
                 doc_data = pi.document_data or {
                     "proformaNo": pi.proforma_no,
                     "date": _iso(pi.date),
@@ -5109,14 +5259,20 @@ class AccountsReportAPIView(APIView):
                 })
 
         # ============================================================
-        # 9. Global newest-first ordering
+        # 9. GLOBAL NEWEST-FIRST ORDERING
         # ============================================================
-        rows.sort(key=lambda r: r["document_number"], reverse=True)
+        rows.sort(
+            key=lambda r: r["document_number"],
+            reverse=True,
+        )
 
         # ============================================================
-        # 10. Serialize + return
+        # 10. SERIALIZE + RETURN
         # ============================================================
-        serializer = AccountsReportRowSerializer(rows, many=True)
+        serializer = AccountsReportRowSerializer(
+            rows,
+            many=True,
+        )
 
         return Response(
             {
@@ -5127,6 +5283,25 @@ class AccountsReportAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    # ================================================================
+    # GRN RECEIVED STATUS CALCULATION
+    # ================================================================
+    @staticmethod
+    def get_received_status(ordered_qty, received_qty):
+
+        ordered_qty = Decimal(str(ordered_qty or 0))
+        received_qty = Decimal(str(received_qty or 0))
+
+        if received_qty <= 0:
+            return "Pending"
+
+        if ordered_qty > 0 and received_qty < ordered_qty:
+            return "Partially Received"
+
+        if ordered_qty > 0 and received_qty >= ordered_qty:
+            return "Fully Received"
+
+        return "Pending"
 
 # Map short codes to models — keep this in sync with the
 # DOCUMENT_TYPES list on the frontend.
@@ -21444,8 +21619,6 @@ class AdminAssemblyStageDetailAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
-
 # =====================================================================
 # ADMIN — STATISTICS DASHBOARD
 # -----------------------------------------------------------------
@@ -21456,194 +21629,13 @@ class AdminAssemblyStageDetailAPIView(APIView):
 #   ?from=YYYY-MM-DD  (only for period=custom)
 #   ?to=YYYY-MM-DD    (only for period=custom)
 #
-# Returns data perfectly shaped for the React charts.
+# Month filter  -> last 12 calendar months (continuous, zero-filled)
+# Other filters -> same ranges as before
 # =====================================================================
 
 from datetime import date, timedelta
 from decimal import Decimal
 import calendar
-
-from django.db.models import Sum, Q, Count
-from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
-
-from .models import (
-    JournalEntry,
-    Project,
-    PurchaseOrder,
-    TaxInvoice,
-    ProformaInvoice,
-    DeliveryChallan,
-)
-
-
-def _get_statistics_date_range(period, from_date, to_date):
-    """
-    Resolves the requested period into a concrete (start_date, end_date).
-    """
-    today = date.today()
-
-    if period == "day":
-        return today, today
-
-    if period == "week":
-        start = today - timedelta(days=today.weekday())
-        return start, start + timedelta(days=6)
-
-    if period == "month":
-        start = today.replace(day=1)
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        return start, today.replace(day=last_day)
-
-    if period == "quarter":
-        q_start_month = ((today.month - 1) // 3) * 3 + 1
-        q_end_month = q_start_month + 2
-        last_day = calendar.monthrange(today.year, q_end_month)[1]
-        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
-
-    if period == "year":
-        return date(today.year, 1, 1), date(today.year, 12, 31)
-
-    if period == "custom":
-        if from_date and to_date:
-            try:
-                start = date.fromisoformat(from_date)
-                end = date.fromisoformat(to_date)
-                if end < start:
-                    start, end = end, start
-                return start, end
-            except ValueError:
-                pass
-        # Fallback if invalid custom dates
-        start = today.replace(day=1)
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        return start, today.replace(day=last_day)
-
-    # Default to this month
-    start = today.replace(day=1)
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    return start, today.replace(day=last_day)
-from datetime import date, timedelta
-from decimal import Decimal
-import calendar
-
-from django.db.models import Sum, Q, Count
-from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
-
-from .models import (
-    JournalEntry,
-    Project,
-    PurchaseOrder,
-    TaxInvoice,
-    ProformaInvoice,
-    SalaryPayment,
-    Advance,
-)
-
-def _get_statistics_date_range(period, from_date, to_date):
-    today = date.today()
-
-    if period == "day":
-        return today, today
-
-    if period == "week":
-        start = today - timedelta(days=today.weekday())
-        return start, start + timedelta(days=6)
-
-    if period == "month":
-        start = today.replace(day=1)
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        return start, today.replace(day=last_day)
-
-    if period == "quarter":
-        q_start_month = ((today.month - 1) // 3) * 3 + 1
-        q_end_month = q_start_month + 2
-        last_day = calendar.monthrange(today.year, q_end_month)[1]
-        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
-
-    if period == "year":
-        return date(today.year, 1, 1), date(today.year, 12, 31)
-
-    if period == "custom":
-        if from_date and to_date:
-            try:
-                start = date.fromisoformat(from_date)
-                end = date.fromisoformat(to_date)
-                if end < start:
-                    start, end = end, start
-                return start, end
-            except ValueError:
-                pass
-        start = today.replace(day=1)
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        return start, today.replace(day=last_day)
-
-    start = today.replace(day=1)
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    return start, today.replace(day=last_day)
-
-from datetime import date, timedelta
-from decimal import Decimal
-import calendar
-
-from django.db.models import Sum, Q, Count
-from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
-
-from .models import (
-    JournalEntry,
-    Project,
-    PurchaseOrder,
-    PurchaseOrderItem,
-    TaxInvoice,
-    ProformaInvoice,
-    SalaryPayment,
-    Advance,
-    MaterialGRN,
-    ConsumableGRN,
-)
-
-def _get_statistics_date_range(period, from_date, to_date):
-    today = date.today()
-
-    if period == "day":
-        return today, today
-
-    if period == "week":
-        start = today - timedelta(days=today.weekday())
-        return start, start + timedelta(days=6)
-
-    if period == "month":
-        start = today.replace(day=1)
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        return start, today.replace(day=last_day)
-
-    if period == "quarter":
-        q_start_month = ((today.month - 1) // 3) * 3 + 1
-        q_end_month = q_start_month + 2
-        last_day = calendar.monthrange(today.year, q_end_month)[1]
-        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
-
-    if period == "year":
-        return date(today.year, 1, 1), date(today.year, 12, 31)
-
-    if period == "custom":
-        if from_date and to_date:
-            try:
-                start = date.fromisoformat(from_date)
-                end = date.fromisoformat(to_date)
-                if end < start:
-                    start, end = end, start
-                return start, end
-            except ValueError:
-                pass
-        start = today.replace(day=1)
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        return start, today.replace(day=last_day)
-
-    start = today.replace(day=1)
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    return start, today.replace(day=last_day)
-
-from decimal import Decimal
 
 from django.db.models import Sum, Q, Case, When, Value, DecimalField
 from django.db.models.functions import (
@@ -21660,12 +21652,163 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
+from .models import (
+    JournalEntry,
+    PaymentRecord,
+    Project,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    TaxInvoice,
+    ProformaInvoice,
+    SalaryPayment,
+    Advance,
+    MaterialGRN,
+    ConsumableGRN,
+)
+
+# NOTE: keep whatever import you already use for IsERPAdmin, e.g.
+# from .permissions import IsERPAdmin
+
+
+VALID_PERIODS = {"day", "week", "month", "quarter", "year", "custom"}
+
+TRUNC_BY_GRANULARITY = {
+    "day": TruncDay,
+    "week": TruncWeek,
+    "month": TruncMonth,
+    "quarter": TruncQuarter,
+    "year": TruncYear,
+}
+
+MAX_FILLED_BUCKETS = 36  # safety cap for zero-filling very long custom ranges
+
+
+# ---------------------------------------------------------------------
+# DATE HELPERS
+# ---------------------------------------------------------------------
+def _add_months(d, months):
+    """Return the first day of the month `months` away from d's month."""
+    total = d.year * 12 + (d.month - 1) + months
+    year, month_index = divmod(total, 12)
+    return date(year, month_index + 1, 1)
+
+
+def _month_end(d):
+    return d.replace(day=calendar.monthrange(d.year, d.month)[1])
+
+
+def _get_statistics_date_range(period, from_date, to_date):
+    """
+    Resolves the requested period into a concrete (start_date, end_date).
+
+    month   -> first day of the month 11 months ago  ..  last day of this month
+               (12 calendar months including the current one)
+    """
+    today = date.today()
+
+    if period == "day":
+        return today, today
+
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+        return start, start + timedelta(days=6)
+
+    if period == "month":
+        start = _add_months(today.replace(day=1), -11)
+        return start, _month_end(today)
+
+    if period == "quarter":
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        q_end_month = q_start_month + 2
+        last_day = calendar.monthrange(today.year, q_end_month)[1]
+        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
+
+    if period == "year":
+        return date(today.year, 1, 1), date(today.year, 12, 31)
+
+    if period == "custom":
+        if from_date and to_date:
+            try:
+                start = date.fromisoformat(from_date)
+                end = date.fromisoformat(to_date)
+                if end < start:
+                    start, end = end, start
+                return start, end
+            except ValueError:
+                pass
+        # Fallback if custom dates are missing / invalid: current month
+        return today.replace(day=1), _month_end(today)
+
+    # Unknown period -> same as month (12 months)
+    start = _add_months(today.replace(day=1), -11)
+    return start, _month_end(today)
+
+
+def _bucket_start(granularity, d):
+    """First day of the bucket that contains d."""
+    if granularity == "day":
+        return d
+    if granularity == "week":
+        return d - timedelta(days=d.weekday())
+    if granularity == "month":
+        return d.replace(day=1)
+    if granularity == "quarter":
+        return date(d.year, ((d.month - 1) // 3) * 3 + 1, 1)
+    if granularity == "year":
+        return date(d.year, 1, 1)
+    return d.replace(day=1)
+
+
+def _next_bucket(granularity, d):
+    if granularity == "day":
+        return d + timedelta(days=1)
+    if granularity == "week":
+        return d + timedelta(days=7)
+    if granularity == "month":
+        return _add_months(d, 1)
+    if granularity == "quarter":
+        return _add_months(d, 3)
+    if granularity == "year":
+        return date(d.year + 1, 1, 1)
+    return _add_months(d, 1)
+
+
+def _iter_buckets(granularity, start_date, end_date):
+    current = _bucket_start(granularity, start_date)
+    while current <= end_date:
+        yield current
+        current = _next_bucket(granularity, current)
+
+
+def _normalize_date(value):
+    """Trunc* on DateTimeField returns datetime; on DateField returns date."""
+    if value is None:
+        return None
+    if hasattr(value, "date"):
+        return value.date()
+    return value
+
+
+def _get_label(granularity, dt):
+    if granularity == "day":
+        return dt.strftime("%d %b")
+    if granularity == "week":
+        return f"Wk {dt.strftime('%d %b')}"
+    if granularity == "quarter":
+        return f"{dt.year}-Q{((dt.month - 1) // 3) + 1}"
+    if granularity == "year":
+        return str(dt.year)
+    return dt.strftime("%b %y")  # month / custom -> "Nov 25"
+
 
 class AdminStatisticsAPIView(APIView):
     permission_classes = [IsAuthenticated, IsERPAdmin]
 
     def get(self, request):
         period = request.query_params.get("period", "month")
+        if period not in VALID_PERIODS:
+            period = "month"
+
         from_date = request.query_params.get("from")
         to_date = request.query_params.get("to")
 
@@ -21673,135 +21816,196 @@ class AdminStatisticsAPIView(APIView):
             period, from_date, to_date
         )
 
+        # Custom ranges are grouped month-wise (same as before)
+        granularity = "month" if period == "custom" else period
+        trunc = TRUNC_BY_GRANULARITY[granularity]
+
         zero = Decimal("0.00")
         money_field = DecimalField(max_digits=24, decimal_places=2)
 
+        def sum_if(value_field, **condition):
+            """SUM(value_field) WHERE condition, 0 when nothing matches."""
+            return Coalesce(
+                Sum(
+                    Case(
+                        When(then=value_field, **condition),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            )
+
         # =====================================================
-        # 1. JOURNAL INCOME AND EXPENSES
+        # 1. TIMELINE BUCKETS (continuous, zero-filled)
+        # =====================================================
+        timeline_map = {}
+
+        def ensure_bucket(value):
+            value = _normalize_date(value)
+            if value is None:
+                return None
+            key = value.isoformat()
+            if key not in timeline_map:
+                timeline_map[key] = {
+                    "key": key,
+                    "label": _get_label(granularity, value),
+                    "revenue": zero,
+                    "expenses": zero,
+                }
+            return key
+
+        bucket_starts = list(_iter_buckets(granularity, start_date, end_date))
+        if len(bucket_starts) <= MAX_FILLED_BUCKETS:
+            for bucket_start in bucket_starts:
+                ensure_bucket(bucket_start)
+
+        # =====================================================
+        # 2. JOURNAL ENTRIES  (grouped by `date`)
+        #    One query: income + expenses per bucket
         # =====================================================
         journal_qs = JournalEntry.objects.filter(
             date__gte=start_date,
             date__lte=end_date,
         )
 
-        journal_totals = journal_qs.aggregate(
-            income=Coalesce(
-                Sum(
-                    Case(
-                        When(
-                            type=JournalEntry.EntryType.INCOME,
-                            then="amount",
-                        ),
-                        default=Value(zero),
-                        output_field=money_field,
-                    )
-                ),
-                Value(zero),
-                output_field=money_field,
-            ),
-            expenses=Coalesce(
-                Sum(
-                    Case(
-                        When(
-                            type=JournalEntry.EntryType.EXPENSE,
-                            then="amount",
-                        ),
-                        default=Value(zero),
-                        output_field=money_field,
-                    )
-                ),
-                Value(zero),
-                output_field=money_field,
-            ),
+        journal_rows = (
+            journal_qs
+            .annotate(bucket=trunc("date"))
+            .values("bucket")
+            .annotate(
+                income=sum_if("amount", type=JournalEntry.EntryType.INCOME),
+                expenses=sum_if("amount", type=JournalEntry.EntryType.EXPENSE),
+            )
+            .order_by("bucket")
         )
 
-        journal_income = journal_totals["income"] or zero
-        journal_expenses = journal_totals["expenses"] or zero
+        journal_income = zero
+        journal_expenses = zero
+
+        for row in journal_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            timeline_map[key]["revenue"] += row["income"]
+            timeline_map[key]["expenses"] += row["expenses"]
+            journal_income += row["income"]
+            journal_expenses += row["expenses"]
 
         # =====================================================
-        # 2. PAYMENT RECORDS: INCOMING AND OUTGOING
+        # 3. PAYMENT RECORDS  (grouped by `paid_date`)
+        #    incoming -> revenue, outgoing -> expenses
         # =====================================================
         payment_qs = PaymentRecord.objects.filter(
             paid_date__gte=start_date,
             paid_date__lte=end_date,
         )
 
-        payment_totals = payment_qs.aggregate(
-            incoming=Coalesce(
-                Sum(
-                    Case(
-                        When(
-                            payment_direction=(
-                                PaymentRecord.PaymentDirection.INCOMING
-                            ),
-                            then="paid_amount",
-                        ),
-                        default=Value(zero),
-                        output_field=money_field,
-                    )
+        payment_rows = (
+            payment_qs
+            .annotate(bucket=trunc("paid_date"))
+            .values("bucket")
+            .annotate(
+                incoming=sum_if(
+                    "paid_amount",
+                    payment_direction=PaymentRecord.PaymentDirection.INCOMING,
                 ),
-                Value(zero),
-                output_field=money_field,
-            ),
-            outgoing=Coalesce(
-                Sum(
-                    Case(
-                        When(
-                            payment_direction=(
-                                PaymentRecord.PaymentDirection.OUTGOING
-                            ),
-                            then="paid_amount",
-                        ),
-                        default=Value(zero),
-                        output_field=money_field,
-                    )
+                outgoing=sum_if(
+                    "paid_amount",
+                    payment_direction=PaymentRecord.PaymentDirection.OUTGOING,
                 ),
-                Value(zero),
-                output_field=money_field,
-            ),
+            )
+            .order_by("bucket")
         )
 
-        incoming_payments = payment_totals["incoming"] or zero
-        outgoing_payments = payment_totals["outgoing"] or zero
+        incoming_payments = zero
+        outgoing_payments = zero
+
+        for row in payment_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            timeline_map[key]["revenue"] += row["incoming"]
+            timeline_map[key]["expenses"] += row["outgoing"]
+            incoming_payments += row["incoming"]
+            outgoing_payments += row["outgoing"]
 
         # =====================================================
-        # 3. SALARY AND ADVANCES
+        # 4. SALARY PAYMENTS (grouped by `paid_date`)
         # =====================================================
-        # Assumes SalaryPayment has payment_status and paid_date.
-        salary_paid = (
+        salary_rows = (
             SalaryPayment.objects.filter(
                 payment_status="PAID",
                 paid_date__gte=start_date,
                 paid_date__lte=end_date,
-            ).aggregate(total=Sum("net_salary"))["total"]
-            or zero
+            )
+            .annotate(bucket=trunc("paid_date"))
+            .values("bucket")
+            .annotate(total=Sum("net_salary"))
+            .order_by("bucket")
         )
 
-        advances = (
+        salary_paid = zero
+
+        for row in salary_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            amount = row["total"] or zero
+            timeline_map[key]["expenses"] += amount
+            salary_paid += amount
+
+        # =====================================================
+        # 5. ADVANCES (grouped by `advance_date`)
+        # =====================================================
+        advance_rows = (
             Advance.objects.filter(
                 advance_date__gte=start_date,
                 advance_date__lte=end_date,
-            ).aggregate(total=Sum("amount"))["total"]
-            or zero
+            )
+            .annotate(bucket=trunc("advance_date"))
+            .values("bucket")
+            .annotate(total=Sum("amount"))
+            .order_by("bucket")
         )
 
+        advances = zero
+
+        for row in advance_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            amount = row["total"] or zero
+            timeline_map[key]["expenses"] += amount
+            advances += amount
+
         # =====================================================
-        # 4. REVENUE, EXPENSES AND PROFIT/LOSS
+        # 6. REVENUE, EXPENSES AND PROFIT/LOSS (period totals)
+        #    These equal the sum of the chart buckets.
         # =====================================================
         total_revenue = journal_income + incoming_payments
-
         total_expenses = (
-            journal_expenses
-            + outgoing_payments
-            + salary_paid
-            + advances
+            journal_expenses + outgoing_payments + salary_paid + advances
         )
-
         net_profit = total_revenue - total_expenses
 
         # =====================================================
-        # 5. OUTSTANDING TAX INVOICES
-        # ALL DATES: unpaid, non-cancelled invoices
+        # 7. CHART DATA (oldest -> newest, per-bucket profit/loss)
+        # =====================================================
+        chart_data = [
+            {
+                "key": item["key"],
+                "label": item["label"],
+                "revenue": float(item["revenue"]),
+                "expenses": float(item["expenses"]),
+                "profit_loss": float(item["revenue"] - item["expenses"]),
+            }
+            for item in sorted(timeline_map.values(), key=lambda i: i["key"])
+        ]
+
+        # =====================================================
+        # 8. OUTSTANDING (all dates, unpaid + non-cancelled)
         # =====================================================
         outstanding_tax_invoices = (
             TaxInvoice.objects.filter(
@@ -21812,10 +22016,6 @@ class AdminStatisticsAPIView(APIView):
             or zero
         )
 
-        # =====================================================
-        # 6. OUTSTANDING PROFORMA INVOICES
-        # ALL DATES: unpaid, non-cancelled invoices
-        # =====================================================
         outstanding_proforma_invoices = (
             ProformaInvoice.objects.filter(
                 payment_status=ProformaInvoice.PaymentStatus.PENDING,
@@ -21825,130 +22025,12 @@ class AdminStatisticsAPIView(APIView):
             or zero
         )
 
-        # =====================================================
-        # 7. TOTAL OUTSTANDING
-        # =====================================================
         total_outstanding = (
-            outstanding_tax_invoices
-            + outstanding_proforma_invoices
+            outstanding_tax_invoices + outstanding_proforma_invoices
         )
 
         # =====================================================
-        # 8. TIMELINE HELPERS
-        # =====================================================
-        if period == "day":
-            journal_trunc = TruncDay("date")
-            payment_trunc = TruncDay("paid_date")
-        elif period == "week":
-            journal_trunc = TruncWeek("date")
-            payment_trunc = TruncWeek("paid_date")
-        elif period == "quarter":
-            journal_trunc = TruncQuarter("date")
-            payment_trunc = TruncQuarter("paid_date")
-        elif period == "year":
-            journal_trunc = TruncYear("date")
-            payment_trunc = TruncYear("paid_date")
-        else:
-            journal_trunc = TruncMonth("date")
-            payment_trunc = TruncMonth("paid_date")
-
-        timeline_map = {}
-
-        def get_label(dt):
-            if period == "day":
-                return dt.strftime("%d %b")
-            if period == "week":
-                return f"Wk {dt.strftime('%d %b')}"
-            if period == "quarter":
-                return f"{dt.year}-Q{((dt.month - 1) // 3) + 1}"
-            if period == "year":
-                return str(dt.year)
-            return dt.strftime("%b %y")
-
-        def normalize_date(value):
-            if value is None:
-                return None
-            if hasattr(value, "date"):
-                return value.date()
-            return value
-
-        def ensure_bucket(value):
-            value = normalize_date(value)
-            if value is None:
-                return None
-
-            key = value.isoformat()
-
-            if key not in timeline_map:
-                timeline_map[key] = {
-                    "key": key,
-                    "label": get_label(value),
-                    "revenue": 0.0,
-                    "expenses": 0.0,
-                }
-
-            return key
-
-        # =====================================================
-        # 9. JOURNAL CHART DATA
-        # =====================================================
-        journal_timeline = (
-            journal_qs
-            .annotate(bucket=journal_trunc)
-            .values("bucket", "type")
-            .annotate(total=Sum("amount"))
-            .order_by("bucket")
-        )
-
-        for row in journal_timeline:
-            key = ensure_bucket(row["bucket"])
-            if key is None:
-                continue
-
-            amount = float(row["total"] or zero)
-
-            if row["type"] == JournalEntry.EntryType.INCOME:
-                timeline_map[key]["revenue"] += amount
-            elif row["type"] == JournalEntry.EntryType.EXPENSE:
-                timeline_map[key]["expenses"] += amount
-
-        # =====================================================
-        # 10. PAYMENT RECORD CHART DATA
-        # Uses paid_date, NOT date
-        # =====================================================
-        payment_timeline = (
-            payment_qs
-            .annotate(bucket=payment_trunc)
-            .values("bucket", "payment_direction")
-            .annotate(total=Sum("paid_amount"))
-            .order_by("bucket")
-        )
-
-        for row in payment_timeline:
-            key = ensure_bucket(row["bucket"])
-            if key is None:
-                continue
-
-            amount = float(row["total"] or zero)
-
-            if (
-                row["payment_direction"]
-                == PaymentRecord.PaymentDirection.INCOMING
-            ):
-                timeline_map[key]["revenue"] += amount
-            elif (
-                row["payment_direction"]
-                == PaymentRecord.PaymentDirection.OUTGOING
-            ):
-                timeline_map[key]["expenses"] += amount
-
-        chart_data = sorted(
-            timeline_map.values(),
-            key=lambda item: item["key"],
-        )
-
-        # =====================================================
-        # 11. EXPENSE BREAKDOWN
+        # 9. EXPENSE BREAKDOWN
         # =====================================================
         category_rows = (
             journal_qs
@@ -21958,18 +22040,16 @@ class AdminStatisticsAPIView(APIView):
             .order_by()
         )
 
-        breakdown_map = {
-            row["category"] or "Other": float(row["total"] or zero)
-            for row in category_rows
-        }
+        breakdown_map = {}
+        for row in category_rows:
+            name = row["category"] or "Other"
+            breakdown_map[name] = (
+                breakdown_map.get(name, 0.0) + float(row["total"] or zero)
+            )
 
         outgoing_by_document = (
             payment_qs
-            .filter(
-                payment_direction=(
-                    PaymentRecord.PaymentDirection.OUTGOING
-                )
-            )
+            .filter(payment_direction=PaymentRecord.PaymentDirection.OUTGOING)
             .values("document_type")
             .annotate(total=Sum("paid_amount"))
             .order_by()
@@ -21978,8 +22058,7 @@ class AdminStatisticsAPIView(APIView):
         for row in outgoing_by_document:
             category = f"Payment - {row['document_type'] or 'Other'}"
             breakdown_map[category] = (
-                breakdown_map.get(category, 0.0)
-                + float(row["total"] or zero)
+                breakdown_map.get(category, 0.0) + float(row["total"] or zero)
             )
 
         breakdown_map["Salary"] = (
@@ -21992,16 +22071,12 @@ class AdminStatisticsAPIView(APIView):
             {"category": name, "amount": amount}
             for name, amount in breakdown_map.items()
         ]
-
-        expense_breakdown.sort(
-            key=lambda item: item["amount"],
-            reverse=True,
-        )
+        expense_breakdown.sort(key=lambda item: item["amount"], reverse=True)
 
         # =====================================================
-        # 12. PURCHASE ORDER STATUS
+        # 10. PURCHASE ORDER STATUS
         # =====================================================
-        real_items = (
+        real_items = list(
             PurchaseOrderItem.objects
             .select_related("purchase_order")
             .filter(
@@ -22010,12 +22085,13 @@ class AdminStatisticsAPIView(APIView):
                 purchase_order__created_at__date__lte=end_date,
             )
         )
+        item_ids = [item.id for item in real_items]
 
         material_map = {
             row["purchase_order_item_id"]: row["total"] or zero
             for row in (
                 MaterialGRN.objects
-                .filter(purchase_order_item__in=real_items)
+                .filter(purchase_order_item_id__in=item_ids)
                 .values("purchase_order_item_id")
                 .annotate(total=Sum("received_qty"))
             )
@@ -22025,7 +22101,7 @@ class AdminStatisticsAPIView(APIView):
             row["purchase_order_item_id"]: row["total"] or zero
             for row in (
                 ConsumableGRN.objects
-                .filter(purchase_order_item__in=real_items)
+                .filter(purchase_order_item_id__in=item_ids)
                 .values("purchase_order_item_id")
                 .annotate(total=Sum("received_quantity"))
             )
@@ -22054,19 +22130,15 @@ class AdminStatisticsAPIView(APIView):
                 counts["Partially Received"] += 1
 
         po_status_array = [
-            {"status": name, "count": count}
-            for name, count in counts.items()
+            {"status": name, "count": count} for name, count in counts.items()
         ]
 
         # =====================================================
-        # 13. PROJECT COUNT
+        # 11. PROJECT COUNT
         # =====================================================
         total_projects = (
             Project.objects.filter(
-                Q(
-                    start_date__gte=start_date,
-                    start_date__lte=end_date,
-                )
+                Q(start_date__gte=start_date, start_date__lte=end_date)
                 | Q(
                     start_date__isnull=True,
                     created_at__date__gte=start_date,
@@ -22078,7 +22150,7 @@ class AdminStatisticsAPIView(APIView):
         )
 
         # =====================================================
-        # 14. RESPONSE
+        # 12. RESPONSE (structure unchanged)
         # =====================================================
         return Response(
             {
@@ -22095,12 +22167,8 @@ class AdminStatisticsAPIView(APIView):
                         "profit_loss": float(net_profit),
                         "net_profit": float(net_profit),
                         "outstanding": float(total_outstanding),
-                        "outstanding_tax_invoices": float(
-                            outstanding_tax_invoices
-                        ),
-                        "outstanding_proforma_invoices": float(
-                            outstanding_proforma_invoices
-                        ),
+                        "outstanding_tax_invoices": float(outstanding_tax_invoices),
+                        "outstanding_proforma_invoices": float(outstanding_proforma_invoices),
                         "projects": total_projects,
                         "journal_income": float(journal_income),
                         "journal_expenses": float(journal_expenses),
@@ -22115,302 +22183,420 @@ class AdminStatisticsAPIView(APIView):
                 },
             },
             status=status.HTTP_200_OK,
-        )
+        )# =====================================================================
+# ADMIN — STATISTICS DASHBOARD
+# -----------------------------------------------------------------
+# GET /erp/admin/statistics/
+#
+# Query params:
+#   ?period=day|week|month|quarter|year|custom
+#   ?from=YYYY-MM-DD  (only for period=custom)
+#   ?to=YYYY-MM-DD    (only for period=custom)
+#
+# Month filter  -> last 12 calendar months (continuous, zero-filled)
+# Other filters -> same ranges as before
+# =====================================================================
+
+from datetime import date, timedelta
+from decimal import Decimal
+import calendar
+
+from django.db.models import Sum, Q, Case, When, Value, DecimalField
+from django.db.models.functions import (
+    Coalesce,
+    TruncDay,
+    TruncWeek,
+    TruncMonth,
+    TruncQuarter,
+    TruncYear,
+)
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from .models import (
+    JournalEntry,
+    PaymentRecord,
+    Project,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    TaxInvoice,
+    ProformaInvoice,
+    SalaryPayment,
+    Advance,
+    MaterialGRN,
+    ConsumableGRN,
+)
+
+# NOTE: keep whatever import you already use for IsERPAdmin, e.g.
+# from .permissions import IsERPAdmin
+
+
+VALID_PERIODS = {"day", "week", "month", "quarter", "year", "custom"}
+
+TRUNC_BY_GRANULARITY = {
+    "day": TruncDay,
+    "week": TruncWeek,
+    "month": TruncMonth,
+    "quarter": TruncQuarter,
+    "year": TruncYear,
+}
+
+MAX_FILLED_BUCKETS = 36  # safety cap for zero-filling very long custom ranges
+
+
+# ---------------------------------------------------------------------
+# DATE HELPERS
+# ---------------------------------------------------------------------
+def _add_months(d, months):
+    """Return the first day of the month `months` away from d's month."""
+    total = d.year * 12 + (d.month - 1) + months
+    year, month_index = divmod(total, 12)
+    return date(year, month_index + 1, 1)
+
+
+def _month_end(d):
+    return d.replace(day=calendar.monthrange(d.year, d.month)[1])
+
+
+def _get_statistics_date_range(period, from_date, to_date):
+    """
+    Resolves the requested period into a concrete (start_date, end_date).
+
+    month   -> first day of the month 11 months ago  ..  last day of this month
+               (12 calendar months including the current one)
+    """
+    today = date.today()
+
+    if period == "day":
+        return today, today
+
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+        return start, start + timedelta(days=6)
+
+    if period == "month":
+        start = _add_months(today.replace(day=1), -11)
+        return start, _month_end(today)
+
+    if period == "quarter":
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        q_end_month = q_start_month + 2
+        last_day = calendar.monthrange(today.year, q_end_month)[1]
+        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
+
+    if period == "year":
+        return date(today.year, 1, 1), date(today.year, 12, 31)
+
+    if period == "custom":
+        if from_date and to_date:
+            try:
+                start = date.fromisoformat(from_date)
+                end = date.fromisoformat(to_date)
+                if end < start:
+                    start, end = end, start
+                return start, end
+            except ValueError:
+                pass
+        # Fallback if custom dates are missing / invalid: current month
+        return today.replace(day=1), _month_end(today)
+
+    # Unknown period -> same as month (12 months)
+    start = _add_months(today.replace(day=1), -11)
+    return start, _month_end(today)
+
+
+def _bucket_start(granularity, d):
+    """First day of the bucket that contains d."""
+    if granularity == "day":
+        return d
+    if granularity == "week":
+        return d - timedelta(days=d.weekday())
+    if granularity == "month":
+        return d.replace(day=1)
+    if granularity == "quarter":
+        return date(d.year, ((d.month - 1) // 3) * 3 + 1, 1)
+    if granularity == "year":
+        return date(d.year, 1, 1)
+    return d.replace(day=1)
+
+
+def _next_bucket(granularity, d):
+    if granularity == "day":
+        return d + timedelta(days=1)
+    if granularity == "week":
+        return d + timedelta(days=7)
+    if granularity == "month":
+        return _add_months(d, 1)
+    if granularity == "quarter":
+        return _add_months(d, 3)
+    if granularity == "year":
+        return date(d.year + 1, 1, 1)
+    return _add_months(d, 1)
+
+
+def _iter_buckets(granularity, start_date, end_date):
+    current = _bucket_start(granularity, start_date)
+    while current <= end_date:
+        yield current
+        current = _next_bucket(granularity, current)
+
+
+def _normalize_date(value):
+    """Trunc* on DateTimeField returns datetime; on DateField returns date."""
+    if value is None:
+        return None
+    if hasattr(value, "date"):
+        return value.date()
+    return value
+
+
+def _get_label(granularity, dt):
+    if granularity == "day":
+        return dt.strftime("%d %b")
+    if granularity == "week":
+        return f"Wk {dt.strftime('%d %b')}"
+    if granularity == "quarter":
+        return f"{dt.year}-Q{((dt.month - 1) // 3) + 1}"
+    if granularity == "year":
+        return str(dt.year)
+    return dt.strftime("%b %y")  # month / custom -> "Nov 25"
+
 
 class AdminStatisticsAPIView(APIView):
     permission_classes = [IsAuthenticated, IsERPAdmin]
 
     def get(self, request):
         period = request.query_params.get("period", "month")
+        if period not in VALID_PERIODS:
+            period = "month"
+
         from_date = request.query_params.get("from")
         to_date = request.query_params.get("to")
 
         start_date, end_date = _get_statistics_date_range(
-            period,
-            from_date,
-            to_date,
+            period, from_date, to_date
         )
+
+        # Custom ranges are grouped month-wise (same as before)
+        granularity = "month" if period == "custom" else period
+        trunc = TRUNC_BY_GRANULARITY[granularity]
 
         zero = Decimal("0.00")
+        money_field = DecimalField(max_digits=24, decimal_places=2)
 
-        money_field = DecimalField(
-            max_digits=24,
-            decimal_places=2,
-        )
+        def sum_if(value_field, **condition):
+            """SUM(value_field) WHERE condition, 0 when nothing matches."""
+            return Coalesce(
+                Sum(
+                    Case(
+                        When(then=value_field, **condition),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            )
 
         # =====================================================
-        # 1. JOURNAL INCOME AND EXPENSES
-        # One aggregate query
+        # 1. TIMELINE BUCKETS (continuous, zero-filled)
+        # =====================================================
+        timeline_map = {}
+
+        def ensure_bucket(value):
+            value = _normalize_date(value)
+            if value is None:
+                return None
+            key = value.isoformat()
+            if key not in timeline_map:
+                timeline_map[key] = {
+                    "key": key,
+                    "label": _get_label(granularity, value),
+                    "revenue": zero,
+                    "expenses": zero,
+                }
+            return key
+
+        bucket_starts = list(_iter_buckets(granularity, start_date, end_date))
+        if len(bucket_starts) <= MAX_FILLED_BUCKETS:
+            for bucket_start in bucket_starts:
+                ensure_bucket(bucket_start)
+
+        # =====================================================
+        # 2. JOURNAL ENTRIES  (grouped by `date`)
+        #    One query: income + expenses per bucket
         # =====================================================
         journal_qs = JournalEntry.objects.filter(
             date__gte=start_date,
             date__lte=end_date,
         )
 
-        journal_totals = journal_qs.aggregate(
-            income=Coalesce(
-                Sum(
-                    Case(
-                        When(
-                            type=JournalEntry.EntryType.INCOME,
-                            then="amount",
-                        ),
-                        default=Value(zero),
-                        output_field=money_field,
-                    )
-                ),
-                Value(zero),
-                output_field=money_field,
-            ),
-            expenses=Coalesce(
-                Sum(
-                    Case(
-                        When(
-                            type=JournalEntry.EntryType.EXPENSE,
-                            then="amount",
-                        ),
-                        default=Value(zero),
-                        output_field=money_field,
-                    )
-                ),
-                Value(zero),
-                output_field=money_field,
-            ),
+        journal_rows = (
+            journal_qs
+            .annotate(bucket=trunc("date"))
+            .values("bucket")
+            .annotate(
+                income=sum_if("amount", type=JournalEntry.EntryType.INCOME),
+                expenses=sum_if("amount", type=JournalEntry.EntryType.EXPENSE),
+            )
+            .order_by("bucket")
         )
 
-        journal_income = journal_totals["income"] or zero
-        journal_expenses = journal_totals["expenses"] or zero
+        journal_income = zero
+        journal_expenses = zero
+
+        for row in journal_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            timeline_map[key]["revenue"] += row["income"]
+            timeline_map[key]["expenses"] += row["expenses"]
+            journal_income += row["income"]
+            journal_expenses += row["expenses"]
 
         # =====================================================
-        # 2. PAYMENT RECORDS
-        # Incoming and outgoing in one aggregate query
+        # 3. PAYMENT RECORDS  (grouped by `paid_date`)
+        #    incoming -> revenue, outgoing -> expenses
         # =====================================================
         payment_qs = PaymentRecord.objects.filter(
             paid_date__gte=start_date,
             paid_date__lte=end_date,
         )
 
-        payment_totals = payment_qs.aggregate(
-            incoming=Coalesce(
-                Sum(
-                    Case(
-                        When(
-                            payment_direction=(
-                                PaymentRecord.PaymentDirection.INCOMING
-                            ),
-                            then="paid_amount",
-                        ),
-                        default=Value(zero),
-                        output_field=money_field,
-                    )
+        payment_rows = (
+            payment_qs
+            .annotate(bucket=trunc("paid_date"))
+            .values("bucket")
+            .annotate(
+                incoming=sum_if(
+                    "paid_amount",
+                    payment_direction=PaymentRecord.PaymentDirection.INCOMING,
                 ),
-                Value(zero),
-                output_field=money_field,
-            ),
-            outgoing=Coalesce(
-                Sum(
-                    Case(
-                        When(
-                            payment_direction=(
-                                PaymentRecord.PaymentDirection.OUTGOING
-                            ),
-                            then="paid_amount",
-                        ),
-                        default=Value(zero),
-                        output_field=money_field,
-                    )
+                outgoing=sum_if(
+                    "paid_amount",
+                    payment_direction=PaymentRecord.PaymentDirection.OUTGOING,
                 ),
-                Value(zero),
-                output_field=money_field,
-            ),
+            )
+            .order_by("bucket")
         )
 
-        incoming_payments = payment_totals["incoming"] or zero
-        outgoing_payments = payment_totals["outgoing"] or zero
+        incoming_payments = zero
+        outgoing_payments = zero
+
+        for row in payment_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            timeline_map[key]["revenue"] += row["incoming"]
+            timeline_map[key]["expenses"] += row["outgoing"]
+            incoming_payments += row["incoming"]
+            outgoing_payments += row["outgoing"]
 
         # =====================================================
-        # 3. SALARY AND ADVANCES
+        # 4. SALARY PAYMENTS (grouped by `paid_date`)
         # =====================================================
-        # Assumes SalaryPayment has payment_status and paid_date.
-        # If your model uses different field names, change them here.
-        salary_paid = (
+        salary_rows = (
             SalaryPayment.objects.filter(
                 payment_status="PAID",
                 paid_date__gte=start_date,
                 paid_date__lte=end_date,
-            ).aggregate(
-                total=Sum("net_salary")
-            )["total"]
-            or zero
+            )
+            .annotate(bucket=trunc("paid_date"))
+            .values("bucket")
+            .annotate(total=Sum("net_salary"))
+            .order_by("bucket")
         )
 
-        advances = (
+        salary_paid = zero
+
+        for row in salary_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            amount = row["total"] or zero
+            timeline_map[key]["expenses"] += amount
+            salary_paid += amount
+
+        # =====================================================
+        # 5. ADVANCES (grouped by `advance_date`)
+        # =====================================================
+        advance_rows = (
             Advance.objects.filter(
                 advance_date__gte=start_date,
                 advance_date__lte=end_date,
-            ).aggregate(
-                total=Sum("amount")
-            )["total"]
-            or zero
-        )
-
-        # =====================================================
-        # 4. TOTAL REVENUE, EXPENSES AND PROFIT/LOSS
-        # =====================================================
-        total_revenue = journal_income + incoming_payments
-
-        total_expenses = (
-            journal_expenses
-            + outgoing_payments
-            + salary_paid
-            + advances
-        )
-
-        net_profit = total_revenue - total_expenses
-
-        # =====================================================
-        # 5. SELECT TIMELINE FUNCTION FOR JOURNAL ENTRIES
-        # =====================================================
-        if period == "day":
-            journal_trunc_func = TruncDay("date")
-        elif period == "week":
-            journal_trunc_func = TruncWeek("date")
-        elif period == "quarter":
-            journal_trunc_func = TruncQuarter("date")
-        elif period == "year":
-            journal_trunc_func = TruncYear("date")
-        else:
-            journal_trunc_func = TruncMonth("date")
-
-        # =====================================================
-        # 6. TIMELINE HELPERS
-        # =====================================================
-        timeline_map = {}
-
-        def get_label(dt):
-            if not dt:
-                return ""
-
-            if period == "day":
-                return dt.strftime("%d %b")
-
-            if period == "week":
-                return f"Wk {dt.strftime('%d %b')}"
-
-            if period == "quarter":
-                quarter = ((dt.month - 1) // 3) + 1
-                return f"{dt.year}-Q{quarter}"
-
-            if period == "year":
-                return str(dt.year)
-
-            return dt.strftime("%b %y")
-
-        def normalize_bucket(bucket):
-            if bucket is None:
-                return None
-
-            if hasattr(bucket, "date"):
-                return bucket.date()
-
-            return bucket
-
-        def ensure_timeline_bucket(bucket):
-            bucket = normalize_bucket(bucket)
-
-            if bucket is None:
-                return None
-
-            key = bucket.isoformat()
-
-            if key not in timeline_map:
-                timeline_map[key] = {
-                    "key": key,
-                    "label": get_label(bucket),
-                    "revenue": 0.0,
-                    "expenses": 0.0,
-                }
-
-            return key
-
-        # =====================================================
-        # 7. JOURNAL TIMELINE
-        # Uses JournalEntry.date
-        # =====================================================
-        journal_timeline = (
-            journal_qs
-            .annotate(bucket=journal_trunc_func)
-            .values("bucket", "type")
+            )
+            .annotate(bucket=trunc("advance_date"))
+            .values("bucket")
             .annotate(total=Sum("amount"))
             .order_by("bucket")
         )
 
-        for row in journal_timeline:
-            key = ensure_timeline_bucket(row["bucket"])
+        advances = zero
 
+        for row in advance_rows:
+            key = ensure_bucket(row["bucket"])
             if key is None:
                 continue
-
-            amount = float(row["total"] or 0)
-
-            if row["type"] == JournalEntry.EntryType.INCOME:
-                timeline_map[key]["revenue"] += amount
-
-            elif row["type"] == JournalEntry.EntryType.EXPENSE:
-                timeline_map[key]["expenses"] += amount
+            amount = row["total"] or zero
+            timeline_map[key]["expenses"] += amount
+            advances += amount
 
         # =====================================================
-        # 8. PAYMENT TIMELINE
-        # IMPORTANT: PaymentRecord uses paid_date, not date
+        # 6. REVENUE, EXPENSES AND PROFIT/LOSS (period totals)
+        #    These equal the sum of the chart buckets.
         # =====================================================
-        if period == "day":
-            payment_trunc_func = TruncDay("paid_date")
-        elif period == "week":
-            payment_trunc_func = TruncWeek("paid_date")
-        elif period == "quarter":
-            payment_trunc_func = TruncQuarter("paid_date")
-        elif period == "year":
-            payment_trunc_func = TruncYear("paid_date")
-        else:
-            payment_trunc_func = TruncMonth("paid_date")
+        total_revenue = journal_income + incoming_payments
+        total_expenses = (
+            journal_expenses + outgoing_payments + salary_paid + advances
+        )
+        net_profit = total_revenue - total_expenses
 
-        payment_timeline = (
-            payment_qs
-            .annotate(bucket=payment_trunc_func)
-            .values("bucket", "payment_direction")
-            .annotate(total=Sum("paid_amount"))
-            .order_by("bucket")
+        # =====================================================
+        # 7. CHART DATA (oldest -> newest, per-bucket profit/loss)
+        # =====================================================
+        chart_data = [
+            {
+                "key": item["key"],
+                "label": item["label"],
+                "revenue": float(item["revenue"]),
+                "expenses": float(item["expenses"]),
+                "profit_loss": float(item["revenue"] - item["expenses"]),
+            }
+            for item in sorted(timeline_map.values(), key=lambda i: i["key"])
+        ]
+
+        # =====================================================
+        # 8. OUTSTANDING (all dates, unpaid + non-cancelled)
+        # =====================================================
+        outstanding_tax_invoices = (
+            TaxInvoice.objects.filter(
+                payment_status=TaxInvoice.PaymentStatus.PENDING,
+            )
+            .exclude(status=TaxInvoice.Status.CANCELLED)
+            .aggregate(total=Sum("grand_total"))["total"]
+            or zero
         )
 
-        for row in payment_timeline:
-            key = ensure_timeline_bucket(row["bucket"])
+        outstanding_proforma_invoices = (
+            ProformaInvoice.objects.filter(
+                payment_status=ProformaInvoice.PaymentStatus.PENDING,
+            )
+            .exclude(status=ProformaInvoice.Status.CANCELLED)
+            .aggregate(total=Sum("grand_total"))["total"]
+            or zero
+        )
 
-            if key is None:
-                continue
-
-            amount = float(row["total"] or 0)
-
-            if (
-                row["payment_direction"]
-                == PaymentRecord.PaymentDirection.INCOMING
-            ):
-                timeline_map[key]["revenue"] += amount
-
-            elif (
-                row["payment_direction"]
-                == PaymentRecord.PaymentDirection.OUTGOING
-            ):
-                timeline_map[key]["expenses"] += amount
-
-        chart_data = sorted(
-            timeline_map.values(),
-            key=lambda item: item["key"],
+        total_outstanding = (
+            outstanding_tax_invoices + outstanding_proforma_invoices
         )
 
         # =====================================================
         # 9. EXPENSE BREAKDOWN
         # =====================================================
-        category_qs = (
+        category_rows = (
             journal_qs
             .filter(type=JournalEntry.EntryType.EXPENSE)
             .values("category")
@@ -22418,31 +22604,25 @@ class AdminStatisticsAPIView(APIView):
             .order_by()
         )
 
-        breakdown_map = {
-            row["category"] or "Other": float(row["total"] or 0)
-            for row in category_qs
-        }
+        breakdown_map = {}
+        for row in category_rows:
+            name = row["category"] or "Other"
+            breakdown_map[name] = (
+                breakdown_map.get(name, 0.0) + float(row["total"] or zero)
+            )
 
-        # Group outgoing payment records by document type.
         outgoing_by_document = (
             payment_qs
-            .filter(
-                payment_direction=(
-                    PaymentRecord.PaymentDirection.OUTGOING
-                )
-            )
+            .filter(payment_direction=PaymentRecord.PaymentDirection.OUTGOING)
             .values("document_type")
             .annotate(total=Sum("paid_amount"))
             .order_by()
         )
 
         for row in outgoing_by_document:
-            document_type = row["document_type"] or "Other"
-            category = f"Payment - {document_type}"
-
+            category = f"Payment - {row['document_type'] or 'Other'}"
             breakdown_map[category] = (
-                breakdown_map.get(category, 0.0)
-                + float(row["total"] or 0)
+                breakdown_map.get(category, 0.0) + float(row["total"] or zero)
             )
 
         breakdown_map["Salary"] = (
@@ -22452,22 +22632,15 @@ class AdminStatisticsAPIView(APIView):
         )
 
         expense_breakdown = [
-            {
-                "category": category,
-                "amount": amount,
-            }
-            for category, amount in breakdown_map.items()
+            {"category": name, "amount": amount}
+            for name, amount in breakdown_map.items()
         ]
-
-        expense_breakdown.sort(
-            key=lambda item: item["amount"],
-            reverse=True,
-        )
+        expense_breakdown.sort(key=lambda item: item["amount"], reverse=True)
 
         # =====================================================
         # 10. PURCHASE ORDER STATUS
         # =====================================================
-        real_items = (
+        real_items = list(
             PurchaseOrderItem.objects
             .select_related("purchase_order")
             .filter(
@@ -22476,26 +22649,23 @@ class AdminStatisticsAPIView(APIView):
                 purchase_order__created_at__date__lte=end_date,
             )
         )
+        item_ids = [item.id for item in real_items]
 
         material_map = {
-            row["purchase_order_item_id"]: (
-                row["total"] or zero
-            )
+            row["purchase_order_item_id"]: row["total"] or zero
             for row in (
                 MaterialGRN.objects
-                .filter(purchase_order_item__in=real_items)
+                .filter(purchase_order_item_id__in=item_ids)
                 .values("purchase_order_item_id")
                 .annotate(total=Sum("received_qty"))
             )
         }
 
         consumable_map = {
-            row["purchase_order_item_id"]: (
-                row["total"] or zero
-            )
+            row["purchase_order_item_id"]: row["total"] or zero
             for row in (
                 ConsumableGRN.objects
-                .filter(purchase_order_item__in=real_items)
+                .filter(purchase_order_item_id__in=item_ids)
                 .values("purchase_order_item_id")
                 .annotate(total=Sum("received_quantity"))
             )
@@ -22509,14 +22679,12 @@ class AdminStatisticsAPIView(APIView):
         }
 
         for item in real_items:
-            po_qty = item.quantity or zero
-
+            ordered = item.quantity or zero
             received = (
                 material_map.get(item.id, zero)
                 + consumable_map.get(item.id, zero)
             )
-
-            balance = po_qty - received
+            balance = ordered - received
 
             if balance <= 0:
                 counts["Fully Received"] += 1
@@ -22526,60 +22694,15 @@ class AdminStatisticsAPIView(APIView):
                 counts["Partially Received"] += 1
 
         po_status_array = [
-            {
-                "status": "Pending",
-                "count": counts["Pending"],
-            },
-            {
-                "status": "Partially Received",
-                "count": counts["Partially Received"],
-            },
-            {
-                "status": "Outstanding",
-                "count": counts["Outstanding"],
-            },
-            {
-                "status": "Fully Received",
-                "count": counts["Fully Received"],
-            },
+            {"status": name, "count": count} for name, count in counts.items()
         ]
 
         # =====================================================
-        # 11. OUTSTANDING INVOICES
-        # =====================================================
-        outstanding_ti = (
-            TaxInvoice.objects.filter(
-                invoice_date__gte=start_date,
-                invoice_date__lte=end_date,
-                payment_status=TaxInvoice.PaymentStatus.PENDING,
-            ).aggregate(
-                total=Sum("grand_total")
-            )["total"]
-            or zero
-        )
-
-        outstanding_pi = (
-            ProformaInvoice.objects.filter(
-                date__gte=start_date,
-                date__lte=end_date,
-                payment_status=ProformaInvoice.PaymentStatus.PENDING,
-            ).aggregate(
-                total=Sum("grand_total")
-            )["total"]
-            or zero
-        )
-
-        total_outstanding = outstanding_ti + outstanding_pi
-
-        # =====================================================
-        # 12. PROJECT COUNT
+        # 11. PROJECT COUNT
         # =====================================================
         total_projects = (
             Project.objects.filter(
-                Q(
-                    start_date__gte=start_date,
-                    start_date__lte=end_date,
-                )
+                Q(start_date__gte=start_date, start_date__lte=end_date)
                 | Q(
                     start_date__isnull=True,
                     created_at__date__gte=start_date,
@@ -22591,7 +22714,7 @@ class AdminStatisticsAPIView(APIView):
         )
 
         # =====================================================
-        # 13. RESPONSE
+        # 12. RESPONSE (structure unchanged)
         # =====================================================
         return Response(
             {
@@ -22608,6 +22731,572 @@ class AdminStatisticsAPIView(APIView):
                         "profit_loss": float(net_profit),
                         "net_profit": float(net_profit),
                         "outstanding": float(total_outstanding),
+                        "outstanding_tax_invoices": float(outstanding_tax_invoices),
+                        "outstanding_proforma_invoices": float(outstanding_proforma_invoices),
+                        "projects": total_projects,
+                        "journal_income": float(journal_income),
+                        "journal_expenses": float(journal_expenses),
+                        "incoming_payments": float(incoming_payments),
+                        "outgoing_payments": float(outgoing_payments),
+                        "salary_paid": float(salary_paid),
+                        "advances": float(advances),
+                    },
+                    "chart_data": chart_data,
+                    "expense_breakdown": expense_breakdown,
+                    "po_status": po_status_array,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )# =====================================================================
+# ADMIN — STATISTICS DASHBOARD
+# -----------------------------------------------------------------
+# GET /erp/admin/statistics/
+#
+# Query params:
+#   ?period=day|week|month|quarter|year|custom
+#   ?from=YYYY-MM-DD  (only for period=custom)
+#   ?to=YYYY-MM-DD    (only for period=custom)
+#
+# Month filter  -> last 12 calendar months (continuous, zero-filled)
+# Other filters -> same ranges as before
+# =====================================================================
+
+from datetime import date, timedelta
+from decimal import Decimal
+import calendar
+
+from django.db.models import Sum, Q, Case, When, Value, DecimalField
+from django.db.models.functions import (
+    Coalesce,
+    TruncDay,
+    TruncWeek,
+    TruncMonth,
+    TruncQuarter,
+    TruncYear,
+)
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from .models import (
+    JournalEntry,
+    PaymentRecord,
+    Project,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    TaxInvoice,
+    ProformaInvoice,
+    SalaryPayment,
+    Advance,
+    MaterialGRN,
+    ConsumableGRN,
+)
+
+# NOTE: keep whatever import you already use for IsERPAdmin, e.g.
+# from .permissions import IsERPAdmin
+
+
+VALID_PERIODS = {"day", "week", "month", "quarter", "year", "custom"}
+
+TRUNC_BY_GRANULARITY = {
+    "day": TruncDay,
+    "week": TruncWeek,
+    "month": TruncMonth,
+    "quarter": TruncQuarter,
+    "year": TruncYear,
+}
+
+MAX_FILLED_BUCKETS = 36  # safety cap for zero-filling very long custom ranges
+
+
+# ---------------------------------------------------------------------
+# DATE HELPERS
+# ---------------------------------------------------------------------
+def _add_months(d, months):
+    """Return the first day of the month `months` away from d's month."""
+    total = d.year * 12 + (d.month - 1) + months
+    year, month_index = divmod(total, 12)
+    return date(year, month_index + 1, 1)
+
+
+def _month_end(d):
+    return d.replace(day=calendar.monthrange(d.year, d.month)[1])
+
+
+def _get_statistics_date_range(period, from_date, to_date):
+    """
+    Resolves the requested period into a concrete (start_date, end_date).
+
+    month   -> first day of the month 11 months ago  ..  last day of this month
+               (12 calendar months including the current one)
+    """
+    today = date.today()
+
+    if period == "day":
+        return today, today
+
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+        return start, start + timedelta(days=6)
+
+    if period == "month":
+        start = _add_months(today.replace(day=1), -11)
+        return start, _month_end(today)
+
+    if period == "quarter":
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        q_end_month = q_start_month + 2
+        last_day = calendar.monthrange(today.year, q_end_month)[1]
+        return date(today.year, q_start_month, 1), date(today.year, q_end_month, last_day)
+
+    if period == "year":
+        return date(today.year, 1, 1), date(today.year, 12, 31)
+
+    if period == "custom":
+        if from_date and to_date:
+            try:
+                start = date.fromisoformat(from_date)
+                end = date.fromisoformat(to_date)
+                if end < start:
+                    start, end = end, start
+                return start, end
+            except ValueError:
+                pass
+        # Fallback if custom dates are missing / invalid: current month
+        return today.replace(day=1), _month_end(today)
+
+    # Unknown period -> same as month (12 months)
+    start = _add_months(today.replace(day=1), -11)
+    return start, _month_end(today)
+
+
+def _bucket_start(granularity, d):
+    """First day of the bucket that contains d."""
+    if granularity == "day":
+        return d
+    if granularity == "week":
+        return d - timedelta(days=d.weekday())
+    if granularity == "month":
+        return d.replace(day=1)
+    if granularity == "quarter":
+        return date(d.year, ((d.month - 1) // 3) * 3 + 1, 1)
+    if granularity == "year":
+        return date(d.year, 1, 1)
+    return d.replace(day=1)
+
+
+def _next_bucket(granularity, d):
+    if granularity == "day":
+        return d + timedelta(days=1)
+    if granularity == "week":
+        return d + timedelta(days=7)
+    if granularity == "month":
+        return _add_months(d, 1)
+    if granularity == "quarter":
+        return _add_months(d, 3)
+    if granularity == "year":
+        return date(d.year + 1, 1, 1)
+    return _add_months(d, 1)
+
+
+def _iter_buckets(granularity, start_date, end_date):
+    current = _bucket_start(granularity, start_date)
+    while current <= end_date:
+        yield current
+        current = _next_bucket(granularity, current)
+
+
+def _normalize_date(value):
+    """Trunc* on DateTimeField returns datetime; on DateField returns date."""
+    if value is None:
+        return None
+    if hasattr(value, "date"):
+        return value.date()
+    return value
+
+
+def _get_label(granularity, dt):
+    if granularity == "day":
+        return dt.strftime("%d %b")
+    if granularity == "week":
+        return f"Wk {dt.strftime('%d %b')}"
+    if granularity == "quarter":
+        return f"{dt.year}-Q{((dt.month - 1) // 3) + 1}"
+    if granularity == "year":
+        return str(dt.year)
+    return dt.strftime("%b %y")  # month / custom -> "Nov 25"
+
+
+class AdminStatisticsAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        period = request.query_params.get("period", "month")
+        if period not in VALID_PERIODS:
+            period = "month"
+
+        from_date = request.query_params.get("from")
+        to_date = request.query_params.get("to")
+
+        start_date, end_date = _get_statistics_date_range(
+            period, from_date, to_date
+        )
+
+        # Custom ranges are grouped month-wise (same as before)
+        granularity = "month" if period == "custom" else period
+        trunc = TRUNC_BY_GRANULARITY[granularity]
+
+        zero = Decimal("0.00")
+        money_field = DecimalField(max_digits=24, decimal_places=2)
+
+        def sum_if(value_field, **condition):
+            """SUM(value_field) WHERE condition, 0 when nothing matches."""
+            return Coalesce(
+                Sum(
+                    Case(
+                        When(then=value_field, **condition),
+                        default=Value(zero),
+                        output_field=money_field,
+                    )
+                ),
+                Value(zero),
+                output_field=money_field,
+            )
+
+        # =====================================================
+        # 1. TIMELINE BUCKETS (continuous, zero-filled)
+        # =====================================================
+        timeline_map = {}
+
+        def ensure_bucket(value):
+            value = _normalize_date(value)
+            if value is None:
+                return None
+            key = value.isoformat()
+            if key not in timeline_map:
+                timeline_map[key] = {
+                    "key": key,
+                    "label": _get_label(granularity, value),
+                    "revenue": zero,
+                    "expenses": zero,
+                }
+            return key
+
+        bucket_starts = list(_iter_buckets(granularity, start_date, end_date))
+        if len(bucket_starts) <= MAX_FILLED_BUCKETS:
+            for bucket_start in bucket_starts:
+                ensure_bucket(bucket_start)
+
+        # =====================================================
+        # 2. JOURNAL ENTRIES  (grouped by `date`)
+        #    One query: income + expenses per bucket
+        # =====================================================
+        journal_qs = JournalEntry.objects.filter(
+            date__gte=start_date,
+            date__lte=end_date,
+        )
+
+        journal_rows = (
+            journal_qs
+            .annotate(bucket=trunc("date"))
+            .values("bucket")
+            .annotate(
+                income=sum_if("amount", type=JournalEntry.EntryType.INCOME),
+                expenses=sum_if("amount", type=JournalEntry.EntryType.EXPENSE),
+            )
+            .order_by("bucket")
+        )
+
+        journal_income = zero
+        journal_expenses = zero
+
+        for row in journal_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            timeline_map[key]["revenue"] += row["income"]
+            timeline_map[key]["expenses"] += row["expenses"]
+            journal_income += row["income"]
+            journal_expenses += row["expenses"]
+
+        # =====================================================
+        # 3. PAYMENT RECORDS  (grouped by `paid_date`)
+        #    incoming -> revenue, outgoing -> expenses
+        # =====================================================
+        payment_qs = PaymentRecord.objects.filter(
+            paid_date__gte=start_date,
+            paid_date__lte=end_date,
+        )
+
+        payment_rows = (
+            payment_qs
+            .annotate(bucket=trunc("paid_date"))
+            .values("bucket")
+            .annotate(
+                incoming=sum_if(
+                    "paid_amount",
+                    payment_direction=PaymentRecord.PaymentDirection.INCOMING,
+                ),
+                outgoing=sum_if(
+                    "paid_amount",
+                    payment_direction=PaymentRecord.PaymentDirection.OUTGOING,
+                ),
+            )
+            .order_by("bucket")
+        )
+
+        incoming_payments = zero
+        outgoing_payments = zero
+
+        for row in payment_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            timeline_map[key]["revenue"] += row["incoming"]
+            timeline_map[key]["expenses"] += row["outgoing"]
+            incoming_payments += row["incoming"]
+            outgoing_payments += row["outgoing"]
+
+        # =====================================================
+        # 4. SALARY PAYMENTS (grouped by `paid_date`)
+        # =====================================================
+        salary_rows = (
+            SalaryPayment.objects.filter(
+                payment_status="PAID",
+                paid_date__gte=start_date,
+                paid_date__lte=end_date,
+            )
+            .annotate(bucket=trunc("paid_date"))
+            .values("bucket")
+            .annotate(total=Sum("net_salary"))
+            .order_by("bucket")
+        )
+
+        salary_paid = zero
+
+        for row in salary_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            amount = row["total"] or zero
+            timeline_map[key]["expenses"] += amount
+            salary_paid += amount
+
+        # =====================================================
+        # 5. ADVANCES (grouped by `advance_date`)
+        # =====================================================
+        advance_rows = (
+            Advance.objects.filter(
+                advance_date__gte=start_date,
+                advance_date__lte=end_date,
+            )
+            .annotate(bucket=trunc("advance_date"))
+            .values("bucket")
+            .annotate(total=Sum("amount"))
+            .order_by("bucket")
+        )
+
+        advances = zero
+
+        for row in advance_rows:
+            key = ensure_bucket(row["bucket"])
+            if key is None:
+                continue
+            amount = row["total"] or zero
+            timeline_map[key]["expenses"] += amount
+            advances += amount
+
+        # =====================================================
+        # 6. REVENUE, EXPENSES AND PROFIT/LOSS (period totals)
+        #    These equal the sum of the chart buckets.
+        # =====================================================
+        total_revenue = journal_income + incoming_payments
+        total_expenses = (
+            journal_expenses + outgoing_payments + salary_paid + advances
+        )
+        net_profit = total_revenue - total_expenses
+
+        # =====================================================
+        # 7. CHART DATA (oldest -> newest, per-bucket profit/loss)
+        # =====================================================
+        chart_data = [
+            {
+                "key": item["key"],
+                "label": item["label"],
+                "revenue": float(item["revenue"]),
+                "expenses": float(item["expenses"]),
+                "profit_loss": float(item["revenue"] - item["expenses"]),
+            }
+            for item in sorted(timeline_map.values(), key=lambda i: i["key"])
+        ]
+
+        # =====================================================
+        # 8. OUTSTANDING (all dates, unpaid + non-cancelled)
+        # =====================================================
+        outstanding_tax_invoices = (
+            TaxInvoice.objects.filter(
+                payment_status=TaxInvoice.PaymentStatus.PENDING,
+            )
+            .exclude(status=TaxInvoice.Status.CANCELLED)
+            .aggregate(total=Sum("grand_total"))["total"]
+            or zero
+        )
+
+        outstanding_proforma_invoices = (
+            ProformaInvoice.objects.filter(
+                payment_status=ProformaInvoice.PaymentStatus.PENDING,
+            )
+            .exclude(status=ProformaInvoice.Status.CANCELLED)
+            .aggregate(total=Sum("grand_total"))["total"]
+            or zero
+        )
+
+        total_outstanding = (
+            outstanding_tax_invoices + outstanding_proforma_invoices
+        )
+
+        # =====================================================
+        # 9. EXPENSE BREAKDOWN
+        # =====================================================
+        category_rows = (
+            journal_qs
+            .filter(type=JournalEntry.EntryType.EXPENSE)
+            .values("category")
+            .annotate(total=Sum("amount"))
+            .order_by()
+        )
+
+        breakdown_map = {}
+        for row in category_rows:
+            name = row["category"] or "Other"
+            breakdown_map[name] = (
+                breakdown_map.get(name, 0.0) + float(row["total"] or zero)
+            )
+
+        outgoing_by_document = (
+            payment_qs
+            .filter(payment_direction=PaymentRecord.PaymentDirection.OUTGOING)
+            .values("document_type")
+            .annotate(total=Sum("paid_amount"))
+            .order_by()
+        )
+
+        for row in outgoing_by_document:
+            category = f"Payment - {row['document_type'] or 'Other'}"
+            breakdown_map[category] = (
+                breakdown_map.get(category, 0.0) + float(row["total"] or zero)
+            )
+
+        breakdown_map["Salary"] = (
+            breakdown_map.get("Salary", 0.0)
+            + float(salary_paid)
+            + float(advances)
+        )
+
+        expense_breakdown = [
+            {"category": name, "amount": amount}
+            for name, amount in breakdown_map.items()
+        ]
+        expense_breakdown.sort(key=lambda item: item["amount"], reverse=True)
+
+        # =====================================================
+        # 10. PURCHASE ORDER STATUS
+        # =====================================================
+        real_items = list(
+            PurchaseOrderItem.objects
+            .select_related("purchase_order")
+            .filter(
+                purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+                purchase_order__created_at__date__gte=start_date,
+                purchase_order__created_at__date__lte=end_date,
+            )
+        )
+        item_ids = [item.id for item in real_items]
+
+        material_map = {
+            row["purchase_order_item_id"]: row["total"] or zero
+            for row in (
+                MaterialGRN.objects
+                .filter(purchase_order_item_id__in=item_ids)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_qty"))
+            )
+        }
+
+        consumable_map = {
+            row["purchase_order_item_id"]: row["total"] or zero
+            for row in (
+                ConsumableGRN.objects
+                .filter(purchase_order_item_id__in=item_ids)
+                .values("purchase_order_item_id")
+                .annotate(total=Sum("received_quantity"))
+            )
+        }
+
+        counts = {
+            "Pending": 0,
+            "Partially Received": 0,
+            "Outstanding": 0,
+            "Fully Received": 0,
+        }
+
+        for item in real_items:
+            ordered = item.quantity or zero
+            received = (
+                material_map.get(item.id, zero)
+                + consumable_map.get(item.id, zero)
+            )
+            balance = ordered - received
+
+            if balance <= 0:
+                counts["Fully Received"] += 1
+            elif received <= 0:
+                counts["Pending"] += 1
+            else:
+                counts["Partially Received"] += 1
+
+        po_status_array = [
+            {"status": name, "count": count} for name, count in counts.items()
+        ]
+
+        # =====================================================
+        # 11. PROJECT COUNT
+        # =====================================================
+        total_projects = (
+            Project.objects.filter(
+                Q(start_date__gte=start_date, start_date__lte=end_date)
+                | Q(
+                    start_date__isnull=True,
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date,
+                )
+            )
+            .distinct()
+            .count()
+        )
+
+        # =====================================================
+        # 12. RESPONSE (structure unchanged)
+        # =====================================================
+        return Response(
+            {
+                "success": True,
+                "period": period,
+                "range": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat(),
+                },
+                "data": {
+                    "kpis": {
+                        "revenue": float(total_revenue),
+                        "expenses": float(total_expenses),
+                        "profit_loss": float(net_profit),
+                        "net_profit": float(net_profit),
+                        "outstanding": float(total_outstanding),
+                        "outstanding_tax_invoices": float(outstanding_tax_invoices),
+                        "outstanding_proforma_invoices": float(outstanding_proforma_invoices),
                         "projects": total_projects,
                         "journal_income": float(journal_income),
                         "journal_expenses": float(journal_expenses),
@@ -22623,7 +23312,6 @@ class AdminStatisticsAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 # views.py
 
 from decimal import Decimal, InvalidOperation

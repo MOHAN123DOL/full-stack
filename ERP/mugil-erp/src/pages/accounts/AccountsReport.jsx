@@ -135,6 +135,75 @@ const itemAmount = (item) => {
   return qty * rate;
 };
 
+/* ============================================================
+   PO RECEIVED STATUS (READ-ONLY, DERIVED FROM GRN QUANTITIES)
+   PO PAYMENT STATUS REMAINS EDITABLE
+   ============================================================ */
+
+const isPO = (record) => String(record?.short || "").toUpperCase() === "PO";
+
+const toNumberOrNull = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const formatQty = (value) =>
+  Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 });
+
+const GRN_STATUS_CLASS = {
+  Pending: "grn-pending",
+  "Partially Received": "grn-partial",
+  "Fully Received": "grn-full",
+};
+
+const VALID_GRN_STATUSES = Object.keys(GRN_STATUS_CLASS);
+
+// Status comes from GRN quantities returned by the backend (grn_summary).
+// If quantities are missing, fall back to the backend's GRN-derived
+// received_status. An editable status field is never read.
+const getPoGrnInfo = (record) => {
+  const grn = record?.grn_summary;
+  const ordered = toNumberOrNull(grn?.ordered_qty);
+  const received = toNumberOrNull(grn?.received_qty);
+
+  const grnNumbers = Array.from(
+    new Set(
+      (Array.isArray(record?.grn_details) ? record.grn_details : [])
+        .flatMap((d) => (Array.isArray(d?.grn_numbers) ? d.grn_numbers : []))
+        .filter(Boolean)
+    )
+  );
+
+  if (ordered !== null && received !== null) {
+    const remaining =
+      toNumberOrNull(grn.remaining_qty) ?? Math.max(ordered - received, 0);
+
+    let status = "Partially Received";
+    if (ordered > 0 && remaining <= 0) status = "Fully Received";
+    else if (received <= 0) status = "Pending";
+
+    return { ordered, received, remaining, status, grnNumbers };
+  }
+
+  if (VALID_GRN_STATUSES.includes(record?.received_status)) {
+    return {
+      ordered: null,
+      received: null,
+      remaining: null,
+      status: record.received_status,
+      grnNumbers,
+    };
+  }
+
+  return null;
+};
+
+const qtyOrDash = (value) => (value === null ? "—" : formatQty(value));
+
+const TOOLTIP_WIDTH = 260;
+const TOOLTIP_HEIGHT_ESTIMATE = 190;
+
 export default function AccountsReport() {
   const navigate = useNavigate();
   const { accessToken } = useAuth();
@@ -148,6 +217,9 @@ export default function AccountsReport() {
 
   // State for the info tooltip
   const [showHelp, setShowHelp] = useState(false);
+
+  // Read-only GRN tooltip (fixed-position so the table wrapper cannot clip it)
+  const [grnTooltip, setGrnTooltip] = useState(null);
 
   const loadRecords = useCallback(async () => {
     if (!accessToken) return;
@@ -170,11 +242,44 @@ export default function AccountsReport() {
   useEffect(() => { loadRecords(); }, [loadRecords]);
   useEffect(() => { return () => { closePrintOverlay(); }; }, []);
 
+  // Hide the tooltip when the page scrolls or resizes (it is position: fixed)
+  useEffect(() => {
+    if (!grnTooltip) return undefined;
+    const hide = () => setGrnTooltip(null);
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, [grnTooltip]);
+
+  const showGrnTooltip = (event, record, info) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const half = TOOLTIP_WIDTH / 2 + 8;
+    const x = Math.min(Math.max(rect.left + rect.width / 2, half), window.innerWidth - half);
+    const above = rect.bottom + 8 + TOOLTIP_HEIGHT_ESTIMATE > window.innerHeight;
+    setGrnTooltip({
+      id: record.id,
+      x,
+      y: above ? rect.top - 8 : rect.bottom + 8,
+      above,
+      poNumber: record.document_number,
+      info,
+    });
+  };
+
+  const hideGrnTooltip = () => setGrnTooltip(null);
+
   const handleView = (record) => {
     navigate(record.path, { state: { documentNumber: record.document_number, reportRecord: record, mode: "view" } });
   };
 
   const handleStatusChange = async (record, field, newValue) => {
+    // PO: only payment_status may be edited here.
+    // Received/delivery status is derived from GRN and never sent.
+    if (isPO(record) && field !== "payment_status") return;
+
     const previousValue = record[field];
     if (previousValue === newValue) return;
 
@@ -258,7 +363,7 @@ export default function AccountsReport() {
 
   const showPaymentCol = ["PO", "TI", "PI"].includes(documentTypeFilter) || documentTypeFilter === "all";
   const showDeliveryCol = ["PO", "DC", "TI", "PI"].includes(documentTypeFilter) || documentTypeFilter === "all";
-  
+
   // Tooltip Text based on filter
   let paymentHelpText = "For PO: Have WE paid the supplier? \nFor TI/PI: Has the CUSTOMER paid us?";
   if (documentTypeFilter === "TI" || documentTypeFilter === "PI") {
@@ -266,6 +371,8 @@ export default function AccountsReport() {
   } else if (documentTypeFilter === "PO") {
     paymentHelpText = "Have we paid the supplier/vendor for this Purchase Order? Mark as Paid when we send the money.";
   }
+
+  const deliveryHeading = documentTypeFilter === "PO" ? "Received Status (GRN)" : "Delivery Status";
 
   return (
     <>
@@ -329,13 +436,13 @@ export default function AccountsReport() {
                   <tr>
                     <th>S.No</th>
                     <th>Document Number</th>
-                    
+
                     {/* PAYMENT HEADER WITH INTERACTIVE TOOLTIP */}
                     {showPaymentCol && (
                       <th>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                           Payment Status
-                          <div 
+                          <div
                             style={{ position: "relative", display: "inline-flex" }}
                             onMouseEnter={() => setShowHelp(true)}
                             onMouseLeave={() => setShowHelp(false)}
@@ -343,7 +450,7 @@ export default function AccountsReport() {
                             <span style={{ cursor: "help", display: "inline-flex", color: "#64748b" }}>
                               <HelpCircle size={15} />
                             </span>
-                            
+
                             {/* TOOLTIP BOX */}
                             {showHelp && (
                               <div style={{
@@ -381,9 +488,9 @@ export default function AccountsReport() {
                       </th>
                     )}
 
-                    {showDeliveryCol && <th>Delivery Status</th>}
+                    {showDeliveryCol && <th>{deliveryHeading}</th>}
                     {!showPaymentCol && !showDeliveryCol && <th>Type</th>}
-                    
+
                     <th>View</th>
                     <th>Print</th>
                   </tr>
@@ -396,9 +503,11 @@ export default function AccountsReport() {
                       const paymentLocked = isPaymentFinal(record);
                       const deliveryLocked = isDeliveryFinal(record);
                       const printAvailable = Boolean(PRINT_ENGINES[String(record.short || "").toUpperCase()]);
-                      
+
                       const isDC = record.short === "DC";
                       const isQO = record.short === "QO";
+                      const isPORecord = isPO(record);
+                      const grnInfo = isPORecord ? getPoGrnInfo(record) : null;
 
                       return (
                         <tr key={record.id}>
@@ -411,6 +520,7 @@ export default function AccountsReport() {
                             </div>
                           </td>
 
+                          {/* PAYMENT: editable for PO, TI, PI */}
                           {showPaymentCol && (
                             <td>
                               {isDC || isQO ? (
@@ -430,10 +540,29 @@ export default function AccountsReport() {
                             </td>
                           )}
 
+                          {/* DELIVERY / RECEIVED: PO is read-only (GRN), others editable */}
                           {showDeliveryCol && (
                             <td>
                               {isQO ? (
                                 <span style={{ color: "#94a3b8", fontSize: "12px" }}>—</span>
+                              ) : isPORecord ? (
+                                grnInfo ? (
+                                  <span
+                                    className={`report-grn-badge ${GRN_STATUS_CLASS[grnInfo.status] || ""}`}
+                                    tabIndex={0}
+                                    aria-label={`${record.document_number}: ${grnInfo.status}. Ordered ${qtyOrDash(grnInfo.ordered)}, received ${qtyOrDash(grnInfo.received)}, remaining ${qtyOrDash(grnInfo.remaining)}.`}
+                                    onMouseEnter={(e) => showGrnTooltip(e, record, grnInfo)}
+                                    onMouseLeave={hideGrnTooltip}
+                                    onFocus={(e) => showGrnTooltip(e, record, grnInfo)}
+                                    onBlur={hideGrnTooltip}
+                                  >
+                                    {grnInfo.status}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: "#94a3b8", fontSize: "12px" }} title="GRN details are not available for this PO">
+                                    —
+                                  </span>
+                                )
                               ) : (
                                 <select
                                   className={`report-status-select delivery-status-${String(record.delivery_status).toLowerCase().replace("/", "")}`}
@@ -483,6 +612,47 @@ export default function AccountsReport() {
             </div>
           )}
         </div>
+
+        {/* READ-ONLY GRN TOOLTIP */}
+        {grnTooltip && (
+          <div
+            className="report-grn-tooltip"
+            role="tooltip"
+            style={{
+              left: grnTooltip.x,
+              top: grnTooltip.y,
+              width: TOOLTIP_WIDTH,
+              transform: grnTooltip.above ? "translate(-50%, -100%)" : "translateX(-50%)",
+            }}
+          >
+            <div className="report-grn-tooltip-row">
+              <span>PO</span>
+              <strong>{grnTooltip.poNumber}</strong>
+            </div>
+            <div className="report-grn-tooltip-row">
+              <span>Ordered Quantity</span>
+              <strong>{qtyOrDash(grnTooltip.info.ordered)}</strong>
+            </div>
+            <div className="report-grn-tooltip-row">
+              <span>Received Quantity</span>
+              <strong>{qtyOrDash(grnTooltip.info.received)}</strong>
+            </div>
+            <div className="report-grn-tooltip-row">
+              <span>Remaining Quantity</span>
+              <strong>{qtyOrDash(grnTooltip.info.remaining)}</strong>
+            </div>
+            <div className="report-grn-tooltip-row">
+              <span>Status</span>
+              <strong>{grnTooltip.info.status}</strong>
+            </div>
+            {grnTooltip.info.grnNumbers.length > 0 && (
+              <div className="report-grn-tooltip-row">
+                <span>GRN</span>
+                <strong>{grnTooltip.info.grnNumbers.join(", ")}</strong>
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </>
   );

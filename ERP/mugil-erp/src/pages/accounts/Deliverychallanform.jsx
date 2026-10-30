@@ -902,6 +902,46 @@ export default function DeliveryChallanForm() {
   };
 
   /* ============================================================
+     CLEAR ALL (KEEP DC NUMBER, ADDRESS & CUSTOMER)
+     ============================================================ */
+  const clearAllKeepDetails = () => {
+    if (
+      !window.confirm(
+        "Clear all entered details? DC number, company address and customer details will be kept.",
+      )
+    )
+      return;
+
+    const cleared = normalizeFormData({
+      ...data, // keeps dcNumber, companyAddressId, customer (and status)
+      dcDate: "",
+      poNumber: "",
+      poDate: "",
+      billNumber: "",
+      billDate: "",
+      deliveryAt: "",
+      items: [createEmptyItem()],
+      amountInWords: "",
+      preparedBy: "",
+    });
+
+    setData(cleared);
+
+    // Keep the saved draft in sync so a reload doesn't bring old values back
+    // (the preserved fields stay in it).
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(cleared));
+
+    // Reset only UI state tied to the cleared fields.
+    setErrors({});
+    setSavedAt(null);
+    setSubmitError("");
+    setAmountInWordsManual(false);
+
+    // NOT touched: selectedCustomerId, originalCustomer, numberChoice,
+    // dcNumberError, customer action state, and no DC number reload.
+  };
+
+  /* ============================================================
      SAVE DC TO BACKEND
      ============================================================ */
   const saveDcToBackend = async () => {
@@ -1049,7 +1089,7 @@ export default function DeliveryChallanForm() {
           <button
             type="button"
             className="btn btn-outline-danger"
-            onClick={clearForm}
+            onClick={clearAllKeepDetails}
             style={{
               color: "#dc3545",
               borderColor: "#dc3545",

@@ -470,8 +470,18 @@ body {
    TABLE
    ========================================================================= */
 
+/*
+   Width / column widths
+   ---------------------
+   PurchaseOrderPrint.js sets an explicit pixel width on every table (equal to
+   the header rule: A4 width minus the left/right page margins) and an explicit
+   percentage width on every <col> inside <colgroup>, computed from the
+   columns that are actually visible. `table-layout: fixed` makes the browser
+   obey those widths exactly. The values below are only a fallback.
+*/
 .pop-items-table {
-  width: 88%;
+  width: 100%;
+  max-width: 190mm;
 
   margin: 3px 0 13px;
 
@@ -508,6 +518,28 @@ body {
   font-weight: 700;
 
   text-align: center;
+
+  /*
+   * Headers wrap onto several lines inside their own column (never into the
+   * neighbour). JS guarantees each column is at least as wide as its longest
+   * header word, so words are not split; break-word is only a last resort.
+   */
+  white-space: normal;
+
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: normal;
+
+  hyphens: none;
+}
+
+/* Repeat the header on every printed page the table continues onto. */
+.pop-items-table thead {
+  display: table-header-group;
+}
+
+.pop-items-table tbody {
+  display: table-row-group;
 }
 
 .pop-items-table td {
@@ -535,8 +567,9 @@ body {
   white-space: nowrap;
 }
 
+/* Header alignment always matches the body cells of the same column. */
 .pop-items-table th.pop-column-number {
-  text-align: center;
+  text-align: right;
 }
 
 .pop-items-table td.pop-column-center,
@@ -552,6 +585,37 @@ body {
   text-align: center;
 
   white-space: nowrap;
+}
+
+/* =========================================================================
+   DENSE MODE
+   -------------------------------------------------------------------------
+   Added by PurchaseOrderPrint.js only when there are so many columns that
+   even their minimum widths do not fit on A4 portrait. Columns are scaled
+   down together and long numbers are allowed to wrap instead of overflowing.
+   ========================================================================= */
+
+.pop-items-table--dense,
+.pop-items-table--dense th,
+.pop-items-table--dense td {
+  font-size: 11px;
+}
+
+.pop-items-table--dense th,
+.pop-items-table--dense td {
+  padding: 3px 3px;
+}
+
+.pop-items-table--dense td.pop-column-number {
+  white-space: normal;
+
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+/* "No items available" placeholder row */
+.pop-items-table td.pop-empty-row {
+  text-align: center;
 }
 
 /* =========================================================================

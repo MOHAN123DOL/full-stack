@@ -1341,6 +1341,468 @@
   }
 
   /* =======================================================================
+     TABLE LAYOUT ENGINE
+     -----------------------------------------------------------------------
+     ROOT CAUSE OF THE OVERLAPPING COLUMNS
+     -------------------------------------
+     The table uses `table-layout: fixed` + <colgroup>. With a fixed layout
+     the browser trusts the <col> widths completely and never grows a column
+     to fit its content.
+
+     The previous code only knew about five column names (Description,
+     Specification, Qty, Unit, Amount) with hard-coded widths that already add
+     up to 94%. Every other column (Weight, Rate Per Unit, any custom column)
+     was treated as "custom" and received the *remaining* width, which is
+     94 - 94 = 0%. A 0%-wide column in a fixed layout is rendered with zero
+     width, so its header and cell text simply spills over the neighbouring
+     columns: "Weight" + "Qty" are drawn on top of each other, "Rate Per Unit"
+     + "Amount" likewise.
+
+     THE FIX
+     -------
+     Column widths are now computed from the columns that are actually
+     visible, never from fixed positions:
+
+       1. Every column is given a ROLE (description, specification, weight,
+          qty, unit, rate, amount, generic number/date/text). Roles only
+          decide how a column behaves; they never decide where it sits.
+       2. Compact columns (numbers, units, ...) receive exactly the width
+          their header words and their widest value need (measured with the
+          real font), never less than a sensible minimum.
+       3. Flexible text columns (description, specification, custom text)
+          share ALL remaining width by weight, so long text wraps inside its
+          own cell.
+       4. If there are so many columns that even the minimums do not fit, all
+          columns are scaled down together (dense mode) so nothing is ever
+          0px wide and the percentages always add up to exactly 100%.
+
+     The result is computed ONCE per document (from all items, so every page
+     chunk and every per-row measurement uses the same widths) and is read by
+     buildItemsTable().
+     ======================================================================= */
+
+  var TABLE_FONT_SIZE_PX = 12;
+
+  var TABLE_FONT_FAMILY = '"Times New Roman", Times, serif';
+
+  /*
+   * Horizontal space a cell needs besides its text:
+   * padding 5px + 5px, 1px border, 3px safety for font differences.
+   */
+  var TABLE_CELL_CHROME_PX = 14;
+
+  /* A compact column never grows wider than this because of one long value. */
+  var TABLE_COMPACT_MAX_PX = 130;
+
+  /* Hard floor used only in dense mode. */
+  var TABLE_MIN_COLUMN_PX = 30;
+
+  /* Dense mode uses 11px text and 3px padding (see PurchaseOrderPrint.css). */
+  var TABLE_DENSE_FONT_RATIO = 11 / 12;
+  var TABLE_DENSE_CHROME_PX = 10;
+
+  var COLUMN_ROLE_CONFIG = {
+    serial: { minPx: 44, grow: 0 },
+    description: { minPx: 90, grow: 3 },
+    specification: { minPx: 80, grow: 2.2 },
+    text: { minPx: 70, grow: 1.5 },
+    weight: { minPx: 58, grow: 0 },
+    qty: { minPx: 44, grow: 0 },
+    unit: { minPx: 46, grow: 0 },
+    rate: { minPx: 70, grow: 0 },
+    amount: { minPx: 84, grow: 0 },
+    number: { minPx: 60, grow: 0 },
+    date: { minPx: 74, grow: 0 },
+  };
+
+  /* The layout computed for the document currently being built. */
+  var activeTableLayout = null;
+
+  function getDefaultTableWidthPx() {
+    return (
+      (PAGE_MM.width - PAGE_MM.marginLeft - PAGE_MM.marginRight) * MM_TO_PX
+    );
+  }
+
+  function getColumnRole(column) {
+    if (!column) {
+      return "text";
+    }
+
+    var id = String(column.id || "").toLowerCase();
+    var label = String(column.label || "").toLowerCase();
+
+    var idKey = id.replace(/[^a-z0-9]/g, "");
+    var labelKey = label.replace(/[^a-z0-9]/g, "");
+
+    var type = String(column.type || "text").toLowerCase();
+
+    /*
+     * Rate must be tested before Unit / Amount, because "Rate Per Unit"
+     * contains the word "unit".
+     */
+    if (
+      /(^|[^a-z])(rate|price)([^a-z]|$)/.test(label) ||
+      /per\s*unit/.test(label) ||
+      /^(rate|price|unitprice|unitrate|unitcost|rateperunit|priceperunit)$/.test(
+        idKey,
+      )
+    ) {
+      return "rate";
+    }
+
+    if (
+      idKey.indexOf("amount") !== -1 ||
+      labelKey.indexOf("amount") !== -1 ||
+      idKey === "total" ||
+      labelKey === "total"
+    ) {
+      return "amount";
+    }
+
+    if (
+      idKey.indexOf("weight") !== -1 ||
+      labelKey.indexOf("weight") !== -1 ||
+      idKey === "wt" ||
+      labelKey === "wt"
+    ) {
+      return "weight";
+    }
+
+    if (
+      idKey === "qty" ||
+      idKey === "quantity" ||
+      labelKey === "qty" ||
+      labelKey.indexOf("quantity") !== -1
+    ) {
+      return "qty";
+    }
+
+    if (
+      idKey === "unit" ||
+      idKey === "units" ||
+      idKey === "uom" ||
+      labelKey === "unit" ||
+      labelKey === "units" ||
+      labelKey === "uom"
+    ) {
+      return "unit";
+    }
+
+    if (
+      idKey.indexOf("specification") !== -1 ||
+      labelKey.indexOf("specification") !== -1 ||
+      idKey === "spec" ||
+      labelKey === "spec"
+    ) {
+      return "specification";
+    }
+
+    if (
+      idKey.indexOf("description") !== -1 ||
+      labelKey.indexOf("description") !== -1 ||
+      idKey === "desc" ||
+      labelKey === "particulars"
+    ) {
+      return "description";
+    }
+
+    if (type === "number" || type === "currency") {
+      return "number";
+    }
+
+    if (type === "date") {
+      return "date";
+    }
+
+    return "text";
+  }
+
+  var tableMeasureContext = null;
+
+  function measureTextPx(text, bold) {
+    var value = String(text === undefined || text === null ? "" : text);
+
+    try {
+      if (!tableMeasureContext) {
+        tableMeasureContext = document
+          .createElement("canvas")
+          .getContext("2d");
+      }
+
+      tableMeasureContext.font =
+        (bold ? "700 " : "400 ") +
+        TABLE_FONT_SIZE_PX +
+        "px " +
+        TABLE_FONT_FAMILY;
+
+      return tableMeasureContext.measureText(value).width;
+    } catch (error) {
+      /* Canvas unavailable: conservative estimate. */
+      return value.length * TABLE_FONT_SIZE_PX * (bold ? 0.64 : 0.6);
+    }
+  }
+
+  function measureLongestWordPx(text, bold) {
+    var longest = 0;
+
+    String(text === undefined || text === null ? "" : text)
+      .split(/\s+/)
+      .forEach(function (word) {
+        var width = measureTextPx(word, bold);
+
+        if (width > longest) {
+          longest = width;
+        }
+      });
+
+    return longest;
+  }
+
+  /*
+   * computeTableLayout(visibleColumns, items, tableWidthPx)
+   * -----------------------------------------------------------------------
+   * Returns:
+   *   {
+   *     columnCount, tableWidthPx, dense,
+   *     widthsPx:  [...]  one entry per rendered column (S.No first)
+   *     percents:  [...]  same order, always sums to exactly 100
+   *   }
+   */
+  function computeTableLayout(visibleColumns, items, tableWidthPx) {
+    var rows = Array.isArray(items) ? items : [];
+
+    var specs = [];
+
+    /* ---- S.No (always first) ---- */
+    var serialConfig = COLUMN_ROLE_CONFIG.serial;
+
+    var serialMin = Math.max(
+      serialConfig.minPx,
+      Math.ceil(
+        Math.max(
+          measureTextPx("S.No", true),
+          measureTextPx(String(rows.length || 1), false),
+        ) + TABLE_CELL_CHROME_PX,
+      ),
+    );
+
+    specs.push({
+      role: "serial",
+      min: serialMin,
+      grow: 0,
+      headerWordPx: measureTextPx("S.No", true),
+      dataPx: measureTextPx(String(rows.length || 1), false),
+    });
+
+    /* ---- Dynamic columns, in the exact order they are rendered ---- */
+    visibleColumns.forEach(function (column) {
+      var role = getColumnRole(column);
+
+      var config = COLUMN_ROLE_CONFIG[role] || COLUMN_ROLE_CONFIG.text;
+
+      var headerText = column.label || column.id || "Column";
+
+      var headerWordPx = measureLongestWordPx(headerText, true);
+
+      var dataPx = 0;
+
+      var min = Math.max(
+        config.minPx,
+        Math.ceil(headerWordPx + TABLE_CELL_CHROME_PX),
+      );
+
+      if (config.grow === 0) {
+        /* Compact column: also make room for its widest value. */
+        var widest = 0;
+
+        rows.forEach(function (item) {
+          var width = measureTextPx(
+            getColumnDisplayValue(item, column),
+            false,
+          );
+
+          if (width > widest) {
+            widest = width;
+          }
+        });
+
+        dataPx = Math.min(widest, TABLE_COMPACT_MAX_PX - TABLE_CELL_CHROME_PX);
+
+        min = Math.max(min, Math.ceil(dataPx + TABLE_CELL_CHROME_PX));
+      }
+
+      specs.push({
+        role: role,
+        min: min,
+        grow: config.grow,
+        headerWordPx: headerWordPx,
+        dataPx: dataPx,
+      });
+    });
+
+    var totalMin = specs.reduce(function (sum, spec) {
+      return sum + spec.min;
+    }, 0);
+
+    var widths = [];
+    var dense = false;
+
+    if (totalMin > tableWidthPx) {
+      /*
+       * Too many / too wide columns: scale every column down together.
+       * Nothing is ever allowed to collapse to zero width.
+       */
+      dense = true;
+
+      /*
+       * Floor per column at the dense font size: its longest header word and
+       * its widest value (so words are never split and numbers never wrap).
+       */
+      var floors = specs.map(function (spec) {
+        return Math.max(
+          TABLE_MIN_COLUMN_PX,
+          Math.ceil(
+            Math.max(spec.headerWordPx, spec.dataPx) * TABLE_DENSE_FONT_RATIO +
+              TABLE_DENSE_CHROME_PX,
+          ),
+        );
+      });
+
+      var floorTotal = floors.reduce(function (sum, width) {
+        return sum + width;
+      }, 0);
+
+      if (floorTotal <= tableWidthPx) {
+        /* Every column keeps its floor; only the spare room is shrunk. */
+        var shrinkable = totalMin - floorTotal;
+
+        var keep =
+          shrinkable > 0 ? (tableWidthPx - floorTotal) / shrinkable : 0;
+
+        widths = specs.map(function (spec, index) {
+          return floors[index] + Math.max(0, spec.min - floors[index]) * keep;
+        });
+      } else {
+        /* Extreme case: even the floors do not fit, scale them together. */
+        widths = floors.map(function (width) {
+          return (width * tableWidthPx) / floorTotal;
+        });
+      }
+
+      var denseTotal = widths.reduce(function (sum, width) {
+        return sum + width;
+      }, 0);
+
+      widths = widths.map(function (width) {
+        return (width * tableWidthPx) / denseTotal;
+      });
+    } else {
+      var extra = tableWidthPx - totalMin;
+
+      var flexible = [];
+
+      specs.forEach(function (spec, index) {
+        widths[index] = spec.min;
+
+        if (spec.grow > 0) {
+          flexible.push(index);
+        }
+      });
+
+      if (flexible.length) {
+        /*
+         * All flexible columns share the pool of space by weight; a column
+         * whose share would be below its minimum is pinned to the minimum
+         * and the rest is re-shared.
+         */
+        var pool = extra;
+
+        flexible.forEach(function (index) {
+          pool += specs[index].min;
+        });
+
+        var active = flexible.slice();
+
+        while (active.length) {
+          var growSum = active.reduce(function (sum, index) {
+            return sum + specs[index].grow;
+          }, 0);
+
+          var pinned = [];
+          var remainingActive = [];
+
+          active.forEach(function (index) {
+            var share = (pool * specs[index].grow) / growSum;
+
+            if (share < specs[index].min) {
+              pinned.push(index);
+            } else {
+              remainingActive.push(index);
+            }
+          });
+
+          if (!pinned.length) {
+            active.forEach(function (index) {
+              widths[index] = (pool * specs[index].grow) / growSum;
+            });
+
+            break;
+          }
+
+          pinned.forEach(function (index) {
+            widths[index] = specs[index].min;
+            pool -= specs[index].min;
+          });
+
+          active = remainingActive;
+        }
+      } else if (extra > 0) {
+        /* No text column at all: spread the space over every column. */
+        widths = specs.map(function (spec) {
+          return (spec.min * tableWidthPx) / totalMin;
+        });
+      }
+    }
+
+    /* Percentages that add up to exactly 100. */
+    var percents = [];
+    var running = 0;
+
+    widths.forEach(function (width, index) {
+      if (index === widths.length - 1) {
+        percents.push(Number((100 - running).toFixed(4)));
+      } else {
+        var pct = Number(((width / tableWidthPx) * 100).toFixed(4));
+
+        percents.push(pct);
+
+        running += pct;
+      }
+    });
+
+    return {
+      columnCount: specs.length,
+      tableWidthPx: tableWidthPx,
+      dense: dense,
+      widthsPx: widths,
+      percents: percents,
+    };
+  }
+
+  function getActiveTableLayout(visibleColumns) {
+    if (
+      activeTableLayout &&
+      activeTableLayout.columnCount === visibleColumns.length + 1
+    ) {
+      return activeTableLayout;
+    }
+
+    /* Safety net: should only be reached if buildItemsTable is used alone. */
+    return computeTableLayout(visibleColumns, [], getDefaultTableWidthPx());
+  }
+
+  /* =======================================================================
      PURCHASE ORDER TABLE
      ======================================================================= */
 
@@ -1450,6 +1912,12 @@
 
   /* =======================================================================
      TABLE
+     -----------------------------------------------------------------------
+     <colgroup> widths come from computeTableLayout(), which is calculated
+     once for the whole document from the columns that are really visible.
+     Every <col> has an explicit, non-zero percentage and the percentages
+     always add up to 100, so header cells and body cells can never drift
+     apart or collapse.
      ======================================================================= */
 
   function buildItemsTable(
@@ -1457,210 +1925,44 @@
     visibleColumns,
     includeHeader,
   ) {
-    var table = el(
-      "table",
-      "pop-items-table",
-    );
+    var layout =
+      getActiveTableLayout(
+        visibleColumns,
+      );
+
+    var table =
+      el(
+        "table",
+        "pop-items-table" +
+          (layout.dense
+            ? " pop-items-table--dense"
+            : ""),
+      );
 
     /*
-     * ---------------------------------------------------------------
-     * Column widths
-     * ---------------------------------------------------------------
-     *
-     * Reference Purchase Order:
-     *
-     * S.No           6%
-     * Description   34%
-     * Specification 28%
-     * Qty            7%
-     * Unit           7%
-     * Amount         18%
-     *
-     * Total = 100%
-     *
-     * If custom columns are present, the remaining width is
-     * distributed among those custom columns.
+     * Same pixel width as the page header rule (A4 width minus the left and
+     * right page margins). Measurement tables and rendered tables therefore
+     * wrap text identically.
      */
+    table.style.width =
+      layout.tableWidthPx + "px";
 
+    /*
+     * One <col> per rendered column, in the exact order of the header and
+     * body cells: S.No first, then visibleColumns.
+     */
     var colgroup =
       el("colgroup");
 
-    /*
-     * S.No
-     */
-    var serialCol =
-      document.createElement(
-        "col",
-      );
-
-    serialCol.style.width =
-      "6%";
-
-    colgroup.appendChild(
-      serialCol,
-    );
-
-    /*
-     * First identify which columns are standard
-     * and which are custom.
-     */
-    var standardColumnInfo =
-      [];
-
-    var customColumns =
-      [];
-
-    visibleColumns.forEach(
-      function (column) {
-        var id = String(
-          column.id || "",
-        ).toLowerCase();
-
-        var label = String(
-          column.label || "",
-        ).toLowerCase();
-
-        var width = null;
-
-        if (
-          id === "description" ||
-          label === "description" ||
-          label.includes("description")
-        ) {
-          width = 34;
-        } else if (
-          id === "specification" ||
-          label === "specification" ||
-          label.includes("specification") ||
-          label === "spec"
-        ) {
-          width = 28;
-        } else if (
-          id === "qty" ||
-          label === "qty" ||
-          label.includes("quantity")
-        ) {
-          width = 7;
-        } else if (
-          id === "unit" ||
-          label === "unit"
-        ) {
-          width = 7;
-        } else if (
-          id === "amount" ||
-          label === "amount" ||
-          label.includes("amount") ||
-          label.includes("price")
-        ) {
-          width = 18;
-        }
-
-        if (width !== null) {
-          standardColumnInfo.push({
-            column: column,
-            width: width,
-          });
-        } else {
-          customColumns.push(
-            column,
-          );
-        }
-      },
-    );
-
-    /*
-     * Width occupied by standard columns.
-     */
-    var standardWidth =
-      standardColumnInfo.reduce(
-        function (total, entry) {
-          return total + entry.width;
-        },
-        0,
-      );
-
-    /*
-     * Available width after S.No and standard columns.
-     *
-     * S.No already occupies 6%.
-     */
-    var remainingWidth =
-      Math.max(
-        0,
-        94 - standardWidth,
-      );
-
-    /*
-     * If there are custom columns, distribute
-     * the remaining width equally.
-     */
-    var customWidth =
-      customColumns.length > 0
-        ? remainingWidth /
-          customColumns.length
-        : 0;
-
-    /*
-     * Create the <col> elements in the EXACT
-     * same order as visibleColumns.
-     */
-    visibleColumns.forEach(
-      function (column) {
-        var id = String(
-          column.id || "",
-        ).toLowerCase();
-
-        var label = String(
-          column.label || "",
-        ).toLowerCase();
-
-        var width = null;
-
-        if (
-          id === "description" ||
-          label === "description" ||
-          label.includes("description")
-        ) {
-          width = 34;
-        } else if (
-          id === "specification" ||
-          label === "specification" ||
-          label.includes("specification") ||
-          label === "spec"
-        ) {
-          width = 28;
-        } else if (
-          id === "qty" ||
-          label === "qty" ||
-          label.includes("quantity")
-        ) {
-          width = 7;
-        } else if (
-          id === "unit" ||
-          label === "unit"
-        ) {
-          width = 7;
-        } else if (
-          id === "amount" ||
-          label === "amount" ||
-          label.includes("amount") ||
-          label.includes("price")
-        ) {
-          width = 18;
-        }
-
+    layout.percents.forEach(
+      function (percent) {
         var col =
           document.createElement(
             "col",
           );
 
-        if (width !== null) {
-          col.style.width =
-            width + "%";
-        } else {
-          col.style.width =
-            customWidth + "%";
-        }
+        col.style.width =
+          percent + "%";
 
         colgroup.appendChild(
           col,
@@ -2153,6 +2455,18 @@
       pageWidthPx -
       marginLeftPx -
       marginRightPx;
+
+    /*
+     * Column widths for the Purchase Order table, computed once from the
+     * visible columns and ALL items. Every measurement table and every
+     * rendered page chunk below reads this same layout.
+     */
+    activeTableLayout =
+      computeTableLayout(
+        visibleColumns,
+        items,
+        contentWidthPx,
+      );
 
     /* ===================================================================
        MEASUREMENT SANDBOX

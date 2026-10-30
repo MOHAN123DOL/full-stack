@@ -137,12 +137,53 @@ export default function ExpenseProfit() {
   }, [loadRecords]);
 
   /* ============================================================
+     DISPLAY RECORDS + SALARY SUMMARY ROW
+     The API already returns totals.total_salary, but the salary
+     total is not included in response.data. Add it only for display.
+     ============================================================ */
+  const displayRecords = useMemo(() => {
+    // Avoid adding a second summary row if the backend starts returning one.
+    const existingRecords = records.filter(
+      (record) => record.source_type !== "SalarySummary" && record.id !== "SALARY-SUMMARY",
+    );
+
+    const salaryAmount = Number(totals?.total_salary ?? 0);
+    if (!Number.isFinite(salaryAmount) || salaryAmount <= 0) {
+      return existingRecords;
+    }
+
+    const monthName = MONTH_OPTIONS[selectedMonth - 1] || "Selected month";
+    const salarySummary = {
+      id: "SALARY-SUMMARY",
+      record_number: "SALARY-TOTAL",
+      date: `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-01`,
+      type: "Expense",
+      category: "Salary",
+      description: `Total Salary Payments for ${monthName} ${selectedYear}`,
+      amount: salaryAmount,
+      payment_mode: "Salary Summary",
+      document_number: "",
+      document: "",
+      notes: "Summary row generated from totals.total_salary; not an individual payment.",
+      source_type: "SalarySummary",
+      source_id: null,
+      purchase_order: null,
+      po_number: "",
+      is_summary: true,
+    };
+
+    return [...existingRecords, salarySummary].sort((a, b) =>
+      String(b.date || "").localeCompare(String(a.date || "")),
+    );
+  }, [records, totals?.total_salary, selectedMonth, selectedYear]);
+
+  /* ============================================================
      FILTERED LIST
      ============================================================ */
   const filteredRecords = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    return records.filter((r) => {
+    return displayRecords.filter((r) => {
       if (typeFilter !== "all" && r.type !== typeFilter) return false;
       if (!q) return true;
 
@@ -155,7 +196,7 @@ export default function ExpenseProfit() {
         String(r.po_number || "").toLowerCase().includes(q)
       );
     });
-  }, [records, search, typeFilter]);
+  }, [displayRecords, search, typeFilter]);
 
   /* ============================================================
      FORM HELPERS
@@ -364,7 +405,7 @@ export default function ExpenseProfit() {
               <div>
                 <h2>Transactions</h2>
                 <span className="journal-section__count">
-                  {filteredRecords.length} of {records.length}
+                  {filteredRecords.length} of {displayRecords.length}
                 </span>
               </div>
 
@@ -527,7 +568,7 @@ export default function ExpenseProfit() {
                           >
                             {formatAmount(record.amount)}
                           </td>
-                          <td>{record.payment_mode}</td>
+                          <td>{record.payment_mode || "—"}</td>
                           <td style={{ textAlign: "center" }}>
                             <button
                               type="button"
@@ -543,7 +584,7 @@ export default function ExpenseProfit() {
                     ) : (
                       <tr>
                         <td colSpan="9" className="journal-empty">
-                          {records.length === 0
+                          {displayRecords.length === 0
                             ? "No transactions yet. Add one to get started."
                             : "No transactions match the current filters."}
                         </td>

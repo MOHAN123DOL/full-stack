@@ -1328,33 +1328,11 @@ class ProformaInvoiceSerializer(serializers.ModelSerializer):
 # for reports
 from rest_framework import serializers
 
-
-# ============================================================
-# ACCOUNTS REPORT
-# ------------------------------------------------------------
-# Unified row shape used by the Reports page. A row can come
-# from any of the 5 document models (PO, QO, DC, TI, PI).
-#
-# This is a plain Serializer — NOT a ModelSerializer — because
-# rows are hand-built by services/accounts_report.py and don't
-# map 1-to-1 to any single model.
-# ============================================================
-
-
 class AccountsReportRowSerializer(serializers.Serializer):
     """
     One row on the Reports table.
 
-    Field contract (must match services.accounts_report._build_row):
-
-        id               "PO-12"  (unique across all document types)
-        type             "Purchase Order"
-        short            "PO"
-        document_number  "PO1001"
-        payment_status   "Paid" | "Pending" | "N/A"
-        delivery_status  "Delivered" | "Pending" | "N/A"
-        path             "/accounts/po"
-        document_data    { ... }  full blob for View / Print
+    Supports PO GRN receiving information.
     """
 
     id = serializers.CharField()
@@ -1367,9 +1345,37 @@ class AccountsReportRowSerializer(serializers.Serializer):
         allow_blank=True,
     )
 
-    payment_status = serializers.CharField()
+    payment_status = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="N/A",
+    )
 
-    delivery_status = serializers.CharField()
+    delivery_status = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="N/A",
+    )
+
+    # New GRN-based receiving status for PO.
+    received_status = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="N/A",
+    )
+
+    # New PO quantity summary.
+    grn_summary = serializers.DictField(
+        required=False,
+        default=dict,
+    )
+
+    # Material-wise GRN information.
+    grn_details = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+    )
 
     path = serializers.CharField()
 
@@ -1377,6 +1383,7 @@ class AccountsReportRowSerializer(serializers.Serializer):
         child=serializers.JSONField(),
         allow_empty=True,
     )
+
 
 class StatusUpdateSerializer(serializers.Serializer):
     """
@@ -1400,6 +1407,7 @@ class StatusUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Provide at least one of payment_status or delivery_status."
             )
+
         return attrs
 
 #for expense
