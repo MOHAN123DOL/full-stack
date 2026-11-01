@@ -13,7 +13,9 @@ import "./Attendance.css";
 import "./Payroll.css";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
+// NOTE: renamed from `Error` — importing a component called `Error` shadows the
+// global `Error` constructor (used by `throw new Error(...)` in useAttendance).
+import ErrorState from "../../components/error";
 
 /* ==========================================================================
    CONSTANTS
@@ -88,6 +90,97 @@ function extractError(err, fallback = "Something went wrong.") {
     if (typeof v === "string") return v;
   }
   return fallback;
+}
+
+/**
+ * Shared data-loading hook for every summary tab.
+ *
+ *  - `fetcher` MUST be memoised (useCallback) over the tab's selected
+ *    date / month / filters. A new fetcher identity == "user changed a filter".
+ *  - `refreshKey` is the centralised trigger owned by the page. When it
+ *    changes (after a confirmed create / update / delete) the SAME fetcher is
+ *    called again, so the selected month / week / date / filters are preserved.
+ *  - Filter changes show the loading state. Refresh-triggered reloads are
+ *    "silent": the existing table stays on screen (no flicker, no scroll
+ *    jump) and is swapped when fresh data arrives.
+ *  - A `cancelled` flag in the effect cleanup guarantees a slow, older
+ *    response can never overwrite a newer one.
+ *  - One state change == one request (no manual fetch calls elsewhere).
+ */
+function useRefreshableQuery(fetcher, refreshKey, fallbackError) {
+  const [state, setState] = useState({
+    data: null,
+    loading: true,
+    refreshing: false,
+    error: "",
+  });
+  const [retryKey, setRetryKey] = useState(0);
+  const lastRefresh = useRef(refreshKey);
+  const lastRetry = useRef(retryKey);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const silent =
+      lastRefresh.current !== refreshKey && lastRetry.current === retryKey;
+    lastRefresh.current = refreshKey;
+    lastRetry.current = retryKey;
+
+    setState((prev) =>
+      silent
+        ? { ...prev, refreshing: true, error: "" }
+        : { data: null, loading: true, refreshing: false, error: "" }
+    );
+
+    fetcher()
+      .then((res) => {
+        if (cancelled) return;
+        setState({ data: res, loading: false, refreshing: false, error: "" });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setState((prev) => ({
+          ...prev, // keep last good data (if any) on a failed silent refresh
+          loading: false,
+          refreshing: false,
+          error: extractError(err, fallbackError),
+        }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // fallbackError is a constant string per call site
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetcher, refreshKey, retryKey]);
+
+  const retry = useCallback(() => setRetryKey((k) => k + 1), []);
+
+  return { ...state, retry };
+}
+
+function QueryError({ error, onRetry, stale }) {
+  return (
+    <div style={{ padding: 24 }}>
+      <ErrorState onRetry={onRetry} />
+      <div style={{ marginTop: 8, fontSize: 13, color: "#a52626" }}>
+        {error}
+        {stale ? " Showing the last loaded data." : ""}
+      </div>
+    </div>
+  );
+}
+
+function RefreshIndicator({ show }) {
+  return (
+    <div aria-live="polite" style={{ minHeight: 18 }}>
+      {show && (
+        <span className="aw-hint" style={{ fontWeight: 600 }}>
+          Updating latest data…
+        </span>
+      )}
+    </div>
+  );
 }
 
 /* ==========================================================================
@@ -667,7 +760,7 @@ function EmployeeSearchSelect({ value, onChange, filters }) {
 
           {!loading && error && (
             <div style={{ padding: 12 }}>
-              <Error onRetry={() => setReloadKey((k) => k + 1)} />
+              <ErrorState onRetry={() => setReloadKey((k) => k + 1)} />
               <div style={{ marginTop: 6, fontSize: 13, color: "#a52626" }}>
                 {error}
               </div>
@@ -874,6 +967,7 @@ function AttendanceFormModal({
 
   async function handleSubmit(e) {
     if (e?.preventDefault) e.preventDefault();
+    if (saving) return; // guard against double submit → duplicate API calls
     if (!validate()) return;
 
     setSaving(true);
@@ -899,6 +993,8 @@ function AttendanceFormModal({
       } else {
         await createAttendance(payload);
       }
+      // Reached ONLY when the backend confirmed the write (axios throws on
+      // non-2xx). The parent now bumps the central refresh trigger.
       onSaved?.();
     } catch (err) {
       if (err?.response?.status === 409) {
@@ -937,7 +1033,7 @@ function AttendanceFormModal({
 
         {saveError && (
           <div style={{ paddingBottom: 12 }}>
-            <Error onRetry={handleSubmit} />
+            <ErrorState onRetry={handleSubmit} />
             <div style={{ marginTop: 6, fontSize: 13, color: "#a52626" }}>
               {saveError}
             </div>
@@ -962,7 +1058,6 @@ function AttendanceFormModal({
 
         <form className="aw-form" onSubmit={handleSubmit}>
           <div className="aw-form-grid">
-            
             {/* 1. Employee Filters - displayed above employee selection */}
             <div className="aw-field aw-field-wide">
               <FilterControls
@@ -1144,7 +1239,7 @@ function AttendanceFormModal({
    DAILY TAB
    ========================================================================== */
 
-function DailyTab({ onAdd, onEdit, refreshKey }) {
+function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
   const { getAttendance, deleteAttendance } = useAttendance();
 
   const [date, setDate] = useState(todayISO());
@@ -1156,52 +1251,29 @@ function DailyTab({ onAdd, onEdit, refreshKey }) {
     work_location: "",
     status: "",
   });
-  const [rows, setRows] = useState([]);
-  const [summary, setSummary] = useState({
-    total_employees: 0,
-    recorded: 0,
-    present: 0,
-    absent: 0,
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [localReloadKey, setLocalReloadKey] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const debounced = useDebounce(filters.search, 400);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await getAttendance({
-        date,
-        search: debounced,
-        department: filters.department,
-        branch: filters.branch,
-        employment_type: filters.employment_type,
-        work_location: filters.work_location,
-        status: filters.status,
-        page: 1,
-        page_size: 200,
-      });
-      const list = data.results || data.data || [];
-      setRows(list);
-      setSummary({
-        total_employees: list.length,
-        recorded: list.length,
-        present: list.filter((r) =>
-          ["PRESENT", "HALF_DAY", "WFH"].includes(r.status)
-        ).length,
-        absent: list.filter((r) => r.status === "ABSENT").length,
-      });
-    } catch (err) {
-      setError(extractError(err, "Failed to load attendance."));
-    } finally {
-      setLoading(false);
-    }
+  // Memoised over the selected date + filters. The central refreshKey re-runs
+  // this exact fetcher, so the chosen date and filters are preserved.
+  const fetcher = useCallback(async () => {
+    const data = await getAttendance({
+      date,
+      search: debounced,
+      department: filters.department,
+      branch: filters.branch,
+      employment_type: filters.employment_type,
+      work_location: filters.work_location,
+      status: filters.status,
+      page: 1,
+      page_size: 200,
+    });
+    return data.results || data.data || [];
   }, [
+    getAttendance,
     date,
     debounced,
     filters.department,
@@ -1209,24 +1281,37 @@ function DailyTab({ onAdd, onEdit, refreshKey }) {
     filters.employment_type,
     filters.work_location,
     filters.status,
-    refreshKey,       // <--- Trigger from parent
-    localReloadKey,   // <--- Trigger from retry button
-    getAttendance,
   ]);
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  const { data, loading, refreshing, error, retry } = useRefreshableQuery(
+    fetcher,
+    refreshKey,
+    "Failed to load attendance."
+  );
+
+  const rows = useMemo(() => data || [], [data]);
+
+  const summary = useMemo(
+    () => ({
+      recorded: rows.length,
+      present: rows.filter((r) =>
+        ["PRESENT", "HALF_DAY", "WFH"].includes(r.status)
+      ).length,
+      absent: rows.filter((r) => r.status === "ABSENT").length,
+    }),
+    [rows]
+  );
 
   async function handleDelete() {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deleting) return;
     setDeleting(true);
+    setDeleteError("");
     try {
       await deleteAttendance(deleteTarget.id);
       setDeleteTarget(null);
-      fetchAll();
+      onChanged?.(); // backend confirmed → central refresh (one refetch per tab)
     } catch (err) {
-      setError(extractError(err, "Failed to delete attendance."));
+      setDeleteError(extractError(err, "Failed to delete attendance."));
     } finally {
       setDeleting(false);
     }
@@ -1287,84 +1372,87 @@ function DailyTab({ onAdd, onEdit, refreshKey }) {
         }
       />
 
+      <RefreshIndicator show={refreshing} />
+
       {loading ? (
         <div style={{ padding: 40, textAlign: "center" }}>
           <Loading />
         </div>
-      ) : error ? (
-        <div style={{ padding: 24 }}>
-          <Error onRetry={() => setLocalReloadKey((k) => k + 1)} />
-          <div style={{ marginTop: 8, fontSize: 13, color: "#a52626" }}>
-            {error}
-          </div>
-        </div>
       ) : (
-        <div className="aw-table-wrap">
-          <table className="aw-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Employee</th>
-                <th>Status</th>
-                <th>Login</th>
-                <th>Logout</th>
-                <th className="aw-num">Hours</th>
-                <th className="aw-num">Rate</th>
-                <th className="aw-num">Daily Wage</th>
-                <th>Remarks</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={10} className="aw-empty-row">
-                    No attendance records for this filter.
-                  </td>
-                </tr>
-              )}
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td>{formatDisplayDate(r.date)}</td>
-                  <td>{employeeName(r)}</td>
-                  <td>
-                    <StatusPill status={r.status} />
-                  </td>
-                  <td>{r.login_time || "—"}</td>
-                  <td>{r.logout_time || "—"}</td>
-                  <td className="aw-num">
-                    {Number(r.working_hours || 0).toFixed(2)}
-                  </td>
-                  <td className="aw-num">₹{r.hourly_rate}</td>
-                  <td className="aw-num">{formatINR(r.daily_wage)}</td>
-                  <td className="aw-remarks">{r.remarks || "—"}</td>
-                  <td className="aw-row-actions">
-                    <button
-                      type="button"
-                      className="aw-link-btn"
-                      onClick={() => onEdit(r)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="aw-link-btn aw-link-danger"
-                      onClick={() => setDeleteTarget(r)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
+          {(!error || data) && (
+            <div className="aw-table-wrap">
+              <table className="aw-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Employee</th>
+                    <th>Status</th>
+                    <th>Login</th>
+                    <th>Logout</th>
+                    <th className="aw-num">Hours</th>
+                    <th className="aw-num">Rate</th>
+                    <th className="aw-num">Daily Wage</th>
+                    <th>Remarks</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr>
+                      <td colSpan={10} className="aw-empty-row">
+                        No attendance records for this filter.
+                      </td>
+                    </tr>
+                  )}
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>{formatDisplayDate(r.date)}</td>
+                      <td>{employeeName(r)}</td>
+                      <td>
+                        <StatusPill status={r.status} />
+                      </td>
+                      <td>{r.login_time || "—"}</td>
+                      <td>{r.logout_time || "—"}</td>
+                      <td className="aw-num">
+                        {Number(r.working_hours || 0).toFixed(2)}
+                      </td>
+                      <td className="aw-num">₹{r.hourly_rate}</td>
+                      <td className="aw-num">{formatINR(r.daily_wage)}</td>
+                      <td className="aw-remarks">{r.remarks || "—"}</td>
+                      <td className="aw-row-actions">
+                        <button
+                          type="button"
+                          className="aw-link-btn"
+                          onClick={() => onEdit(r)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="aw-link-btn aw-link-danger"
+                          onClick={() => {
+                            setDeleteError("");
+                            setDeleteTarget(r);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
 
       {deleteTarget && (
         <div
           className="aw-modal-overlay"
-          onClick={() => setDeleteTarget(null)}
+          onClick={() => !deleting && setDeleteTarget(null)}
         >
           <div
             className="aw-modal aw-modal-confirm"
@@ -1377,6 +1465,11 @@ function DailyTab({ onAdd, onEdit, refreshKey }) {
               This removes the record for {employeeName(deleteTarget)} on{" "}
               {formatDisplayDate(deleteTarget.date)}.
             </p>
+            {deleteError && (
+              <div style={{ fontSize: 13, color: "#a52626", marginBottom: 8 }}>
+                {deleteError}
+              </div>
+            )}
             <div className="aw-modal-actions">
               <button
                 type="button"
@@ -1406,7 +1499,16 @@ function DailyTab({ onAdd, onEdit, refreshKey }) {
    WEEKLY TAB
    ========================================================================== */
 
-function WeeklyTab() {
+const EMPTY_WEEKLY = {
+  start_date: "",
+  end_date: "",
+  total_hours: 0,
+  total_wage: 0,
+  employees: 0,
+  results: [],
+};
+
+function WeeklyTab({ refreshKey }) {
   const { getWeeklySummary } = useAttendance();
 
   const [anchorDate, setAnchorDate] = useState(todayISO());
@@ -1417,56 +1519,37 @@ function WeeklyTab() {
     employment_type: "",
     work_location: "",
   });
-  const [data, setData] = useState({
-    start_date: "",
-    end_date: "",
-    total_hours: 0,
-    total_wage: 0,
-    employees: 0,
-    results: [],
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
 
   const debounced = useDebounce(filters.search, 400);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const res = await getWeeklySummary({
-          date: anchorDate,
-          search: debounced,
-          department: filters.department,
-          branch: filters.branch,
-          employment_type: filters.employment_type,
-          work_location: filters.work_location,
-        });
-        if (!cancelled) setData(res || {});
-      } catch (err) {
-        if (!cancelled) setError(extractError(err, "Failed to load weekly summary."));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const fetcher = useCallback(async () => {
+    const res = await getWeeklySummary({
+      date: anchorDate,
+      search: debounced,
+      department: filters.department,
+      branch: filters.branch,
+      employment_type: filters.employment_type,
+      work_location: filters.work_location,
+    });
+    return res || {};
   }, [
+    getWeeklySummary,
     anchorDate,
     debounced,
     filters.department,
     filters.branch,
     filters.employment_type,
     filters.work_location,
-    reloadKey,
-    getWeeklySummary,
   ]);
 
-  const rows = data.results || [];
+  const { data, loading, refreshing, error, retry } = useRefreshableQuery(
+    fetcher,
+    refreshKey,
+    "Failed to load weekly summary."
+  );
+
+  const view = data || EMPTY_WEEKLY;
+  const rows = view.results || [];
 
   return (
     <div className="aw-tab">
@@ -1481,9 +1564,9 @@ function WeeklyTab() {
           />
         </label>
         <span className="aw-hint">
-          {data.start_date
-            ? `${formatDisplayDate(data.start_date)} – ${formatDisplayDate(
-                data.end_date
+          {view.start_date
+            ? `${formatDisplayDate(view.start_date)} – ${formatDisplayDate(
+                view.end_date
               )}`
             : ""}
         </span>
@@ -1506,74 +1589,76 @@ function WeeklyTab() {
       <div className="aw-summary-grid aw-summary-grid-tight">
         <SummaryCard
           label="Total Hours"
-          value={formatHours(data.total_hours || 0)}
+          value={formatHours(view.total_hours || 0)}
         />
         <SummaryCard
           label="Total Wage"
-          value={formatINR(data.total_wage || 0)}
+          value={formatINR(view.total_wage || 0)}
         />
-        <SummaryCard label="Employees" value={data.employees || 0} />
+        <SummaryCard label="Employees" value={view.employees || 0} />
       </div>
+
+      <RefreshIndicator show={refreshing} />
 
       {loading ? (
         <div style={{ padding: 40, textAlign: "center" }}>
           <Loading />
         </div>
-      ) : error ? (
-        <div style={{ padding: 24 }}>
-          <Error onRetry={() => setReloadKey((k) => k + 1)} />
-          <div style={{ marginTop: 8, fontSize: 13, color: "#a52626" }}>
-            {error}
-          </div>
-        </div>
       ) : (
-        <div className="aw-table-wrap">
-          <table className="aw-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th className="aw-num">Days Worked</th>
-                <th className="aw-num">Total Hours</th>
-                <th className="aw-num">Hourly Rate</th>
-                <th className="aw-num">Total Wage</th>
-                <th className="aw-num">Outstanding Advance</th>
-                <th>Status Breakdown</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="aw-empty-row">
-                    No attendance recorded for this week.
-                  </td>
-                </tr>
-              )}
-              {rows.map((r) => (
-                <tr key={r.employee_id}>
-                  <td>
-                    {r.employee_id} · {r.employee_name}
-                  </td>
-                  <td className="aw-num">{r.days_worked}</td>
-                  <td className="aw-num">
-                    {Number(r.total_hours || 0).toFixed(2)}
-                  </td>
-                  <td className="aw-num">₹{r.last_rate || 0}</td>
-                  <td className="aw-num">{formatINR(r.total_wage)}</td>
-                  <td className="aw-num">
-                    {formatINR(r.outstanding_advance)}
-                  </td>
-                  <td className="aw-status-breakdown">
-                    {Object.entries(r.status_counts || {}).map(([s, count]) => (
-                      <span key={s} className="aw-mini-pill">
-                        {statusLabel(s)}: {count}
-                      </span>
-                    ))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
+          {(!error || data) && (
+            <div className="aw-table-wrap">
+              <table className="aw-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th className="aw-num">Days Worked</th>
+                    <th className="aw-num">Total Hours</th>
+                    <th className="aw-num">Hourly Rate</th>
+                    <th className="aw-num">Total Wage</th>
+                    <th className="aw-num">Outstanding Advance</th>
+                    <th>Status Breakdown</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="aw-empty-row">
+                        No attendance recorded for this week.
+                      </td>
+                    </tr>
+                  )}
+                  {rows.map((r) => (
+                    <tr key={r.employee_id}>
+                      <td>
+                        {r.employee_id} · {r.employee_name}
+                      </td>
+                      <td className="aw-num">{r.days_worked}</td>
+                      <td className="aw-num">
+                        {Number(r.total_hours || 0).toFixed(2)}
+                      </td>
+                      <td className="aw-num">₹{r.last_rate || 0}</td>
+                      <td className="aw-num">{formatINR(r.total_wage)}</td>
+                      <td className="aw-num">
+                        {formatINR(r.outstanding_advance)}
+                      </td>
+                      <td className="aw-status-breakdown">
+                        {Object.entries(r.status_counts || {}).map(
+                          ([s, count]) => (
+                            <span key={s} className="aw-mini-pill">
+                              {statusLabel(s)}: {count}
+                            </span>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1583,7 +1668,16 @@ function WeeklyTab() {
    MONTHLY TAB
    ========================================================================== */
 
-function MonthlyTab({ onFixMissing }) {
+const EMPTY_MONTHLY = {
+  total_employees: 0,
+  total_working_days: 0,
+  total_working_hours: 0,
+  total_wage: 0,
+  missing_attendance_count: 0,
+  results: [],
+};
+
+function MonthlyTab({ onFixMissing, refreshKey }) {
   const { getMonthlySummary } = useAttendance();
 
   const [month, setMonth] = useState(todayISO().slice(0, 7));
@@ -1594,57 +1688,37 @@ function MonthlyTab({ onFixMissing }) {
     employment_type: "",
     work_location: "",
   });
-  const [data, setData] = useState({
-    total_employees: 0,
-    total_working_days: 0,
-    total_working_hours: 0,
-    total_wage: 0,
-    missing_attendance_count: 0,
-    results: [],
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
 
   const debounced = useDebounce(filters.search, 400);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const res = await getMonthlySummary({
-          month,
-          search: debounced,
-          department: filters.department,
-          branch: filters.branch,
-          employment_type: filters.employment_type,
-          work_location: filters.work_location,
-        });
-        if (!cancelled) setData(res || {});
-      } catch (err) {
-        if (!cancelled)
-          setError(extractError(err, "Failed to load monthly summary."));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const fetcher = useCallback(async () => {
+    const res = await getMonthlySummary({
+      month,
+      search: debounced,
+      department: filters.department,
+      branch: filters.branch,
+      employment_type: filters.employment_type,
+      work_location: filters.work_location,
+    });
+    return res || {};
   }, [
+    getMonthlySummary,
     month,
     debounced,
     filters.department,
     filters.branch,
     filters.employment_type,
     filters.work_location,
-    reloadKey,
-    getMonthlySummary,
   ]);
 
-  const rows = data.results || [];
+  const { data, loading, refreshing, error, retry } = useRefreshableQuery(
+    fetcher,
+    refreshKey,
+    "Failed to load monthly summary."
+  );
+
+  const view = data || EMPTY_MONTHLY;
+  const rows = view.results || [];
 
   return (
     <div className="aw-tab">
@@ -1677,107 +1751,109 @@ function MonthlyTab({ onFixMissing }) {
       <div className="aw-summary-grid aw-summary-grid-tight">
         <SummaryCard
           label="Total Employees"
-          value={data.total_employees || 0}
+          value={view.total_employees || 0}
         />
         <SummaryCard
           label="Total Working Days"
-          value={data.total_working_days || 0}
+          value={view.total_working_days || 0}
         />
         <SummaryCard
           label="Total Working Hours"
-          value={formatHours(data.total_working_hours || 0)}
+          value={formatHours(view.total_working_hours || 0)}
         />
         <SummaryCard
           label="Total Wage Amount"
-          value={formatINR(data.total_wage || 0)}
+          value={formatINR(view.total_wage || 0)}
         />
-        {data.missing_attendance_count > 0 && (
+        {view.missing_attendance_count > 0 && (
           <SummaryCard
             label="⚠ Missing Attendance"
-            value={data.missing_attendance_count}
+            value={view.missing_attendance_count}
             sub="across all employees"
           />
         )}
       </div>
 
+      <RefreshIndicator show={refreshing} />
+
       {loading ? (
         <div style={{ padding: 40, textAlign: "center" }}>
           <Loading />
         </div>
-      ) : error ? (
-        <div style={{ padding: 24 }}>
-          <Error onRetry={() => setReloadKey((k) => k + 1)} />
-          <div style={{ marginTop: 8, fontSize: 13, color: "#a52626" }}>
-            {error}
-          </div>
-        </div>
       ) : (
-        <div className="aw-table-wrap">
-          <table className="aw-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th className="aw-num">Days Worked</th>
-                <th className="aw-num">Total Hours</th>
-                <th className="aw-num">Total Wage</th>
-                <th className="aw-num">Outstanding Advance</th>
-                <th>Status Breakdown</th>
-                <th>Missing</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="aw-empty-row">
-                    No attendance recorded for this month.
-                  </td>
-                </tr>
-              )}
-              {rows.map((r) => (
-                <tr key={r.employee_id}>
-                  <td>
-                    {r.employee_id} · {r.employee_name}
-                  </td>
-                  <td className="aw-num">{r.days_worked}</td>
-                  <td className="aw-num">
-                    {Number(r.total_hours || 0).toFixed(2)}
-                  </td>
-                  <td className="aw-num">{formatINR(r.total_wage)}</td>
-                  <td className="aw-num">
-                    {formatINR(r.outstanding_advance)}
-                  </td>
-                  <td className="aw-status-breakdown">
-                    {Object.entries(r.status_counts || {}).map(([s, count]) => (
-                      <span key={s} className="aw-mini-pill">
-                        {statusLabel(s)}: {count}
-                      </span>
-                    ))}
-                    {!r.status_counts && "—"}
-                  </td>
-                  <td>
-                    {r.missing_count === 0 ? (
-                      "—"
-                    ) : (
-                      <button
-                        type="button"
-                        className="aw-link-btn aw-link-warning"
-                        onClick={() =>
-                          onFixMissing &&
-                          onFixMissing(
-                            r.employee_id,
-                            data.start_date || todayISO()
+        <>
+          {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
+          {(!error || data) && (
+            <div className="aw-table-wrap">
+              <table className="aw-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th className="aw-num">Days Worked</th>
+                    <th className="aw-num">Total Hours</th>
+                    <th className="aw-num">Total Wage</th>
+                    <th className="aw-num">Outstanding Advance</th>
+                    <th>Status Breakdown</th>
+                    <th>Missing</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="aw-empty-row">
+                        No attendance recorded for this month.
+                      </td>
+                    </tr>
+                  )}
+                  {rows.map((r) => (
+                    <tr key={r.employee_id}>
+                      <td>
+                        {r.employee_id} · {r.employee_name}
+                      </td>
+                      <td className="aw-num">{r.days_worked}</td>
+                      <td className="aw-num">
+                        {Number(r.total_hours || 0).toFixed(2)}
+                      </td>
+                      <td className="aw-num">{formatINR(r.total_wage)}</td>
+                      <td className="aw-num">
+                        {formatINR(r.outstanding_advance)}
+                      </td>
+                      <td className="aw-status-breakdown">
+                        {Object.entries(r.status_counts || {}).map(
+                          ([s, count]) => (
+                            <span key={s} className="aw-mini-pill">
+                              {statusLabel(s)}: {count}
+                            </span>
                           )
-                        }
-                      >
-                        ⚠ {r.missing_count} missing
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                        )}
+                        {!r.status_counts && "—"}
+                      </td>
+                      <td>
+                        {r.missing_count === 0 ? (
+                          "—"
+                        ) : (
+                          <button
+                            type="button"
+                            className="aw-link-btn aw-link-warning"
+                            onClick={() =>
+                              onFixMissing &&
+                              onFixMissing(
+                                r.employee_id,
+                                view.start_date || todayISO()
+                              )
+                            }
+                          >
+                            ⚠ {r.missing_count} missing
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1787,7 +1863,7 @@ function MonthlyTab({ onFixMissing }) {
    EMPLOYEE SUMMARY TAB
    ========================================================================== */
 
-function EmployeeSummaryTab() {
+function EmployeeSummaryTab({ refreshKey }) {
   const { getEmployeeSummary, getEmployees } = useAttendance();
 
   const [filters, setFilters] = useState({
@@ -1799,61 +1875,24 @@ function EmployeeSummaryTab() {
   });
   const [employeeId, setEmployeeId] = useState("");
 
-  const [summary, setSummary] = useState(null);
-  const [list, setList] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
-
   const debounced = useDebounce(filters.search, 400);
 
-  // Fetch: summary if employee chosen, else filtered list
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        if (employeeId) {
-          const res = await getEmployeeSummary(employeeId);
-          if (!cancelled) {
-            setSummary(res || null);
-            setList([]);
-          }
-        } else {
-          const res = await getEmployees({
-            search: debounced,
-            department: filters.department,
-            branch: filters.branch,
-            employment_type: filters.employment_type,
-            work_location: filters.work_location,
-            page: 1,
-            page_size: 100,
-          });
-          if (!cancelled) {
-            setList(res.results || res.data || []);
-            setSummary(null);
-          }
-        }
-      } catch (err) {
-        if (!cancelled)
-          setError(
-            extractError(
-              err,
-              employeeId
-                ? "Failed to load employee summary."
-                : "Failed to load employee list."
-            )
-          );
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+  // Summary if an employee is chosen, else the filtered employee list.
+  const fetcher = useCallback(async () => {
+    if (employeeId) {
+      const res = await getEmployeeSummary(employeeId);
+      return { mode: "summary", summary: res || null, list: [] };
+    }
+    const res = await getEmployees({
+      search: debounced,
+      department: filters.department,
+      branch: filters.branch,
+      employment_type: filters.employment_type,
+      work_location: filters.work_location,
+      page: 1,
+      page_size: 100,
+    });
+    return { mode: "list", summary: null, list: res.results || res.data || [] };
   }, [
     employeeId,
     debounced,
@@ -1861,10 +1900,20 @@ function EmployeeSummaryTab() {
     filters.branch,
     filters.employment_type,
     filters.work_location,
-    reloadKey,
     getEmployeeSummary,
     getEmployees,
   ]);
+
+  const { data, loading, refreshing, error, retry } = useRefreshableQuery(
+    fetcher,
+    refreshKey,
+    employeeId
+      ? "Failed to load employee summary."
+      : "Failed to load employee list."
+  );
+
+  const summary = data?.mode === "summary" ? data.summary : null;
+  const list = data?.mode === "list" ? data.list : [];
 
   const week = summary?.week?.summary;
   const month = summary?.month?.summary;
@@ -1906,135 +1955,137 @@ function EmployeeSummaryTab() {
         )}
       </div>
 
+      <RefreshIndicator show={refreshing} />
+
       {loading ? (
         <div style={{ padding: 40, textAlign: "center" }}>
           <Loading />
         </div>
-      ) : error ? (
-        <div style={{ padding: 24 }}>
-          <Error onRetry={() => setReloadKey((k) => k + 1)} />
-          <div style={{ marginTop: 8, fontSize: 13, color: "#a52626" }}>
-            {error}
-          </div>
-        </div>
-      ) : employeeId && summary ? (
-        <div className="aw-employee-summary">
-          <div className="aw-employee-summary-head">
-            <h3>{emp?.employee_name || emp?.full_name || "Employee"}</h3>
-            <span className="aw-hint">
-              {emp?.employee_id} · {emp?.department || "—"} ·{" "}
-              {emp?.designation || "—"}
-            </span>
-          </div>
-
-          <div className="pll-section">
-            <h4>Attendance Summary</h4>
-            <div className="aw-summary-grid">
-              <SummaryCard
-                label="This Week"
-                value={formatHours(week?.total_hours || 0)}
-                sub={formatINR(week?.total_wage || 0)}
-              />
-              <SummaryCard
-                label="This Month"
-                value={formatHours(month?.total_hours || 0)}
-                sub={formatINR(month?.total_wage || 0)}
-              />
-              <SummaryCard
-                label="Days Worked (Month)"
-                value={month?.days_worked || 0}
-              />
-              <SummaryCard
-                label="Outstanding Advance"
-                value={formatINR(
-                  month?.outstanding_advance || week?.outstanding_advance || 0
-                )}
-              />
-            </div>
-          </div>
-
-          <div className="pll-section">
-            <h4>Employee Details</h4>
-            <dl className="pll-view-grid">
-              <dt>Department</dt>
-              <dd>{emp?.department || "—"}</dd>
-              <dt>Designation</dt>
-              <dd>{emp?.designation || "—"}</dd>
-              <dt>Branch</dt>
-              <dd>{emp?.branch || "—"}</dd>
-              <dt>Employment Type</dt>
-              <dd>{emp?.employment_type || "—"}</dd>
-              <dt>Work Location</dt>
-              <dd>{emp?.work_location || "—"}</dd>
-            </dl>
-          </div>
-
-          {month?.status_counts && (
-            <div className="pll-section">
-              <h4>Status Breakdown (Month)</h4>
-              <div className="aw-status-breakdown">
-                {Object.entries(month.status_counts).map(([s, count]) => (
-                  <span key={s} className="aw-mini-pill">
-                    {statusLabel(s)}: {count}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
       ) : (
-        <div className="aw-employee-summary">
-          <div className="aw-employee-summary-head">
-            <h3>Filtered Employees</h3>
-            <span className="aw-hint">
-              Pick an employee above to view their summary, or refine filters
-              to narrow this list.
-            </span>
-          </div>
+        <>
+          {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
+          {error && !data ? null : employeeId && summary ? (
+            <div className="aw-employee-summary">
+              <div className="aw-employee-summary-head">
+                <h3>{emp?.employee_name || emp?.full_name || "Employee"}</h3>
+                <span className="aw-hint">
+                  {emp?.employee_id} · {emp?.department || "—"} ·{" "}
+                  {emp?.designation || "—"}
+                </span>
+              </div>
 
-          {list.length === 0 ? (
-            <p className="aw-hint">No employees match these filters.</p>
+              <div className="pll-section">
+                <h4>Attendance Summary</h4>
+                <div className="aw-summary-grid">
+                  <SummaryCard
+                    label="This Week"
+                    value={formatHours(week?.total_hours || 0)}
+                    sub={formatINR(week?.total_wage || 0)}
+                  />
+                  <SummaryCard
+                    label="This Month"
+                    value={formatHours(month?.total_hours || 0)}
+                    sub={formatINR(month?.total_wage || 0)}
+                  />
+                  <SummaryCard
+                    label="Days Worked (Month)"
+                    value={month?.days_worked || 0}
+                  />
+                  <SummaryCard
+                    label="Outstanding Advance"
+                    value={formatINR(
+                      month?.outstanding_advance ||
+                        week?.outstanding_advance ||
+                        0
+                    )}
+                  />
+                </div>
+              </div>
+
+              <div className="pll-section">
+                <h4>Employee Details</h4>
+                <dl className="pll-view-grid">
+                  <dt>Department</dt>
+                  <dd>{emp?.department || "—"}</dd>
+                  <dt>Designation</dt>
+                  <dd>{emp?.designation || "—"}</dd>
+                  <dt>Branch</dt>
+                  <dd>{emp?.branch || "—"}</dd>
+                  <dt>Employment Type</dt>
+                  <dd>{emp?.employment_type || "—"}</dd>
+                  <dt>Work Location</dt>
+                  <dd>{emp?.work_location || "—"}</dd>
+                </dl>
+              </div>
+
+              {month?.status_counts && (
+                <div className="pll-section">
+                  <h4>Status Breakdown (Month)</h4>
+                  <div className="aw-status-breakdown">
+                    {Object.entries(month.status_counts).map(([s, count]) => (
+                      <span key={s} className="aw-mini-pill">
+                        {statusLabel(s)}: {count}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
-            <div className="aw-table-wrap">
-              <table className="aw-table">
-                <thead>
-                  <tr>
-                    <th>Employee ID</th>
-                    <th>Name</th>
-                    <th>Department</th>
-                    <th>Designation</th>
-                    <th>Branch</th>
-                    <th>Type</th>
-                    <th>Location</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((e) => (
-                    <tr key={e.id}>
-                      <td>{e.employee_id}</td>
-                      <td>{e.full_name}</td>
-                      <td>{e.department || "—"}</td>
-                      <td>{e.designation || "—"}</td>
-                      <td>{e.branch || "—"}</td>
-                      <td>{e.employment_type || "—"}</td>
-                      <td>{e.work_location || "—"}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="aw-link-btn"
-                          onClick={() => setEmployeeId(String(e.id))}
-                        >
-                          View Summary
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="aw-employee-summary">
+              <div className="aw-employee-summary-head">
+                <h3>Filtered Employees</h3>
+                <span className="aw-hint">
+                  Pick an employee above to view their summary, or refine
+                  filters to narrow this list.
+                </span>
+              </div>
+
+              {list.length === 0 ? (
+                <p className="aw-hint">No employees match these filters.</p>
+              ) : (
+                <div className="aw-table-wrap">
+                  <table className="aw-table">
+                    <thead>
+                      <tr>
+                        <th>Employee ID</th>
+                        <th>Name</th>
+                        <th>Department</th>
+                        <th>Designation</th>
+                        <th>Branch</th>
+                        <th>Type</th>
+                        <th>Location</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((e) => (
+                        <tr key={e.id}>
+                          <td>{e.employee_id}</td>
+                          <td>{e.full_name}</td>
+                          <td>{e.department || "—"}</td>
+                          <td>{e.designation || "—"}</td>
+                          <td>{e.branch || "—"}</td>
+                          <td>{e.employment_type || "—"}</td>
+                          <td>{e.work_location || "—"}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="aw-link-btn"
+                              onClick={() => setEmployeeId(String(e.id))}
+                            >
+                              View Summary
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -2046,7 +2097,6 @@ function EmployeeSummaryTab() {
 
 function WageRatesPanel() {
   const {
-    getEmployees,
     getWageConfigByEmployee,
     upsertWageConfig,
   } = useAttendance();
@@ -2105,7 +2155,7 @@ function WageRatesPanel() {
   }, [employeeId, getWageConfigByEmployee]);
 
   async function handleSave() {
-    if (!employeeId) return;
+    if (!employeeId || saving) return;
     setSaving(true);
     setError("");
     try {
@@ -2257,7 +2307,7 @@ function WageRatesPanel() {
 
       {error && (
         <div style={{ marginBottom: 12 }}>
-          <Error onRetry={handleSave} />
+          <ErrorState onRetry={handleSave} />
           <div style={{ marginTop: 6, fontSize: 13, color: "#a52626" }}>
             {error}
           </div>
@@ -2296,10 +2346,23 @@ const TABS = [
 
 export default function AttendanceWages() {
   const [activeTab, setActiveTab] = useState("daily");
+  // Tabs are mounted lazily on first visit and then KEPT mounted (hidden), so
+  // each tab keeps its own selected date / month / week / filters and every
+  // visited tab can be refreshed by the central trigger below.
+  const [visited, setVisited] = useState({ daily: true });
   const [modal, setModal] = useState(null);
+
+  // ── Central refresh trigger ───────────────────────────────────────────
+  // Bumped ONLY after the backend confirmed a create / update / delete.
   const [refreshKey, setRefreshKey] = useState(0);
+  const bumpRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   const handleBack = () => window.history.back();
+
+  function selectTab(key) {
+    setActiveTab(key);
+    setVisited((v) => (v[key] ? v : { ...v, [key]: true }));
+  }
 
   function openAdd(_unused, presetDate) {
     setModal({ editRecord: null, presetDate });
@@ -2312,8 +2375,7 @@ export default function AttendanceWages() {
   }
   function handleSaved() {
     setModal(null);
-    // Trigger a refresh of the tabs by incrementing the refreshKey
-    setRefreshKey((k) => k + 1);
+    bumpRefresh(); // Daily + Weekly + Monthly + Employee Summary refetch
   }
   function handleFixMissing(employeeId, date) {
     setModal({
@@ -2377,24 +2439,46 @@ export default function AttendanceWages() {
               className={`aw-tab-btn ${
                 activeTab === t.key ? "aw-tab-btn-active" : ""
               }`}
-              onClick={() => setActiveTab(t.key)}
+              onClick={() => selectTab(t.key)}
             >
               {t.label}
             </button>
           ))}
         </div>
 
-        {activeTab === "daily" && (
-          <DailyTab 
-            onAdd={openAdd} 
-            onEdit={openEdit} 
-            refreshKey={refreshKey} 
-          />
+        {visited.daily && (
+          <div hidden={activeTab !== "daily"}>
+            <DailyTab
+              onAdd={openAdd}
+              onEdit={openEdit}
+              refreshKey={refreshKey}
+              onChanged={bumpRefresh}
+            />
+          </div>
         )}
-        {activeTab === "weekly" && <WeeklyTab />}
-        {activeTab === "monthly" && <MonthlyTab onFixMissing={handleFixMissing} />}
-        {activeTab === "employee" && <EmployeeSummaryTab />}
-        {activeTab === "rates" && <WageRatesPanel />}
+        {visited.weekly && (
+          <div hidden={activeTab !== "weekly"}>
+            <WeeklyTab refreshKey={refreshKey} />
+          </div>
+        )}
+        {visited.monthly && (
+          <div hidden={activeTab !== "monthly"}>
+            <MonthlyTab
+              onFixMissing={handleFixMissing}
+              refreshKey={refreshKey}
+            />
+          </div>
+        )}
+        {visited.employee && (
+          <div hidden={activeTab !== "employee"}>
+            <EmployeeSummaryTab refreshKey={refreshKey} />
+          </div>
+        )}
+        {visited.rates && (
+          <div hidden={activeTab !== "rates"}>
+            <WageRatesPanel />
+          </div>
+        )}
 
         {modal && (
           <AttendanceFormModal

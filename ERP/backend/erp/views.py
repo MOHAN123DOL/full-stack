@@ -16444,9 +16444,13 @@ class ProductionOperationListAPIView(APIView):
             a for a in assemblies if a.processes.exists()
         ]
 
-        # Lazy materialize the execution for each
+        # Ensure execution and update assembly status
         for asm in assemblies:
             _ensure_execution(asm)
+
+            if asm.status == Assembly.Status.PLANNED:
+                asm.status = Assembly.Status.IN_PROGRESS
+                asm.save(update_fields=["status", "updated_at"])
 
         executions = (
             AssemblyExecution.objects
@@ -16469,8 +16473,6 @@ class ProductionOperationListAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
-
 # =====================================================================
 # DETAIL
 # -----------------------------------------------------------------
@@ -17689,7 +17691,6 @@ class DispatchDetailAPIView(APIView):
 # -----------------------------------------------------------------
 # POST /erp/material/dispatch/create/<assembly_id>/
 # =====================================================================
-
 class DispatchCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsMaterialPlanning]
 
@@ -17705,10 +17706,14 @@ class DispatchCreateAPIView(APIView):
             )
         except AssemblyExecution.DoesNotExist:
             return Response(
-                {"success": False, "message": "Assembly not found."},
+                {
+                    "success": False,
+                    "message": "Assembly not found."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # Check whether assembly is ready for dispatch
         if not _is_assembly_ready_for_dispatch(execution):
             return Response(
                 {
@@ -17722,7 +17727,9 @@ class DispatchCreateAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Validate dispatch data
         serializer = DispatchCreateSerializer(data=request.data)
+
         if not serializer.is_valid():
             return Response(
                 {
@@ -17735,14 +17742,19 @@ class DispatchCreateAPIView(APIView):
 
         data = serializer.validated_data
 
+        # Planned quantity
         planned_qty = Decimal("1")
+
+        # Calculate already dispatched quantity
         dispatched_so_far = (
             execution.dispatches.aggregate(
                 total=Sum("quantity")
             )["total"] or Decimal("0")
         )
+
         balance = planned_qty - dispatched_so_far
 
+        # Validate remaining quantity
         if data["qty"] > balance:
             return Response(
                 {
@@ -17755,49 +17767,78 @@ class DispatchCreateAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Generate dispatch number
         dispatch_number = generate_dispatch_number()
 
+        # Create dispatch transaction
         dispatch_tx = DispatchTransaction.objects.create(
             dispatch_number=dispatch_number,
             dispatch_date=data["date"],
             dispatch_time=(data.get("time") or "").strip(),
+
             assembly_execution=execution,
             assembly_code=execution.assembly.assembly_id,
+
             project_code=(
                 execution.assembly.project.code
                 if execution.assembly.project else ""
             ),
+
             dwg_description=execution.assembly.dwg_description or "",
+
             revision=(
                 execution.assembly.dwg_description or "Rev-00"
             ),
+
             dispatch_to=(data.get("dispatchTo") or "").strip(),
             location=(data.get("location") or "").strip(),
             vehicle_number=(data.get("vehicleNumber") or "").strip(),
             transporter=(data.get("transporter") or "").strip(),
             driver_name=(data.get("driverName") or "").strip(),
             driver_contact=(data.get("driverContact") or "").strip(),
+
             quantity=data["qty"],
+
             remarks=(data.get("remarks") or "").strip(),
+
             dc_challan_number=(
                 data.get("dcChallanNumber") or ""
             ).strip(),
+
             delivery_challan_id=(
                 data.get("deliveryChallanId") or None
             ),
+
             created_by=request.user,
         )
 
+        # Calculate total dispatched quantity
+        total_dispatched = dispatched_so_far + data["qty"]
+
+        # Update assembly status when fully dispatched
+        if total_dispatched >= planned_qty:
+
+            execution.assembly.status = Assembly.Status.COMPLETED
+
+            execution.assembly.save(
+                update_fields=["status", "updated_at"]
+            )
+
+        # Return response
         return Response(
             {
                 "success": True,
                 "message": f"{dispatch_number} recorded.",
-                "data": DispatchTransactionSerializer(dispatch_tx).data,
+
+                "data": DispatchTransactionSerializer(
+                    dispatch_tx
+                ).data,
+
                 "assembly": _build_dispatch_row(execution),
+
             },
             status=status.HTTP_201_CREATED,
         )
-    
 
 # =====================================================================
 # DISPATCH — HISTORY

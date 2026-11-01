@@ -22,11 +22,14 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError("DJANGO_SECRET_KEY is not configured")
 
-DEBUG = os.getenv("DEBUG", "True").lower() == "true"
+DEBUG = False
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    for host in os.getenv(
+        "ALLOWED_HOSTS",
+        "129.121.171.38,localhost,127.0.0.1"
+    ).split(",")
     if host.strip()
 ]
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -191,8 +194,7 @@ REFRESH_COOKIE_NAMES = {
 }
 
 REFRESH_COOKIE_PATH = "/api/erp/"
-# REFRESH_COOKIE_SECURE = not DEBUG
-REFRESH_COOKIE_SECURE = False
+REFRESH_COOKIE_SECURE = True
 REFRESH_COOKIE_HTTPONLY = True
 REFRESH_COOKIE_SAMESITE = "Lax"
 REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60
@@ -226,9 +228,10 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
      "http://localhost:3000",
      "http://127.0.0.1:3000",
+     "https://129.121.171.38",
 ]
 CORS_ALLOW_CREDENTIALS = True
-# Do NOT use:
+
 
 
 
@@ -241,6 +244,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://129.121.171.38"
 
 ]
 
@@ -251,10 +255,7 @@ CSRF_TRUSTED_ORIGINS = [
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
-
-if not DEBUG:
-    #SESSION_COOKIE_SECURE = True\
-    SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SECURE = True
 
 
 # ============================================================
@@ -262,10 +263,8 @@ if not DEBUG:
 # ============================================================
 
 CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SECURE = True
 
-if not DEBUG:
-    #CSRF_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = False
 
 
 # ============================================================
@@ -287,13 +286,17 @@ X_FRAME_OPTIONS = "DENY"
 
 if not DEBUG:
 
-    SECURE_SSL_REDIRECT = True
+    SECURE_SSL_REDIRECT = False
 
-    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_SECONDS = 0
+    SECURE_PROXY_SSL_HEADER = (
+    "HTTP_X_FORWARDED_PROTO",
+    "https",
+)
 
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    # SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 
-    SECURE_HSTS_PRELOAD = True
+    # SECURE_HSTS_PRELOAD = True
 
 
 # ============================================================

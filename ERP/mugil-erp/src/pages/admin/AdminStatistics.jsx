@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   Activity,
@@ -42,9 +42,6 @@ const PERIOD_DESCRIPTIONS = {
   custom: "month-wise custom range",
 };
 
-// More than this many groups -> use compact, rotated value labels
-const DENSE_THRESHOLD = 6;
-
 /* ============================================================
    FORMATTERS & HELPERS
    ============================================================ */
@@ -56,11 +53,19 @@ const formatCurrency = (value) => {
 };
 
 const formatCompactCurrency = (value) => {
-  const number = Number(value || 0);
-  if (number >= 10000000) return `₹${(number / 10000000).toFixed(1)}Cr`;
-  if (number >= 100000) return `₹${(number / 100000).toFixed(1)}L`;
-  if (number >= 1000) return `₹${(number / 1000).toFixed(1)}K`;
-  return `₹${number.toFixed(0)}`;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "₹0";
+
+  const sign = number < 0 ? "-" : "";
+  const abs = Math.abs(number);
+
+  // Thresholds sit just below each unit so rounding never produces
+  // "₹100.0K" / "₹100.0L" / "₹1000.0L" style overflow.
+  const trimmed = (n) => n.toFixed(1).replace(/\.0$/, "");
+  if (abs >= 9995000) return `${sign}₹${trimmed(abs / 10000000)}Cr`;
+  if (abs >= 99950) return `${sign}₹${trimmed(abs / 100000)}L`;
+  if (abs >= 999.5) return `${sign}₹${trimmed(abs / 1000)}K`;
+  return `${sign}₹${abs.toFixed(0)}`;
 };
 
 // Signed currency for profit / loss
@@ -99,42 +104,174 @@ const PO_STATUS_COLORS = {
 
 /* ============================================================
    CHART: REVENUE VS EXPENSES
+   ------------------------------------------------------------
+   Scale rules
+   - Revenue bars and expense bars ALWAYS share one scale (left
+     axis) so the two bars of a period are directly comparable.
+   - The purple revenue trend line can use its own zero-based
+     scale (right axis) when revenue is much smaller than the
+     largest bar. Both axes are labelled, both start at 0, and
+     tooltips always show the real rupee values.
+   - Users can switch the trend back to the shared scale.
    ============================================================ */
 
+// Trend gets its own axis only when revenue peaks below this share of the bar scale
+const SPLIT_SCALE_RATIO = 0.7;
+const GRID_INTERVALS = 5;
+const MIN_GROUP_WIDTH = 30; // below this the chart scrolls horizontally
+const WIDE_GROUP_WIDTH = 110; // at/above this value labels stay horizontal
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const toSafeNumber = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+
+// Step size (1, 2, 2.5, 5 x 10^n) so that `intervals` steps cover `max`
+const getNiceStep = (max, intervals) => {
+  const raw = Math.max(max, 0) / intervals;
+  if (!(raw > 0)) return 0;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const fraction = raw / power;
+  const niceFraction =
+    fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 2.5 ? 2.5 : fraction <= 5 ? 5 : 10;
+  return niceFraction * power;
+};
+
+// Zero-based axis whose top is a "nice" number >= max
+const buildAxis = (max, intervals = GRID_INTERVALS) => {
+  const fallbackMax = 100000; // empty data -> a sensible 0 .. ₹1L axis
+  const step = getNiceStep(max > 0 ? max : fallbackMax, intervals);
+  return {
+    step,
+    max: step * intervals,
+    ticks: Array.from({ length: intervals + 1 }, (_, index) => step * index),
+  };
+};
+
+function useElementSize(ref) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return undefined;
+
+    const update = () => {
+      const next = { width: element.clientWidth, height: element.clientHeight };
+      setSize((prev) =>
+        prev.width === next.width && prev.height === next.height ? prev : next
+      );
+    };
+
+    update();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return size;
+}
+
 function RevenueExpenseChart({ data, period }) {
-  const dense = data.length > DENSE_THRESHOLD;
+  const containerRef = useRef(null);
+  const { width: measuredWidth, height: measuredHeight } = useElementSize(containerRef);
+  const [trendScale, setTrendScale] = useState("own"); // "own" | "shared"
+  const [hoverIndex, setHoverIndex] = useState(null);
 
-  const width = 1000;
-  const height = 430;
-  const padding = { top: dense ? 72 : 55, right: 42, bottom: 76, left: 82 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-
-  const maxValue = Math.max(
-    ...data.map((item) => Math.max(item.revenue, item.expenses)),
-    1
+  // Defensive copy: finite numbers only. Bars cannot be drawn below zero,
+  // the real (possibly negative) value is still shown in the tooltip.
+  const rows = useMemo(
+    () =>
+      data.map((item) => {
+        const revenue = toSafeNumber(item.revenue);
+        const expenses = toSafeNumber(item.expenses);
+        return {
+          ...item,
+          revenue,
+          expenses,
+          profit_loss: toSafeNumber(item.profit_loss ?? revenue - expenses),
+          revenueDraw: Math.max(revenue, 0),
+          expenseDraw: Math.max(expenses, 0),
+        };
+      }),
+    [data]
   );
-  const chartMax = maxValue * (dense ? 1.25 : 1.2);
-  const groupWidth = chartWidth / Math.max(data.length, 1);
-  const barWidth = Math.min(30, Math.max(14, groupWidth * 0.22));
-  const barGap = Math.min(9, Math.max(4, groupWidth * 0.07));
+
+  const count = rows.length;
+  const containerWidth = measuredWidth || 800;
+  const containerHeight = measuredHeight || 340;
+  const compact = containerWidth < 520;
+
+  // ---------- scales ----------
+  const barMax = rows.reduce((max, r) => Math.max(max, r.revenueDraw, r.expenseDraw), 0);
+  const revenueMax = rows.reduce((max, r) => Math.max(max, r.revenueDraw), 0);
+
+  const canSplitScale = count > 1 && revenueMax > 0 && revenueMax / barMax < SPLIT_SCALE_RATIO;
+  const useOwnTrendScale = canSplitScale && trendScale === "own";
+
+  const barAxis = useMemo(() => buildAxis(barMax), [barMax]);
+  const trendAxis = useMemo(
+    () => (useOwnTrendScale ? buildAxis(revenueMax) : barAxis),
+    [useOwnTrendScale, revenueMax, barAxis]
+  );
+
+  // ---------- layout ----------
+  const padding = {
+    left: compact ? 50 : 70,
+    right: useOwnTrendScale ? (compact ? 50 : 70) : compact ? 14 : 24,
+    bottom: 44,
+  };
+
+  const availableWidth = Math.max(containerWidth - padding.left - padding.right, 120);
+  const groupWidth = Math.max(availableWidth / Math.max(count, 1), MIN_GROUP_WIDTH);
+  const scrolls = groupWidth * count > availableWidth + 0.5;
+  const svgWidth = scrolls ? groupWidth * count + padding.left + padding.right : containerWidth;
+  const svgHeight = Math.max(containerHeight - (scrolls ? 12 : 0), 240);
+
+  const horizontalLabels = groupWidth >= WIDE_GROUP_WIDTH;
+  padding.top = horizontalLabels ? 40 : 66;
+
+  const chartWidth = svgWidth - padding.left - padding.right;
+  const chartHeight = svgHeight - padding.top - padding.bottom;
   const baseline = padding.top + chartHeight;
 
-  const getX = (index) => padding.left + groupWidth * index + groupWidth / 2;
-  const getY = (value) => baseline - (value / chartMax) * chartHeight;
+  const barWidth = clamp(groupWidth * 0.26, 6, 34);
+  const barGap = clamp(groupWidth * 0.07, 3, 9);
 
-  const linePoints = data
-    .map((item, index) => `${getX(index)},${getY(item.revenue)}`)
-    .join(" ");
+  const getX = (index) => padding.left + (chartWidth / Math.max(count, 1)) * index + chartWidth / Math.max(count, 1) / 2;
+  const actualGroupWidth = chartWidth / Math.max(count, 1);
+  const barY = (value) => baseline - (clamp(value, 0, barAxis.max) / barAxis.max) * chartHeight;
+  const trendY = (value) =>
+    baseline - (clamp(value, 0, trendAxis.max) / trendAxis.max) * chartHeight;
 
-  const gridLines = 5;
+  // ---------- trend geometry (point i uses revenue of row i) ----------
+  const trendPoints = rows.map((row, index) => ({ x: getX(index), y: trendY(row.revenueDraw) }));
+  const linePoints = trendPoints.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ");
 
-  // Value label: horizontal for few groups, rotated for many (prevents overlap)
-  const renderValueLabel = (x, value, className, delay) => {
-    if (dense && value <= 0) return null; // skip "₹0" clutter on empty months
-    const y = getY(value) - (dense ? 8 : 10);
+  // Markers pop in when the drawn line actually reaches them
+  const trendDelays = useMemo(() => {
+    const cumulative = [0];
+    for (let i = 1; i < trendPoints.length; i += 1) {
+      const dx = trendPoints[i].x - trendPoints[i - 1].x;
+      const dy = trendPoints[i].y - trendPoints[i - 1].y;
+      cumulative.push(cumulative[i - 1] + Math.hypot(dx, dy));
+    }
+    const total = cumulative[cumulative.length - 1] || 1;
+    return cumulative.map((distance) => 0.35 + (distance / total) * 1.8);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linePoints]);
 
-    if (!dense) {
+  // ---------- labels ----------
+  const labelStep = Math.max(1, Math.ceil(56 / actualGroupWidth));
+
+  const renderValueLabel = (x, value, drawnValue, className, delay) => {
+    if (!horizontalLabels && value <= 0) return null; // no "₹0" clutter when crowded
+    const y = barY(drawnValue) - 8;
+
+    if (horizontalLabels) {
       return (
         <text
           x={x}
@@ -155,13 +292,35 @@ function RevenueExpenseChart({ data, period }) {
           y={y + 4}
           textAnchor="start"
           className={`statistics-data-label ${className} statistics-fade-in`}
-          style={{ "--delay": `${delay}s`, fontSize: 11 }}
+          style={{ "--delay": `${delay}s` }}
         >
           {formatCompactCurrency(value)}
         </text>
       </g>
     );
   };
+
+  // ---------- tooltip ----------
+  const hovered = hoverIndex !== null && rows[hoverIndex] ? rows[hoverIndex] : null;
+  const previous = hoverIndex !== null && hoverIndex > 0 ? rows[hoverIndex - 1] : null;
+  let revenueChange = null;
+  if (hovered && previous && previous.revenue > 0) {
+    revenueChange = ((hovered.revenue - previous.revenue) / previous.revenue) * 100;
+  }
+
+  const handleHover = (index) => () => setHoverIndex(index);
+  const handleToggleHover = (index) => () =>
+    setHoverIndex((current) => (current === index ? null : index));
+
+  const tooltipLeft = hovered
+    ? clamp(getX(hoverIndex), 100, Math.max(svgWidth - 100, 100))
+    : 0;
+
+  const ariaLabel = `Revenue versus expenses chart with ${count} period${count === 1 ? "" : "s"}. ${
+    useOwnTrendScale
+      ? "The revenue trend line uses its own scale shown on the right axis."
+      : "Bars and trend share one scale."
+  }`;
 
   return (
     <div className="statistics-chart-shell">
@@ -181,116 +340,268 @@ function RevenueExpenseChart({ data, period }) {
           </span>
           <span>
             <i className="legend-line" /> Revenue Trend
+            {useOwnTrendScale && <em className="legend-axis-note">(right axis)</em>}
           </span>
         </div>
       </div>
 
-      <div className="statistics-chart">
-        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Revenue versus expenses chart">
-          <defs>
-            <linearGradient id="statisticsRevenueGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#00eaff" />
-              <stop offset="100%" stopColor="#087df2" />
-            </linearGradient>
-            <linearGradient id="statisticsExpenseGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ff52ad" />
-              <stop offset="100%" stopColor="#f45b70" />
-            </linearGradient>
-          </defs>
+      {canSplitScale && (
+        <div className="statistics-scale-note" role="group" aria-label="Revenue trend scale">
+          <p>
+            {useOwnTrendScale
+              ? "Bars share the left axis. The purple trend has its own ₹0-based scale (right axis) so its movement stays visible."
+              : "Bars and the purple trend share one scale (left axis). Smaller revenue values look flatter."}
+          </p>
+          <div className="statistics-scale-toggle">
+            <button
+              type="button"
+              className={useOwnTrendScale ? "is-active" : ""}
+              aria-pressed={useOwnTrendScale}
+              onClick={() => setTrendScale("own")}
+            >
+              Trend: own scale
+            </button>
+            <button
+              type="button"
+              className={!useOwnTrendScale ? "is-active" : ""}
+              aria-pressed={!useOwnTrendScale}
+              onClick={() => setTrendScale("shared")}
+            >
+              Trend: shared scale
+            </button>
+          </div>
+        </div>
+      )}
 
-          {/* GRID */}
-          {Array.from({ length: gridLines + 1 }).map((_, index) => {
-            const value = chartMax - (chartMax / gridLines) * index;
-            const y = getY(value);
-            return (
-              <g key={`grid-${index}`}>
-                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="statistics-grid-line" />
-                <text x={padding.left - 14} y={y + 4} textAnchor="end" className="statistics-axis-label">
-                  {formatCompactCurrency(value)}
-                </text>
-              </g>
-            );
-          })}
+      <div className="statistics-chart" ref={containerRef}>
+        <div className="statistics-chart-scroll">
+          <div className="statistics-chart-canvas" style={{ width: svgWidth, height: svgHeight }}>
+            <svg
+              width={svgWidth}
+              height={svgHeight}
+              viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+              role="img"
+              aria-label={ariaLabel}
+              onPointerLeave={() => setHoverIndex(null)}
+            >
+              <defs>
+                <linearGradient id="statisticsRevenueGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#00eaff" />
+                  <stop offset="100%" stopColor="#087df2" />
+                </linearGradient>
+                <linearGradient id="statisticsExpenseGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ff52ad" />
+                  <stop offset="100%" stopColor="#f45b70" />
+                </linearGradient>
+              </defs>
 
-          {/* BASELINE */}
-          <line x1={padding.left} y1={baseline} x2={width - padding.right} y2={baseline} stroke="rgba(65,130,165,0.25)" strokeWidth="1" />
+              {/* GRID + LEFT AXIS (bars) */}
+              {barAxis.ticks.map((tick, index) => {
+                const y = barY(tick);
+                return (
+                  <g key={`grid-${index}`}>
+                    <line
+                      x1={padding.left}
+                      y1={y}
+                      x2={svgWidth - padding.right}
+                      y2={y}
+                      className="statistics-grid-line"
+                    />
+                    <text x={padding.left - 10} y={y + 4} textAnchor="end" className="statistics-axis-label">
+                      {formatCompactCurrency(tick)}
+                    </text>
+                  </g>
+                );
+              })}
 
-          {/* BARS */}
-          {data.map((item, index) => {
-            const center = getX(index);
-            const revenueHeight = (item.revenue / chartMax) * chartHeight;
-            const expenseHeight = (item.expenses / chartMax) * chartHeight;
-            const revenueX = center - barWidth - barGap / 2;
-            const expenseX = center + barGap / 2;
-            const revenueDelay = index * 0.08;
-            const expenseDelay = revenueDelay + 0.12;
+              {/* RIGHT AXIS (revenue trend, only when it has its own scale) */}
+              {useOwnTrendScale &&
+                trendAxis.ticks.map((tick, index) => (
+                  <text
+                    key={`trend-axis-${index}`}
+                    x={svgWidth - padding.right + 10}
+                    y={trendY(tick) + 4}
+                    textAnchor="start"
+                    className="statistics-axis-label statistics-axis-label-trend"
+                  >
+                    {formatCompactCurrency(tick)}
+                  </text>
+                ))}
 
-            return (
-              <g key={`${item.key}-${index}`}>
+              {/* BASELINE */}
+              <line
+                x1={padding.left}
+                y1={baseline}
+                x2={svgWidth - padding.right}
+                y2={baseline}
+                stroke="rgba(65,130,165,0.25)"
+                strokeWidth="1"
+              />
+
+              {/* HOVER BAND */}
+              {hovered && (
                 <rect
-                  x={revenueX}
-                  y={baseline - revenueHeight}
-                  width={barWidth}
-                  height={revenueHeight}
-                  rx="5"
-                  className="statistics-bar statistics-bar-revenue statistics-rise"
-                  style={{ "--delay": `${revenueDelay}s` }}
-                  fill="url(#statisticsRevenueGradient)"
+                  x={getX(hoverIndex) - actualGroupWidth / 2}
+                  y={padding.top - 8}
+                  width={actualGroupWidth}
+                  height={chartHeight + 8}
+                  rx="8"
+                  className="statistics-hover-band"
                 />
+              )}
+
+              {/* BARS */}
+              {rows.map((item, index) => {
+                const center = getX(index);
+                const revenueHeight = baseline - barY(item.revenueDraw);
+                const expenseHeight = baseline - barY(item.expenseDraw);
+                const revenueX = center - barWidth - barGap / 2;
+                const expenseX = center + barGap / 2;
+                const revenueDelay = Math.min(index * 0.08, 1.2);
+                const expenseDelay = revenueDelay + 0.12;
+
+                return (
+                  <g key={`${item.key}-${index}`}>
+                    <rect
+                      x={revenueX}
+                      y={baseline - revenueHeight}
+                      width={barWidth}
+                      height={revenueHeight}
+                      rx={Math.min(5, barWidth / 2)}
+                      className="statistics-bar statistics-bar-revenue statistics-rise"
+                      style={{ "--delay": `${revenueDelay}s` }}
+                      fill="url(#statisticsRevenueGradient)"
+                    />
+                    <rect
+                      x={expenseX}
+                      y={baseline - expenseHeight}
+                      width={barWidth}
+                      height={expenseHeight}
+                      rx={Math.min(5, barWidth / 2)}
+                      className="statistics-bar statistics-bar-expense statistics-rise"
+                      style={{ "--delay": `${expenseDelay}s` }}
+                      fill="url(#statisticsExpenseGradient)"
+                    />
+
+                    {renderValueLabel(
+                      revenueX + barWidth / 2,
+                      item.revenue,
+                      item.revenueDraw,
+                      "statistics-data-label-revenue",
+                      revenueDelay + 0.5
+                    )}
+                    {renderValueLabel(
+                      expenseX + barWidth / 2,
+                      item.expenses,
+                      item.expenseDraw,
+                      "statistics-data-label-expense",
+                      expenseDelay + 0.5
+                    )}
+
+                    {index % labelStep === 0 && (
+                      <text
+                        x={center}
+                        y={baseline + 24}
+                        textAnchor="middle"
+                        className="statistics-axis-label statistics-x-label"
+                      >
+                        {item.label}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+
+              {/* REVENUE TREND LINE */}
+              {count > 1 && (
+                <>
+                  <polyline
+                    points={linePoints}
+                    fill="none"
+                    className="statistics-trend-line"
+                    pathLength="1"
+                  />
+                  {trendPoints.map((point, index) => (
+                    <circle
+                      key={`trend-${rows[index].key}-${index}`}
+                      cx={point.x}
+                      cy={point.y}
+                      r={hoverIndex === index ? 6 : 4.5}
+                      className="statistics-trend-point"
+                      style={{ "--delay": `${trendDelays[index]}s` }}
+                    />
+                  ))}
+                </>
+              )}
+
+              {/* HIT AREAS (mouse, touch and keyboard-free hover) */}
+              {rows.map((item, index) => (
                 <rect
-                  x={expenseX}
-                  y={baseline - expenseHeight}
-                  width={barWidth}
-                  height={expenseHeight}
-                  rx="5"
-                  className="statistics-bar statistics-bar-expense statistics-rise"
-                  style={{ "--delay": `${expenseDelay}s` }}
-                  fill="url(#statisticsExpenseGradient)"
-                />
-
-                {renderValueLabel(
-                  revenueX + barWidth / 2,
-                  item.revenue,
-                  "statistics-data-label-revenue",
-                  revenueDelay + 0.5
-                )}
-                {renderValueLabel(
-                  expenseX + barWidth / 2,
-                  item.expenses,
-                  "statistics-data-label-expense",
-                  expenseDelay + 0.5
-                )}
-
-                <text x={center} y={height - 31} textAnchor="middle" className="statistics-axis-label statistics-x-label">
-                  {item.label}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* REVENUE TREND LINE */}
-          {data.length > 1 && (
-            <>
-              <polyline points={linePoints} fill="none" className="statistics-trend-line" pathLength="1" />
-              {data.map((item, index) => (
-                <circle
-                  key={`trend-${item.key}-${index}`}
-                  cx={getX(index)}
-                  cy={getY(item.revenue)}
-                  r="4.5"
-                  className="statistics-trend-point"
-                  style={{ "--delay": `${0.35 + (index / (data.length - 1)) * 1.8}s` }}
-                />
+                  key={`hit-${item.key}-${index}`}
+                  x={getX(index) - actualGroupWidth / 2}
+                  y={padding.top - 8}
+                  width={actualGroupWidth}
+                  height={chartHeight + padding.bottom + 8}
+                  fill="transparent"
+                  className="statistics-hit-area"
+                  onPointerEnter={handleHover(index)}
+                  onPointerMove={handleHover(index)}
+                  onClick={handleToggleHover(index)}
+                >
+                  <title>
+                    {`${item.label}: Revenue ${formatSignedCurrency(item.revenue)}, Expenses ${formatSignedCurrency(
+                      item.expenses
+                    )}`}
+                  </title>
+                </rect>
               ))}
-            </>
-          )}
-        </svg>
+            </svg>
+
+            {hovered && (
+              <div
+                className="statistics-chart-tooltip"
+                style={{ left: tooltipLeft, top: 4 }}
+                role="status"
+              >
+                <strong>{hovered.label}</strong>
+                <div className="statistics-tooltip-row">
+                  <i className="legend-dot legend-dot-revenue" />
+                  <span>Revenue</span>
+                  <b>{formatSignedCurrency(hovered.revenue)}</b>
+                </div>
+                <div className="statistics-tooltip-row">
+                  <i className="legend-dot legend-dot-expense" />
+                  <span>Expenses</span>
+                  <b>{formatSignedCurrency(hovered.expenses)}</b>
+                </div>
+                <div className="statistics-tooltip-row statistics-tooltip-total">
+                  <span>Profit / Loss</span>
+                  <b className={hovered.profit_loss < 0 ? "is-loss" : "is-profit"}>
+                    {formatSignedCurrency(hovered.profit_loss)}
+                  </b>
+                </div>
+                {revenueChange !== null && (
+                  <div className="statistics-tooltip-row statistics-tooltip-trend">
+                    <span>Revenue vs previous</span>
+                    <b className={revenueChange < 0 ? "is-loss" : "is-profit"}>
+                      {revenueChange > 0 ? "+" : ""}
+                      {revenueChange.toFixed(1)}%
+                    </b>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="statistics-chart-footnote">
         <Activity size={14} />
         <span>
-          Showing {PERIOD_DESCRIPTIONS[period] || period} performance • Bars animate from zero on load
+          Showing {PERIOD_DESCRIPTIONS[period] || period} performance •{" "}
+          {useOwnTrendScale
+            ? "Trend uses the right axis (₹0-based) • Tap or hover a period for exact values"
+            : "Tap or hover a period for exact values"}
         </span>
       </div>
     </div>

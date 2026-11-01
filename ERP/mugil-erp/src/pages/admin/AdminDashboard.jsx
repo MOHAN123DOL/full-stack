@@ -1,26 +1,55 @@
-
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import {
+  ArrowRight,
   ArrowUpRight,
+  Boxes,
   Building2,
-  FileText,
   X,
   CircleCheck,
   Clock3,
   Search,
+  Users,
+  Wallet,
 } from "lucide-react";
 
-import { ADMIN_NAV, adminHref } from "./adminNav";
 import Loading from "../../components/loading";
 import ErrorState from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import "./AdminDashboard.css";
+import "./AdminDashboardDepartments.css";
 
 const CONTACT_REQUESTS_ENDPOINT = "/erp/admin/contact-requests/";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
+
+const DEPARTMENTS = [
+  {
+    key: "material-planning",
+    title: "Material Planning",
+    description:
+      "Manage inventory, material stock, GRN, material issues and material planning.",
+    icon: Boxes,
+    theme: "blue",
+  },
+  {
+    key: "hr",
+    title: "Human Resources",
+    description:
+      "Manage employees, attendance, payroll, leave management and HR operations.",
+    icon: Users,
+    theme: "purple",
+  },
+  {
+    key: "accounts",
+    title: "Accounts Management",
+    description:
+      "Manage purchase orders, payments, invoices and financial reports.",
+    icon: Wallet,
+    theme: "green",
+  },
+];
 
 const normalizeContactRequest = (contact) => ({
   ...contact,
@@ -47,27 +76,6 @@ const normalizeContactRequest = (contact) => ({
         ? "NxtGenZ"
         : contact.closed_by || "",
 });
-
-const PRIORITY_OPTIONS = [
-  {
-    value: "HIGH",
-    label: "High",
-    response: "Within 24 hours",
-    hint: "Urgent — blocking your work",
-  },
-  {
-    value: "MEDIUM",
-    label: "Medium",
-    response: "Within 72 hours",
-    hint: "Important, not blocking",
-  },
-  {
-    value: "LOW",
-    label: "Low",
-    response: "Within 1 week",
-    hint: "General question or request",
-  },
-];
 
 const getPriorityClass = (priority) => {
   switch (priority) {
@@ -363,11 +371,18 @@ function ReportStack({
 }
 
 export default function AdminDashboard() {
-  const modules = ADMIN_NAV.filter(
-    (item) => item.key !== "dashboard",
-  );
+  const navigate = useNavigate();
 
   const { accessToken } = useAuth();
+
+  const handleRedirect = (dept) => {
+    if (dept === "material-planning")
+      navigate("/inventory", { replace: true });
+    else if (dept === "hr")
+      navigate("/hr/employees", { replace: true });
+    else if (dept === "accounts")
+      navigate("/accounts", { replace: true });
+  };
 
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -582,100 +597,62 @@ export default function AdminDashboard() {
 
   return (
     <div className="dashboard-page">
-      <section className="dashboard-hero">
-        <div className="dashboard-hero-content">
-          <span className="dashboard-eyebrow">
-            ADMINISTRATION
-          </span>
+      {/* ---------------- Department cards ---------------- */}
+      <section className="dashboard-departments">
+        <header className="dept-heading">
+          <span className="dashboard-section-eyebrow">ADMINISTRATION</span>
 
-          <h1 className="dashboard-title">
-            Admin Dashboard
-          </h1>
+          <h1 className="dept-heading-title">Admin Dashboard</h1>
 
-          <p className="dashboard-subtitle">
-            Centralized administration, monitoring and operational
-            control.
+          <p className="dept-heading-sub">
+            <Building2 size={14} aria-hidden="true" />
+            Mugil Engineering Industry — choose a department to continue.
           </p>
+        </header>
 
-          <div className="dashboard-meta">
-            <span className="dashboard-meta-pill">
-              <Building2 size={14} />
-              Mugil Engineering Industry
-            </span>
-
-            <span className="dashboard-meta-pill">
-              <FileText size={14} />
-              Administration Overview
-            </span>
-          </div>
-        </div>
-
-        <div className="dashboard-hero-decoration" />
-      </section>
-
-      <section className="dashboard-modules-section">
-        <div className="dashboard-section-heading">
-          <div>
-            <span className="dashboard-section-eyebrow">
-              ADMINISTRATION
-            </span>
-
-            <h2>Modules</h2>
-
-            <p>
-              Access and manage administrative operations from one
-              place.
-            </p>
-          </div>
-
-          <div className="dashboard-module-count">
-            <strong>{modules.length}</strong>
-
-            <span>Modules</span>
-          </div>
-        </div>
-
-        <div className="dashboard-module-grid">
-          {modules.map((item) => {
-            const Icon = item.icon;
+        <div className="dept-grid">
+          {DEPARTMENTS.map((dept) => {
+            const Icon = dept.icon;
 
             return (
-              <Link
-                key={item.key}
-                to={adminHref(item)}
-                className="dashboard-module-card"
+              <article
+                key={dept.key}
+                className={`dept-card dept-card--${dept.theme}`}
+                onClick={() => handleRedirect(dept.key)}
               >
-                <div className="dashboard-module-top">
-                  <span className="dashboard-module-icon">
-                    <Icon
-                      size={20}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                  </span>
+                <span className="dept-card-icon">
+                  <Icon size={28} strokeWidth={1.8} aria-hidden="true" />
+                </span>
 
-                  <span className="dashboard-module-arrow">
-                    <ArrowUpRight
-                      size={16}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                  </span>
-                </div>
+                <h2 className="dept-card-title">{dept.title}</h2>
+                <p className="dept-card-desc">{dept.description}</p>
 
-                <div className="dashboard-module-content">
-                  <h3>{item.title}</h3>
+                <div className="dept-card-overlay" aria-hidden="true" />
 
-                  <p>{item.description}</p>
-                </div>
-
-                <div className="dashboard-module-glow" />
-              </Link>
+                <button
+                  type="button"
+                  className="dept-card-btn"
+                  aria-label={`Open ${dept.title} module`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleRedirect(dept.key);
+                  }}
+                >
+                  <span>Open Module</span>
+                  <ArrowRight
+                    className="dept-card-btn-arrow"
+                    size={18}
+                    strokeWidth={2.2}
+                    aria-hidden="true"
+                  />
+                </button>
+              </article>
             );
           })}
         </div>
       </section>
 
+      {/* ---------------- Reports & Escalations ---------------- */}
       {loading ? (
         <div className="dashboard-admin-loading">
           <Loading />
@@ -751,6 +728,7 @@ export default function AdminDashboard() {
         </section>
       )}
 
+      {/* ---------------- Report details modal ---------------- */}
       {selectedReport && (
         <div
           className="dashboard-report-modal-backdrop"

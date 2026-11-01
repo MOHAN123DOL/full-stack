@@ -1,0 +1,353 @@
+/* ============================================================
+   ADMIN DASHBOARD — DEPARTMENT CARDS
+   All selectors are prefixed with "dept-" / scoped under
+   .dashboard-departments so nothing leaks into other admin pages.
+   ============================================================ */
+
+.dashboard-departments {
+  width: 100%;
+  padding-top: 8px;
+}
+
+/* ------------------------------ Heading ------------------------------ */
+
+.dept-heading {
+  margin-bottom: 26px;
+}
+
+.dept-heading-title {
+  margin: 0;
+  color: #0b2038;
+  font-size: clamp(28px, 3vw, 40px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -1px;
+}
+
+.dept-heading-sub {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0 0;
+  color: #5d7893;
+  font-size: 14px;
+}
+
+.dept-heading-sub svg {
+  color: #1688e8;
+}
+
+/* -------------------------------- Grid -------------------------------- */
+
+.dept-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+/* -------------------------------- Card -------------------------------- */
+
+.dept-card {
+  --dept-from: #cfe9ff;
+  --dept-to: #8ec5f5;
+  --dept-overlay: rgba(22, 94, 160, 0.55);
+  --dept-text: #0e2e4d;
+  --dept-text-soft: rgba(14, 46, 77, 0.74);
+  --dept-accent: #1668b8;
+
+  position: relative;
+  min-height: 280px;
+  padding: 30px 28px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 10px;
+
+  overflow: hidden;
+  cursor: pointer;
+
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 20px;
+
+  background-image: linear-gradient(-45deg, var(--dept-from), var(--dept-to));
+  color: var(--dept-text);
+
+  box-shadow: 0 14px 34px rgba(30, 80, 120, 0.14);
+
+  transition:
+    transform 0.35s cubic-bezier(0.23, 1, 0.32, 1),
+    box-shadow 0.35s ease;
+}
+
+.dept-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 24px 50px rgba(30, 80, 120, 0.24);
+}
+
+.dept-card--blue {
+  --dept-from: #d6edff;
+  --dept-to: #86c1f4;
+  --dept-overlay: rgba(18, 82, 150, 0.6);
+  --dept-text: #0d2c4b;
+  --dept-text-soft: rgba(13, 44, 75, 0.74);
+  --dept-accent: #1668b8;
+}
+
+.dept-card--purple {
+  --dept-from: #eadfff;
+  --dept-to: #b8a0f0;
+  --dept-overlay: rgba(88, 52, 160, 0.6);
+  --dept-text: #2a1654;
+  --dept-text-soft: rgba(42, 22, 84, 0.74);
+  --dept-accent: #6a3fc4;
+}
+
+.dept-card--green {
+  --dept-from: #daf7e6;
+  --dept-to: #8fd9ad;
+  --dept-overlay: rgba(24, 112, 66, 0.6);
+  --dept-text: #0f3a24;
+  --dept-text-soft: rgba(15, 58, 36, 0.74);
+  --dept-accent: #1d8a52;
+}
+
+/* Content */
+
+.dept-card-icon {
+  position: absolute;
+  top: 26px;
+  left: 28px;
+
+  width: 56px;
+  height: 56px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 16px;
+
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--dept-accent);
+
+  box-shadow: 0 8px 18px rgba(30, 80, 120, 0.1);
+}
+
+.dept-card-title {
+  position: relative;
+  z-index: 1;
+
+  margin: 0;
+
+  color: var(--dept-text);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.4px;
+}
+
+.dept-card-desc {
+  position: relative;
+  z-index: 1;
+
+  margin: 0;
+
+  color: var(--dept-text-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Hover overlay (dark transparent + tinted sweep) */
+
+.dept-card-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+
+  opacity: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+
+  transition: opacity 0.3s ease;
+}
+
+.dept-card-overlay::after {
+  content: "";
+
+  position: absolute;
+  top: 50%;
+  left: 50%;
+
+  width: 100%;
+  height: 100%;
+
+  background-color: var(--dept-overlay);
+  transform: translate(-50%, -50%) scale(0);
+
+  transition: transform 0.5s ease;
+}
+
+.dept-card:hover .dept-card-overlay,
+.dept-card:focus-within .dept-card-overlay {
+  opacity: 1;
+}
+
+.dept-card:hover .dept-card-overlay::after,
+.dept-card:focus-within .dept-card-overlay::after {
+  transform: translate(-50%, -50%) scale(2);
+}
+
+/* Open Module button */
+
+.dept-card-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 12px 22px;
+
+  border: 0;
+  border-radius: 50px;
+
+  background-color: #ffffff;
+  color: var(--dept-accent);
+
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+
+  cursor: pointer;
+
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.4);
+  box-shadow: 0 0 10px 10px rgba(0, 0, 0, 0.15);
+
+  transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.dept-card:hover .dept-card-btn,
+.dept-card:focus-within .dept-card-btn {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.dept-card-btn:hover {
+  box-shadow: 0 0 0 5px rgba(0, 0, 0, 0.25);
+}
+
+.dept-card-btn:active {
+  transform: translate(-50%, -50%) scale(0.95);
+}
+
+.dept-card-btn:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 3px;
+}
+
+/* Arrow animation */
+
+.dept-card-btn-arrow {
+  transition: transform 0.3s ease;
+}
+
+.dept-card:hover .dept-card-btn-arrow {
+  animation: deptArrowNudge 1.1s ease-in-out infinite;
+}
+
+.dept-card-btn:hover .dept-card-btn-arrow {
+  transform: translateX(4px);
+}
+
+@keyframes deptArrowNudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  50% {
+    transform: translateX(5px);
+  }
+}
+
+/* Touch devices have no hover: keep the button visible */
+
+@media (hover: none) {
+  .dept-card-btn {
+    top: auto;
+    bottom: 22px;
+    left: auto;
+    right: 22px;
+
+    opacity: 1;
+    transform: none;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
+  }
+
+  .dept-card-btn:active {
+    transform: scale(0.95);
+  }
+
+  .dept-card-title,
+  .dept-card-desc {
+    padding-right: 0;
+  }
+
+  .dept-card {
+    padding-bottom: 82px;
+  }
+}
+
+/* ------------------------------ Responsive ----------------------------- */
+
+/* Tablet: two per row */
+@media (max-width: 1100px) {
+  .dept-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Mobile: one per row */
+@media (max-width: 680px) {
+  .dept-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .dept-card {
+    min-height: 250px;
+    padding: 26px 22px;
+  }
+
+  .dept-card-icon {
+    top: 22px;
+    left: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dept-card,
+  .dept-card-overlay,
+  .dept-card-overlay::after,
+  .dept-card-btn,
+  .dept-card-btn-arrow {
+    transition: none;
+  }
+
+  .dept-card:hover .dept-card-btn-arrow {
+    animation: none;
+  }
+
+  .dept-card:hover {
+    transform: none;
+  }
+}

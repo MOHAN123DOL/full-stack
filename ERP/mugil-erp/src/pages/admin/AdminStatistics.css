@@ -1075,7 +1075,7 @@
 
   color: #69869c;
 
-  font-size: 8px;
+  font-size: 11px;
 
   font-weight: 700;
 
@@ -1301,6 +1301,8 @@
 
   animation: statisticsDraw 1.8s linear 0.35s both;
 
+  pointer-events: none;
+
   filter:
     drop-shadow(
       0 0 5px rgba(141, 92, 246, 0.40)
@@ -1321,6 +1323,10 @@
   animation: statisticsPop 0.35s ease both;
 
   animation-delay: var(--delay, 0s);
+
+  pointer-events: none;
+
+  transition: r 0.15s ease;
 
   filter:
     drop-shadow(
@@ -1346,9 +1352,13 @@
 
   color: #7d98ac;
 
-  font-size: 7px;
+  font-size: 11px;
 
   font-weight: 600;
+
+  text-align: center;
+
+  line-height: 1.4;
 }
 
 .statistics-chart-footnote svg {
@@ -1801,15 +1811,15 @@
 .statistics-chart-empty-overlay strong {
   color: #486a84;
 
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .statistics-chart-empty-overlay span {
-  max-width: 300px;
+  max-width: 320px;
 
   color: #8aa1b3;
 
-  font-size: 8px;
+  font-size: 12px;
 
   line-height: 1.5;
 }
@@ -2063,6 +2073,243 @@
 
   .statistics-donut-total {
     align-items: flex-start;
+  }
+}
+
+
+/* ============================================================
+   REVENUE CHART: SCROLL AREA, CANVAS, SECOND AXIS, TOOLTIP
+   ============================================================ */
+
+/* The SVG is drawn in real pixels (measured with ResizeObserver) so text
+   stays 10-11px on every screen. The scroll box is absolutely positioned so
+   the SVG can never feed its size back into the card layout. */
+
+.statistics-chart-scroll {
+  position: absolute;
+
+  inset: 0;
+
+  overflow-x: auto;
+  overflow-y: hidden;
+
+  -webkit-overflow-scrolling: touch;
+}
+
+.statistics-chart-canvas {
+  position: relative;
+
+  max-width: none;
+}
+
+.statistics-chart .statistics-chart-canvas svg {
+  width: auto;
+  height: auto;
+
+  max-width: none;
+
+  display: block;
+
+  overflow: visible;
+}
+
+.statistics-hit-area {
+  cursor: pointer;
+
+  touch-action: pan-x pan-y;
+}
+
+.statistics-hover-band {
+  fill: rgba(8, 125, 242, 0.07);
+}
+
+/* Right axis labels for the purple revenue trend */
+
+.statistics-axis-label-trend {
+  fill: #7a4de0;
+
+  font-weight: 700;
+}
+
+.legend-axis-note {
+  color: #7a4de0;
+
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* Scale explanation + toggle */
+
+.statistics-scale-note {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+
+  flex-wrap: wrap;
+
+  margin: 4px 0 8px;
+
+  padding: 8px 12px;
+
+  border-radius: 12px;
+
+  border: 1px solid rgba(141, 92, 246, 0.18);
+
+  background: rgba(141, 92, 246, 0.06);
+}
+
+.statistics-scale-note p {
+  flex: 1 1 260px;
+
+  margin: 0;
+
+  color: #5b6f85;
+
+  font-size: 12px;
+
+  line-height: 1.45;
+}
+
+.statistics-scale-toggle {
+  display: inline-flex;
+
+  gap: 4px;
+
+  padding: 3px;
+
+  border-radius: 10px;
+
+  background: rgba(255, 255, 255, 0.85);
+
+  border: 1px solid rgba(141, 92, 246, 0.20);
+}
+
+.statistics-scale-toggle button {
+  padding: 5px 10px;
+
+  border: 0;
+  border-radius: 8px;
+
+  color: #6a5aa8;
+
+  font-size: 11px;
+  font-weight: 700;
+
+  white-space: nowrap;
+
+  background: transparent;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.statistics-scale-toggle button.is-active {
+  color: #ffffff;
+
+  background: linear-gradient(135deg, #8d5cf6, #6f4ae0);
+}
+
+/* Tooltip */
+
+.statistics-chart-tooltip {
+  position: absolute;
+
+  z-index: 6;
+
+  min-width: 190px;
+  max-width: 240px;
+
+  padding: 10px 12px;
+
+  transform: translateX(-50%);
+
+  pointer-events: none;
+
+  border-radius: 12px;
+
+  border: 1px solid rgba(8, 189, 219, 0.25);
+
+  background: rgba(255, 255, 255, 0.96);
+
+  box-shadow: 0 12px 28px rgba(39, 113, 153, 0.20);
+
+  backdrop-filter: blur(6px);
+}
+
+.statistics-chart-tooltip > strong {
+  display: block;
+
+  margin-bottom: 6px;
+
+  color: #3d5f7a;
+
+  font-size: 12px;
+}
+
+.statistics-tooltip-row {
+  display: flex;
+
+  align-items: center;
+
+  gap: 6px;
+
+  padding: 2px 0;
+
+  color: #607e97;
+
+  font-size: 11px;
+}
+
+.statistics-tooltip-row > span {
+  flex: 1;
+}
+
+.statistics-tooltip-row > b {
+  color: #2d4a62;
+
+  font-size: 11px;
+  font-weight: 800;
+
+  font-variant-numeric: tabular-nums;
+}
+
+.statistics-tooltip-total {
+  margin-top: 4px;
+
+  padding-top: 6px;
+
+  border-top: 1px solid rgba(110, 150, 175, 0.20);
+}
+
+.statistics-tooltip-row .is-profit {
+  color: #17a864;
+}
+
+.statistics-tooltip-row .is-loss {
+  color: #e0346f;
+}
+
+@media (max-width: 560px) {
+  .statistics-revenue-card .statistics-chart {
+    min-height: 300px;
+  }
+
+  .statistics-scale-toggle {
+    width: 100%;
+  }
+
+  .statistics-scale-toggle button {
+    flex: 1;
+  }
+
+  .statistics-chart-footnote {
+    font-size: 10px;
   }
 }
 
