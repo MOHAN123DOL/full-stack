@@ -1,548 +1,417 @@
 import { useEffect, useRef, useState } from "react";
-
 import { Navigate, useLocation } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
 
 import Loading from "./loading";
-
 import Error from "./error";
 
+const ACTIVE_DEPARTMENT_KEY = "erp_active_department";
+
+// ============================================================
+// DEPARTMENT LOGIN ROUTES
+// ============================================================
 
 const DEPARTMENT_ROUTES = {
-    admin: "/admin/login",
-    accounts: "/accounts/login",
-    hr: "/hr/login",
-    "material-planning": "/material-planning/login",
-    production: "/production/login",
-    supervisor: "/supervisor/login",
+  admin: "/admin/login",
+  accounts: "/accounts/login",
+  hr: "/hr/login",
+  "material-planning": "/material-planning/login",
+  production: "/production/login",
+  supervisor: "/supervisor/login",
 };
-
 
 const VALID_USER_TYPES = Object.keys(DEPARTMENT_ROUTES);
 
+// ============================================================
+// DEPARTMENT ROUTE CONFIGURATION
+// ============================================================
 
 const DEPARTMENT_PATHS = [
-    {
-        userType: "material-planning",
-        prefixes: ["/inventory", "/material-planning"],
-    },
-    {
-        userType: "admin",
-        prefixes: ["/admin"],
-    },
-    {
-        userType: "accounts",
-        prefixes: ["/accounts"],
-    },
-    {
-        userType: "hr",
-        prefixes: ["/hr"],
-    },
-    {
-        userType: "production",
-        prefixes: ["/production"],
-    },
-    {
-        userType: "supervisor",
-        prefixes: ["/supervisor"],
-    },
+  {
+    userType: "material-planning",
+    prefixes: ["/inventory", "/material-planning"],
+  },
+  {
+    userType: "admin",
+    prefixes: ["/admin"],
+  },
+  {
+    userType: "accounts",
+    prefixes: ["/accounts"],
+  },
+  {
+    userType: "hr",
+    prefixes: ["/hr"],
+  },
+  {
+    userType: "production",
+    prefixes: ["/production"],
+  },
+  {
+    userType: "supervisor",
+    prefixes: ["/supervisor"],
+  },
 ];
 
+// ============================================================
+// SHARED ROUTES
+// ============================================================
 
-const SHARED_PATHS = [
-    "/welcome",
-    "/profile",
-];
+const SHARED_PATHS = ["/welcome", "/profile"];
 
-
-/*
-|--------------------------------------------------------------------------
-| Specific route access overrides
-|--------------------------------------------------------------------------
-|
-| Delivery Challan:
-| - Accounts
-| - Material Planning
-| - Admin
-|
-*/
+// ============================================================
+// ROUTE ACCESS OVERRIDES
+// ============================================================
 
 const ROUTE_ACCESS_OVERRIDES = {
-    "/accounts/deliverychallan": [
-        "accounts",
-        "material-planning",
-    ],
+  "/accounts/deliverychallan": ["accounts", "material-planning"],
 };
 
-
-/*
-|--------------------------------------------------------------------------
-| Normalize URL paths
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// NORMALIZE PATH
+// ============================================================
 
 function normalizePath(pathname) {
-    return (
-        String(pathname || "")
-            .toLowerCase()
-            .replace(/\/+$/, "") || "/"
-    );
+  return (
+    String(pathname || "")
+      .toLowerCase()
+      .replace(/\/+$/, "") || "/"
+  );
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| Identify department from route
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// IDENTIFY DEPARTMENT FROM ROUTE
+// ============================================================
 
 function getDepartmentFromPath(pathname) {
+  const normalizedPath = normalizePath(pathname);
 
-    const normalizedPath = normalizePath(pathname);
+  for (const department of DEPARTMENT_PATHS) {
+    for (const prefix of department.prefixes) {
+      const normalizedPrefix = normalizePath(prefix);
 
-    for (const department of DEPARTMENT_PATHS) {
-
-        for (const prefix of department.prefixes) {
-
-            const normalizedPrefix = normalizePath(prefix);
-
-            if (
-                normalizedPath === normalizedPrefix ||
-                normalizedPath.startsWith(`${normalizedPrefix}/`)
-            ) {
-                return department.userType;
-            }
-        }
+      if (
+        normalizedPath === normalizedPrefix ||
+        normalizedPath.startsWith(`${normalizedPrefix}/`)
+      ) {
+        return department.userType;
+      }
     }
+  }
 
-    return null;
+  return null;
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| Get allowed departments for route
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// GET ALLOWED USER TYPES
+// ============================================================
 
 function getAllowedUserTypesFromPath(pathname) {
+  const normalizedPath = normalizePath(pathname);
 
-    const normalizedPath = normalizePath(pathname);
+  if (ROUTE_ACCESS_OVERRIDES[normalizedPath]) {
+    return ROUTE_ACCESS_OVERRIDES[normalizedPath];
+  }
 
-    // Check specific route overrides first.
-    if (ROUTE_ACCESS_OVERRIDES[normalizedPath]) {
+  const department = getDepartmentFromPath(normalizedPath);
 
-        return ROUTE_ACCESS_OVERRIDES[normalizedPath];
-
-    }
-
-    const department = getDepartmentFromPath(normalizedPath);
-
-    return department ? [department] : [];
+  return department ? [department] : [];
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| Check shared routes
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// CHECK SHARED ROUTE
+// ============================================================
 
 function isSharedPath(pathname) {
+  const normalizedPath = normalizePath(pathname);
 
-    const normalizedPath = normalizePath(pathname);
+  return SHARED_PATHS.some((path) => {
+    const normalizedSharedPath = normalizePath(path);
 
-    return SHARED_PATHS.some((path) => {
-
-        const normalizedSharedPath = normalizePath(path);
-
-        return (
-            normalizedPath === normalizedSharedPath ||
-            normalizedPath.startsWith(`${normalizedSharedPath}/`)
-        );
-
-    });
+    return (
+      normalizedPath === normalizedSharedPath ||
+      normalizedPath.startsWith(`${normalizedSharedPath}/`)
+    );
+  });
 }
 
+// ============================================================
+// GET SAVED DEPARTMENT
+// ============================================================
 
-/*
-|--------------------------------------------------------------------------
-| Protected Route Component
-|--------------------------------------------------------------------------
-*/
+function getSavedDepartment() {
+  const department = sessionStorage.getItem(ACTIVE_DEPARTMENT_KEY);
+
+  return VALID_USER_TYPES.includes(department)
+    ? department
+    : null;
+}
+
+// ============================================================
+// PROTECTED ROUTE
+// ============================================================
 
 export default function ProtectedRoute({
-    children,
-    userType: requestedUserType,
+  children,
+  userType: requestedUserType,
 }) {
-
-    const location = useLocation();
-
-    const {
-        isAuthenticated,
-        user,
-        restoreSession,
-        authLoading,
-        authError,
-    } = useAuth();
-
-
-    const isShared = isSharedPath(location.pathname);
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Determine allowed departments
-    |--------------------------------------------------------------------------
-    */
-
-    const allowedUserTypes = requestedUserType
-        ? [requestedUserType]
-        : getAllowedUserTypesFromPath(location.pathname);
-
-
-    const primaryUserType = allowedUserTypes[0];
-
-
-    const [checked, setChecked] = useState(false);
-
-    const [checkError, setCheckError] = useState(false);
-
-
-    // Prevent older async requests from updating newer routes.
-    const requestIdRef = useRef(0);
-
-
-    useEffect(() => {
-
-        const requestId = ++requestIdRef.current;
-
-        let cancelled = false;
-
-
-        async function checkSession() {
-
-            setChecked(false);
-
-            setCheckError(false);
-
-
-            const isCurrentRequest = () => (
-                !cancelled &&
-                requestIdRef.current === requestId
-            );
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | STEP 1: Already authenticated user
-            |--------------------------------------------------------------------------
-            |
-            | Admin can access every department.
-            | Other users must belong to an allowed department.
-            |
-            */
-
-            if (
-                isAuthenticated &&
-                user &&
-                VALID_USER_TYPES.includes(user.user_type) &&
-                (
-                    user.user_type === "admin" ||
-                    isShared ||
-                    allowedUserTypes.includes(user.user_type)
-                )
-            ) {
-
-                setChecked(true);
-
-                return;
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | STEP 2: Shared routes
-            |--------------------------------------------------------------------------
-            */
-
-            if (isShared) {
-
-                try {
-
-                    for (const department of VALID_USER_TYPES) {
-
-                        if (!isCurrentRequest()) return;
-
-                        const restored = await restoreSession(department);
-
-                        if (!isCurrentRequest()) return;
-
-                        if (restored) {
-
-                            setChecked(true);
-
-                            return;
-                        }
-                    }
-
-                    setChecked(true);
-
-                } catch (error) {
-
-                    if (!isCurrentRequest()) return;
-
-                    console.error(
-                        "Shared route session check failed:",
-                        error
-                    );
-
-                    setCheckError(true);
-
-                    setChecked(true);
-                }
-
-                return;
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | STEP 3: Validate protected route
-            |--------------------------------------------------------------------------
-            */
-
-            if (
-                !allowedUserTypes.length ||
-                !allowedUserTypes.every((type) =>
-                    VALID_USER_TYPES.includes(type)
-                )
-            ) {
-
-                setChecked(true);
-
-                return;
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | STEP 4: Restore department session
-            |--------------------------------------------------------------------------
-            |
-            | First try the requested department.
-            | If that fails, try Admin.
-            |
-            | This allows Admin to access every department
-            | using the same Admin refresh cookie.
-            |
-            */
-
-            const departmentsToTry = [
-                ...new Set([
-                    ...allowedUserTypes,
-                    "admin",
-                ]),
-            ];
-
-
-            try {
-
-                for (const department of departmentsToTry) {
-
-                    if (!isCurrentRequest()) return;
-
-
-                    const restored = await restoreSession(department);
-
-
-                    if (!isCurrentRequest()) return;
-
-
-                    if (restored) {
-
-                        setChecked(true);
-
-                        return;
-                    }
-                }
-
-
-                setChecked(true);
-
-
-            } catch (error) {
-
-                if (!isCurrentRequest()) return;
-
-                console.error(
-                    "Protected route session check failed:",
-                    error
-                );
-
-                setCheckError(true);
-
-                setChecked(true);
-            }
-
+  const location = useLocation();
+
+  const {
+    isAuthenticated,
+    user,
+    restoreSession,
+    authLoading,
+    authError,
+  } = useAuth();
+
+  const isShared = isSharedPath(location.pathname);
+
+  const allowedUserTypes = requestedUserType
+    ? [requestedUserType]
+    : getAllowedUserTypesFromPath(location.pathname);
+
+  const primaryUserType = allowedUserTypes[0];
+
+  const [checked, setChecked] = useState(false);
+  const [checkError, setCheckError] = useState(false);
+
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    const requestId = ++requestIdRef.current;
+
+    let cancelled = false;
+
+    async function checkSession() {
+      setChecked(false);
+      setCheckError(false);
+
+      const isCurrentRequest = () =>
+        !cancelled && requestIdRef.current === requestId;
+
+      // ========================================================
+      // STEP 1: VALIDATE EXISTING SESSION
+      // ========================================================
+
+      if (
+        isAuthenticated &&
+        user &&
+        VALID_USER_TYPES.includes(user.user_type)
+      ) {
+        if (
+          user.user_type === "admin" ||
+          isShared ||
+          allowedUserTypes.includes(user.user_type)
+        ) {
+          setChecked(true);
+          return;
+        }
+      }
+
+      // ========================================================
+      // STEP 2: SHARED ROUTES
+      // ========================================================
+      //
+      // For Profile and Welcome:
+      // Restore ONLY the department saved during login.
+      // Never try all department cookies.
+      // ========================================================
+
+      if (isShared) {
+        const savedDepartment = getSavedDepartment();
+
+        if (!savedDepartment) {
+          setChecked(true);
+          return;
         }
 
+        try {
+          const restored = await restoreSession(savedDepartment);
 
-        checkSession();
+          if (!isCurrentRequest()) return;
 
+          if (!restored) {
+            // Session expired or cookie invalid.
+            sessionStorage.removeItem(ACTIVE_DEPARTMENT_KEY);
+          }
 
-        return () => {
+          setChecked(true);
+          return;
+        } catch (error) {
+          if (!isCurrentRequest()) return;
 
-            cancelled = true;
+          console.error("Shared route session restoration failed:", error);
 
-        };
+          setCheckError(true);
+          setChecked(true);
+          return;
+        }
+      }
 
+      // ========================================================
+      // STEP 3: VALIDATE DEPARTMENT ROUTE
+      // ========================================================
 
-    }, [
-        location.pathname,
-        primaryUserType,
-        isShared,
-    ]);
+      if (
+        !allowedUserTypes.length ||
+        !allowedUserTypes.every((type) =>
+          VALID_USER_TYPES.includes(type)
+        )
+      ) {
+        setChecked(true);
+        return;
+      }
 
+      // ========================================================
+      // STEP 4: RESTORE DEPARTMENT ROUTE
+      // ========================================================
+      //
+      // Restore only the department required by the current route.
+      // No automatic Admin fallback.
+      // ========================================================
 
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 5: Loading
-    |--------------------------------------------------------------------------
-    */
+      try {
+        const savedDepartment = getSavedDepartment();
 
-    if (authLoading || !checked) {
+        /*
+         * For route overrides, use the saved department if it is
+         * one of the permitted departments.
+         */
+        const departmentToRestore =
+          savedDepartment &&
+          allowedUserTypes.includes(savedDepartment)
+            ? savedDepartment
+            : primaryUserType;
 
-        return <Loading />;
+        const restored = await restoreSession(departmentToRestore);
 
+        if (!isCurrentRequest()) return;
+
+        if (restored) {
+          setChecked(true);
+          return;
+        }
+
+        setChecked(true);
+      } catch (error) {
+        if (!isCurrentRequest()) return;
+
+        console.error("Protected route session check failed:", error);
+
+        setCheckError(true);
+        setChecked(true);
+      }
     }
 
+    checkSession();
 
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 6: Authentication error
-    |--------------------------------------------------------------------------
-    */
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.pathname,
+    primaryUserType,
+    isShared,
+    isAuthenticated,
+    user,
+    restoreSession,
+  ]);
 
-    if (authError || checkError) {
+  // ============================================================
+  // STEP 5: LOADING
+  // ============================================================
 
-        return <Error />;
+  if (authLoading || !checked) {
+    return <Loading />;
+  }
 
-    }
+  // ============================================================
+  // STEP 6: AUTHENTICATION ERROR
+  // ============================================================
 
+  if (authError || checkError) {
+    return <Error />;
+  }
 
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 7: Invalid protected route
-    |--------------------------------------------------------------------------
-    */
+  // ============================================================
+  // STEP 7: INVALID PROTECTED ROUTE
+  // ============================================================
 
-    if (!isShared && !allowedUserTypes.length) {
+  if (!isShared && !allowedUserTypes.length) {
+    return (
+      <Navigate
+        to="/production/login"
+        replace
+      />
+    );
+  }
 
-        return (
-            <Navigate
-                to="/production/login"
-                replace
-            />
-        );
+  // ============================================================
+  // STEP 8: USER NOT AUTHENTICATED
+  // ============================================================
 
-    }
+  if (!isAuthenticated || !user) {
+    const loginPath = isShared
+      ? "/production/login"
+      : DEPARTMENT_ROUTES[primaryUserType];
 
+    return (
+      <Navigate
+        to={loginPath}
+        replace
+        state={{ from: location }}
+      />
+    );
+  }
 
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 8: User not authenticated
-    |--------------------------------------------------------------------------
-    */
+  // ============================================================
+  // STEP 9: VALIDATE USER TYPE
+  // ============================================================
 
-    if (!isAuthenticated || !user) {
+  if (!VALID_USER_TYPES.includes(user.user_type)) {
+    return (
+      <Navigate
+        to="/production/login"
+        replace
+      />
+    );
+  }
 
-        const loginPath = isShared
-            ? "/production/login"
-            : DEPARTMENT_ROUTES[primaryUserType];
+  // ============================================================
+  // STEP 10: SHARED ROUTES
+  // ============================================================
 
-
-        return (
-            <Navigate
-                to={loginPath}
-                replace
-                state={{ from: location }}
-            />
-        );
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 9: Validate user type
-    |--------------------------------------------------------------------------
-    */
-
-    if (!VALID_USER_TYPES.includes(user.user_type)) {
-
-        return (
-            <Navigate
-                to="/production/login"
-                replace
-            />
-        );
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 10: Shared routes
-    |--------------------------------------------------------------------------
-    */
-
-    if (isShared) {
-
-        return children;
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 11: Admin has full module access
-    |--------------------------------------------------------------------------
-    */
-
-    if (user.user_type === "admin") {
-
-        return children;
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 12: Department access validation
-    |--------------------------------------------------------------------------
-    */
-
-    if (!allowedUserTypes.includes(user.user_type)) {
-
-        return (
-            <Navigate
-                to={DEPARTMENT_ROUTES[user.user_type]}
-                replace
-                state={{ from: location }}
-            />
-        );
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | STEP 13: Access granted
-    |--------------------------------------------------------------------------
-    */
-
+  if (isShared) {
     return children;
+  }
 
+  // ============================================================
+  // STEP 11: ADMIN FULL ACCESS
+  // ============================================================
+
+  if (user.user_type === "admin") {
+    return children;
+  }
+
+  // ============================================================
+  // STEP 12: DEPARTMENT ACCESS VALIDATION
+  // ============================================================
+
+  if (!allowedUserTypes.includes(user.user_type)) {
+    return (
+      <Navigate
+        to={DEPARTMENT_ROUTES[user.user_type]}
+        replace
+        state={{ from: location }}
+      />
+    );
+  }
+
+  // ============================================================
+  // STEP 13: ACCESS GRANTED
+  // ============================================================
+
+  return children;
 }

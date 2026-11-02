@@ -7,7 +7,7 @@ import {
 } from "react";
 
 import { loginUser } from "../api/auth";
-import api from "../api/axios"; // Make sure you import your axios instance
+import api from "../api/axios";
 
 import {
   setAccessToken as setAxiosAccessToken,
@@ -28,10 +28,28 @@ const VALID_USER_TYPES = [
   "supervisor",
 ];
 
+const ACTIVE_DEPARTMENT_KEY = "erp_active_department";
+
 const refreshPromises = new Map();
 
 function isValidUserType(userType) {
   return VALID_USER_TYPES.includes(userType);
+}
+
+function saveActiveDepartment(userType) {
+  if (isValidUserType(userType)) {
+    sessionStorage.setItem(ACTIVE_DEPARTMENT_KEY, userType);
+  }
+}
+
+function getActiveDepartment() {
+  const userType = sessionStorage.getItem(ACTIVE_DEPARTMENT_KEY);
+
+  return isValidUserType(userType) ? userType : null;
+}
+
+function clearActiveDepartment() {
+  sessionStorage.removeItem(ACTIVE_DEPARTMENT_KEY);
 }
 
 function extractBackendErrorMessage(responseData, fallbackStatus) {
@@ -54,7 +72,10 @@ function extractBackendErrorMessage(responseData, fallbackStatus) {
   if (typeof errors === "object") {
     const messages = Object.entries(errors)
       .map(([field, value]) => {
-        const message = Array.isArray(value) ? value.join(", ") : String(value);
+        const message = Array.isArray(value)
+          ? value.join(", ")
+          : String(value);
+
         return `${field}: ${message}`;
       })
       .join(" | ");
@@ -76,16 +97,33 @@ export function AuthProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState(false);
 
+  /*
+   * Axios authentication handlers
+   */
   useEffect(() => {
     setAuthHandlers({
       onRefresh: (newAccessToken, refreshedUser) => {
-        setAxiosAccessToken(newAccessToken);
-        setAccessToken(newAccessToken);
+        if (!newAccessToken) {
+          return;
+        }
+
+        if (
+          refreshedUser &&
+          !isValidUserType(refreshedUser.user_type)
+        ) {
+          console.error("Invalid department returned during refresh.");
+          return;
+        }
 
         if (refreshedUser) {
+          saveActiveDepartment(refreshedUser.user_type);
+
           setUser(refreshedUser);
           setActiveUserType(refreshedUser.user_type);
         }
+
+        setAxiosAccessToken(newAccessToken);
+        setAccessToken(newAccessToken);
 
         setIsAuthenticated(true);
         setAuthError(false);
@@ -107,6 +145,9 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  /*
+   * Restore one specific department
+   */
   const restoreSession = useCallback(
     async (userType) => {
       if (!isValidUserType(userType)) {
@@ -114,7 +155,11 @@ export function AuthProvider({ children }) {
         return false;
       }
 
-      if (isAuthenticated && user?.user_type === userType && accessToken) {
+      if (
+        isAuthenticated &&
+        user?.user_type === userType &&
+        accessToken
+      ) {
         return true;
       }
 
@@ -126,32 +171,46 @@ export function AuthProvider({ children }) {
         try {
           setAuthLoading(true);
           setAuthError(false);
-          setActiveUserType(userType);
 
           const response = await refreshDepartmentSession(userType);
           const data = response?.data;
 
           if (!data?.success || !data?.access || !data?.user) {
-            throw new Error("The refresh response must contain success, access, and user.");
+            throw new Error(
+              "Refresh response must contain success, access, and user."
+            );
           }
 
           if (data.user.user_type !== userType) {
-            throw new Error("The authenticated department does not match the requested department.");
+            throw new Error(
+              "Authenticated department does not match requested department."
+            );
           }
 
-          setActiveUserType(userType);
-          setAxiosAccessToken(data.access);
+          if (!isValidUserType(data.user.user_type)) {
+            throw new Error("Invalid department returned by the server.");
+          }
 
+          saveActiveDepartment(userType);
+
+          setActiveUserType(userType);
+
+          setAxiosAccessToken(data.access);
           setAccessToken(data.access);
+
           setUser(data.user);
           setIsAuthenticated(true);
+
           setAuthError(false);
 
           return true;
         } catch (error) {
           const status = error?.response?.status;
 
-          console.error(`Session restoration failed for ${userType}:`, error);
+          console.error(
+            `Session restoration failed for ${userType}:`,
+            error
+          );
 
           if (!status || (status !== 401 && status !== 403)) {
             setAuthError(true);
@@ -184,16 +243,20 @@ export function AuthProvider({ children }) {
   );
 
   /*
-   * Standard Login (Password)
+   * Standard Login
    */
   const login = async (username, password, userType) => {
     if (!isValidUserType(userType)) {
-      return { success: false, message: "Invalid department selected." };
+      return {
+        success: false,
+        message: "Invalid department selected.",
+      };
     }
 
     try {
       setAuthLoading(true);
       setAuthError(false);
+
       setActiveUserType(userType);
 
       setAxiosAccessToken(null);
@@ -203,9 +266,9 @@ export function AuthProvider({ children }) {
 
       const data = await loginUser(username, password, userType);
 
-      // If backend intercepts login and requires OTP
       if (data?.otp_required) {
         setAuthLoading(false);
+
         return {
           success: true,
           otp_required: true,
@@ -221,19 +284,22 @@ export function AuthProvider({ children }) {
       }
 
       if (data.user.user_type !== userType) {
-        setAxiosAccessToken(null);
-        setAccessToken(null);
         return {
           success: false,
-          message: "The account does not belong to the selected department.",
+          message: "Account does not belong to the selected department.",
         };
       }
 
+      saveActiveDepartment(userType);
+
       setActiveUserType(userType);
+
       setAxiosAccessToken(data.access);
       setAccessToken(data.access);
+
       setUser(data.user);
       setIsAuthenticated(true);
+
       setAuthError(false);
 
       return {
@@ -252,7 +318,10 @@ export function AuthProvider({ children }) {
       return {
         success: false,
         message: error.response
-          ? extractBackendErrorMessage(error.response.data, error.response.status)
+          ? extractBackendErrorMessage(
+              error.response.data,
+              error.response.status
+            )
           : error.request
             ? "Unable to connect to the server. Check whether Django is running."
             : "Something went wrong. Please try again.",
@@ -263,15 +332,18 @@ export function AuthProvider({ children }) {
   };
 
   /*
-   * Login Verify OTP (Two-Step Login)
+   * OTP Login
    */
   const loginVerifyOTP = async (username, otp) => {
     try {
       setAuthLoading(true);
       setAuthError(false);
 
-      // Call the new backend verification endpoint
-      const response = await api.post("/erp/login/verify-otp/", { username, otp });
+      const response = await api.post("/erp/login/verify-otp/", {
+        username,
+        otp,
+      });
+
       const data = response.data;
 
       if (!data?.success || !data?.access || !data?.user) {
@@ -283,11 +355,23 @@ export function AuthProvider({ children }) {
 
       const userType = data.user.user_type;
 
+      if (!isValidUserType(userType)) {
+        return {
+          success: false,
+          message: "Invalid department returned by the server.",
+        };
+      }
+
+      saveActiveDepartment(userType);
+
       setActiveUserType(userType);
+
       setAxiosAccessToken(data.access);
       setAccessToken(data.access);
+
       setUser(data.user);
       setIsAuthenticated(true);
+
       setAuthError(false);
 
       return {
@@ -306,7 +390,10 @@ export function AuthProvider({ children }) {
       return {
         success: false,
         message: error.response
-          ? extractBackendErrorMessage(error.response.data, error.response.status)
+          ? extractBackendErrorMessage(
+              error.response.data,
+              error.response.status
+            )
           : "Unable to verify code. Please try again.",
       };
     } finally {
@@ -314,8 +401,11 @@ export function AuthProvider({ children }) {
     }
   };
 
+  /*
+   * Logout
+   */
   const logout = async () => {
-    const department = user?.user_type;
+    const department = user?.user_type || getActiveDepartment();
 
     try {
       if (isValidUserType(department)) {
@@ -326,10 +416,14 @@ export function AuthProvider({ children }) {
     } finally {
       setAxiosAccessToken(null);
       setAccessToken(null);
+
       setUser(null);
       setIsAuthenticated(false);
+
       setAuthError(false);
       setActiveUserType(null);
+
+      clearActiveDepartment();
     }
   };
 
@@ -342,7 +436,7 @@ export function AuthProvider({ children }) {
         authLoading,
         authError,
         login,
-        loginVerifyOTP, // <--- Exposed here
+        loginVerifyOTP,
         restoreSession,
         logout,
       }}
@@ -354,8 +448,10 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
+
   if (!context) {
     throw new Error("useAuth must be used inside AuthProvider.");
   }
+
   return context;
 }
