@@ -65,7 +65,10 @@ const SHARED_PATHS = ["/welcome", "/profile"];
 // ============================================================
 
 const ROUTE_ACCESS_OVERRIDES = {
-  "/accounts/deliverychallan": ["accounts", "material-planning"],
+  "/accounts/deliverychallan": [
+    "accounts",
+    "material-planning",
+  ],
 };
 
 // ============================================================
@@ -141,7 +144,9 @@ function isSharedPath(pathname) {
 // ============================================================
 
 function getSavedDepartment() {
-  const department = sessionStorage.getItem(ACTIVE_DEPARTMENT_KEY);
+  const department = sessionStorage.getItem(
+    ACTIVE_DEPARTMENT_KEY
+  );
 
   return VALID_USER_TYPES.includes(department)
     ? department
@@ -179,6 +184,10 @@ export default function ProtectedRoute({
 
   const requestIdRef = useRef(0);
 
+  // ============================================================
+  // SESSION RESTORATION
+  // ============================================================
+
   useEffect(() => {
     const requestId = ++requestIdRef.current;
 
@@ -189,7 +198,8 @@ export default function ProtectedRoute({
       setCheckError(false);
 
       const isCurrentRequest = () =>
-        !cancelled && requestIdRef.current === requestId;
+        !cancelled &&
+        requestIdRef.current === requestId;
 
       // ========================================================
       // STEP 1: VALIDATE EXISTING SESSION
@@ -228,13 +238,16 @@ export default function ProtectedRoute({
         }
 
         try {
-          const restored = await restoreSession(savedDepartment);
+          const restored = await restoreSession(
+            savedDepartment
+          );
 
           if (!isCurrentRequest()) return;
 
           if (!restored) {
-            // Session expired or cookie invalid.
-            sessionStorage.removeItem(ACTIVE_DEPARTMENT_KEY);
+            sessionStorage.removeItem(
+              ACTIVE_DEPARTMENT_KEY
+            );
           }
 
           setChecked(true);
@@ -242,7 +255,10 @@ export default function ProtectedRoute({
         } catch (error) {
           if (!isCurrentRequest()) return;
 
-          console.error("Shared route session restoration failed:", error);
+          console.error(
+            "Shared route session restoration failed:",
+            error
+          );
 
           setCheckError(true);
           setChecked(true);
@@ -268,24 +284,57 @@ export default function ProtectedRoute({
       // STEP 4: RESTORE DEPARTMENT ROUTE
       // ========================================================
       //
-      // Restore only the department required by the current route.
-      // No automatic Admin fallback.
+      // IMPORTANT:
+      //
+      // Admin can access every department.
+      //
+      // When Admin refreshes any department page,
+      // restore the Admin session.
+      //
+      // For normal department users, restore their
+      // respective department session.
       // ========================================================
 
       try {
         const savedDepartment = getSavedDepartment();
 
-        /*
-         * For route overrides, use the saved department if it is
-         * one of the permitted departments.
-         */
-        const departmentToRestore =
+        let departmentToRestore;
+
+        // Admin session takes priority for every department.
+        if (savedDepartment === "admin") {
+          departmentToRestore = "admin";
+        }
+
+        // Otherwise, restore the saved department
+        // if it is permitted on the current route.
+        else if (
           savedDepartment &&
           allowedUserTypes.includes(savedDepartment)
-            ? savedDepartment
-            : primaryUserType;
+        ) {
+          departmentToRestore = savedDepartment;
+        }
 
-        const restored = await restoreSession(departmentToRestore);
+        // Otherwise, restore the department required
+        // by the current route.
+        else {
+          departmentToRestore = primaryUserType;
+        }
+
+        console.log("Current route:", location.pathname);
+
+        console.log(
+          "Saved department:",
+          savedDepartment
+        );
+
+        console.log(
+          "Restoring session for:",
+          departmentToRestore
+        );
+
+        const restored = await restoreSession(
+          departmentToRestore
+        );
 
         if (!isCurrentRequest()) return;
 
@@ -298,7 +347,10 @@ export default function ProtectedRoute({
       } catch (error) {
         if (!isCurrentRequest()) return;
 
-        console.error("Protected route session check failed:", error);
+        console.error(
+          "Protected route session check failed:",
+          error
+        );
 
         setCheckError(true);
         setChecked(true);
