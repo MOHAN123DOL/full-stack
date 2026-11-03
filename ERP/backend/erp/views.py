@@ -5638,22 +5638,6 @@ def _generate_journal_number(entry_type):
         suffix = 1000
 
     return f"{prefix}{suffix + 1}"
-
-
-from decimal import Decimal
-
-from django.db import models
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_protect
-
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-# Keep your existing project imports for:
-# IsAccounts, JournalEntry, JournalEntrySerializer,
-# and _generate_journal_number.
 from decimal import Decimal
 
 from django.db import models
@@ -5665,94 +5649,18 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-
-# Ensure these imports match your project
-# from .models import JournalEntry, SalaryPayment, Advance
-# from .serializers import JournalEntrySerializer
-# from .permissions import IsAccounts
-# from .utils import _generate_journal_number
-
-
-from decimal import Decimal
-
-from django.db import models
-from django.utils import timezone
-from django.views.decorators.csrf import csrf_protect
-from django.utils.decorators import method_decorator
-
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
-
-# Ensure these models and classes are imported from your project:
-# JournalEntry, PaymentRecord, SalaryPayment, Advance
-# JournalEntrySerializer, IsAccounts
-
-from decimal import Decimal
-
-from django.db import models
-from django.utils import timezone
-from django.views.decorators.csrf import csrf_protect
-from django.utils.decorators import method_decorator
-
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
-
-# Import these from your existing application.
-# from .models import JournalEntry, PaymentRecord, SalaryPayment, Advance
-# from .serializers import JournalEntrySerializer
-# from .permissions import IsAccounts
-
-from decimal import Decimal
-
-from django.db import models
-from django.utils import timezone
-from django.views.decorators.csrf import csrf_protect
-from django.utils.decorators import method_decorator
-
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
-
-from decimal import Decimal
-
-from django.db import models
-from django.utils import timezone
-from django.views.decorators.csrf import csrf_protect
-from django.utils.decorators import method_decorator
-
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
 
 
 @method_decorator(csrf_protect, name="dispatch")
 class JournalAPIView(APIView):
-    """
-    GET  /erp/journal/
-         List journal entries and grouped payment totals.
-
-    POST /erp/journal/
-         Create a journal entry.
-
-    Query parameters:
-        month=10
-        year=2026
-        type=Expense or Income
-        payment_mode=Cash, UPI, Bank Transfer, Cheque, Other
-    """
 
     permission_classes = [IsAuthenticated, IsAccounts]
 
     # ======================================================
-    # GET — LIST JOURNAL ENTRIES AND GROUPED PAYMENT TOTALS
+    # GET — JOURNAL ENTRIES
     # ======================================================
     def get(self, request):
+
         today = timezone.localdate()
 
         # --------------------------------------------------
@@ -5762,6 +5670,7 @@ class JournalAPIView(APIView):
             month = int(
                 request.query_params.get("month", today.month)
             )
+
             year = int(
                 request.query_params.get("year", today.year)
             )
@@ -5770,6 +5679,7 @@ class JournalAPIView(APIView):
                 raise ValueError
 
         except (TypeError, ValueError):
+
             return Response(
                 {
                     "success": False,
@@ -5782,6 +5692,7 @@ class JournalAPIView(APIView):
         payment_mode = request.query_params.get("payment_mode")
 
         if entry_type and entry_type not in ("Expense", "Income"):
+
             return Response(
                 {
                     "success": False,
@@ -5795,7 +5706,7 @@ class JournalAPIView(APIView):
         ).strftime("%B")
 
         # --------------------------------------------------
-        # 2. FETCH JOURNAL ENTRIES
+        # 2. JOURNAL ENTRIES FOR SELECTED MONTH
         # --------------------------------------------------
         journal_qs = JournalEntry.objects.filter(
             date__year=year,
@@ -5803,7 +5714,9 @@ class JournalAPIView(APIView):
         )
 
         if entry_type:
-            journal_qs = journal_qs.filter(type=entry_type)
+            journal_qs = journal_qs.filter(
+                type=entry_type
+            )
 
         if payment_mode:
             journal_qs = journal_qs.filter(
@@ -5823,18 +5736,77 @@ class JournalAPIView(APIView):
         )
 
         for row in journal_data:
-            row.setdefault("source_type", "JournalEntry")
+            row.setdefault(
+                "source_type",
+                "JournalEntry",
+            )
 
         # --------------------------------------------------
-        # 3. FETCH PAYMENT RECORDS FOR THE SELECTED MONTH
+        # 3. ADVANCES — GROUP BY DATE
+        # --------------------------------------------------
+        advance_qs = Advance.objects.filter(
+            advance_date__year=year,
+            advance_date__month=month,
+        )
+
+        # Advances are expenses.
+        if entry_type == "Income":
+            advance_qs = advance_qs.none()
+
+        # Advance does not have a payment_mode field.
+        if payment_mode:
+            advance_qs = advance_qs.none()
+
+        # Group all advances occurring on the same date.
+        advance_groups = (
+            advance_qs
+            .values("advance_date")
+            .annotate(
+                total_amount=models.Sum("amount"),
+                transaction_count=models.Count("id"),
+            )
+            .order_by("-advance_date")
+        )
+
+        advance_data = []
+
+        for group in advance_groups:
+
+            advance_date = group["advance_date"]
+
+            amount = (
+                group["total_amount"]
+                or Decimal("0.00")
+            )
+
+            advance_data.append(
+                {
+                    "id": f"advance-{advance_date}",
+                    "record_number": f"ADV-{advance_date}",
+                    "date": advance_date.isoformat(),
+                    "type": "Expense",
+                    "category": "Advance",
+                    "description": "Total Employee Advance",
+                    "amount": float(amount),
+                    "payment_mode": "Advance",
+                    "source_type": "AdvanceGroup",
+                    "source_id": None,
+                    "transaction_count": group[
+                        "transaction_count"
+                    ],
+                }
+            )
+
+        # --------------------------------------------------
+        # 4. PAYMENT RECORDS
         # --------------------------------------------------
         payment_qs = PaymentRecord.objects.filter(
             paid_date__year=year,
             paid_date__month=month,
         )
 
-        # Apply type filter to the displayed payment groups.
         if entry_type == "Expense":
+
             payment_qs = payment_qs.filter(
                 payment_direction=(
                     PaymentRecord.PaymentDirection.OUTGOING
@@ -5842,17 +5814,24 @@ class JournalAPIView(APIView):
             )
 
         elif entry_type == "Income":
+
             payment_qs = payment_qs.filter(
                 payment_direction=(
                     PaymentRecord.PaymentDirection.INCOMING
                 )
             )
 
+        if payment_mode:
+            payment_qs = payment_qs.filter(
+                payment_mode=payment_mode
+            )
+
         # --------------------------------------------------
-        # 4. GROUP PAYMENTS BY DOCUMENT TYPE AND DIRECTION
+        # 5. GROUP PAYMENT RECORDS
         # --------------------------------------------------
         payment_groups = (
-            payment_qs.values(
+            payment_qs
+            .values(
                 "document_type",
                 "payment_direction",
             )
@@ -5869,6 +5848,7 @@ class JournalAPIView(APIView):
         payment_data = []
 
         for group in payment_groups:
+
             document_type = group["document_type"]
             direction = group["payment_direction"]
 
@@ -5878,7 +5858,8 @@ class JournalAPIView(APIView):
             )
 
             amount = (
-                group["total_amount"] or Decimal("0.00")
+                group["total_amount"]
+                or Decimal("0.00")
             )
 
             payment_data.append(
@@ -5899,7 +5880,9 @@ class JournalAPIView(APIView):
                     "payment_mode": "Grouped Payments",
                     "document_type": document_type,
                     "payment_direction": direction,
-                    "transaction_count": group["transaction_count"],
+                    "transaction_count": group[
+                        "transaction_count"
+                    ],
                     "source_type": "PaymentRecordGroup",
                     "source_id": None,
                     "purchase_order": None,
@@ -5908,9 +5891,13 @@ class JournalAPIView(APIView):
             )
 
         # --------------------------------------------------
-        # 5. COMBINE JOURNAL ENTRIES AND PAYMENT GROUPS
+        # 6. COMBINE ALL DATA
         # --------------------------------------------------
-        combined_data = journal_data + payment_data
+        combined_data = (
+            journal_data
+            + advance_data
+            + payment_data
+        )
 
         combined_data.sort(
             key=lambda row: row.get("date", ""),
@@ -5918,7 +5905,7 @@ class JournalAPIView(APIView):
         )
 
         # --------------------------------------------------
-        # 6. CALCULATE JOURNAL INCOME
+        # 7. JOURNAL INCOME — SELECTED MONTH
         # --------------------------------------------------
         journal_income = (
             JournalEntry.objects.filter(
@@ -5932,7 +5919,7 @@ class JournalAPIView(APIView):
         )
 
         # --------------------------------------------------
-        # 7. CALCULATE JOURNAL EXPENSES
+        # 8. JOURNAL EXPENSE — SELECTED MONTH
         # --------------------------------------------------
         total_journal_expense = (
             JournalEntry.objects.filter(
@@ -5946,7 +5933,7 @@ class JournalAPIView(APIView):
         )
 
         # --------------------------------------------------
-        # 8. CALCULATE SALARY
+        # 9. SALARY — SELECTED MONTH
         # --------------------------------------------------
         total_salary = (
             SalaryPayment.objects.filter(
@@ -5959,9 +5946,10 @@ class JournalAPIView(APIView):
         )
 
         # --------------------------------------------------
-        # 9. CALCULATE ADVANCES
+        # 10. ADVANCE — SELECTED MONTH
+        # Used for monthly expense calculation.
         # --------------------------------------------------
-        total_advance = (
+        monthly_advance = (
             Advance.objects.filter(
                 advance_date__year=year,
                 advance_date__month=month,
@@ -5972,7 +5960,20 @@ class JournalAPIView(APIView):
         )
 
         # --------------------------------------------------
-        # 10. CALCULATE ALL INCOMING PAYMENTS
+        # 11. CUMULATIVE ADVANCE — ALL PREVIOUS DATES
+        # Used for the cumulative advance summary card.
+        # --------------------------------------------------
+        total_advance = (
+            Advance.objects.filter(
+                advance_date__lte=today,
+            ).aggregate(
+                total=models.Sum("amount")
+            )["total"]
+            or Decimal("0.00")
+        )
+
+        # --------------------------------------------------
+        # 12. INCOMING PAYMENTS — SELECTED MONTH
         # --------------------------------------------------
         total_incoming_payments = (
             PaymentRecord.objects.filter(
@@ -5988,7 +5989,7 @@ class JournalAPIView(APIView):
         )
 
         # --------------------------------------------------
-        # 11. CALCULATE ALL OUTGOING PAYMENTS
+        # 13. OUTGOING PAYMENTS — SELECTED MONTH
         # --------------------------------------------------
         total_outgoing_payments = (
             PaymentRecord.objects.filter(
@@ -6004,53 +6005,75 @@ class JournalAPIView(APIView):
         )
 
         # --------------------------------------------------
-        # 12. FINAL INCOME, EXPENSE AND PROFIT/LOSS
+        # 14. TOTAL INCOME
         # --------------------------------------------------
-
-        # Income includes journal income and incoming payments.
         total_income = (
             journal_income
             + total_incoming_payments
         )
 
-        # Expense includes journal expenses, salary,
-        # advances, and outgoing payment records.
+        # --------------------------------------------------
+        # 15. TOTAL EXPENSE — SELECTED MONTH
+        # --------------------------------------------------
         total_expense = (
             total_journal_expense
             + total_salary
-            + total_advance
+            + monthly_advance
             + total_outgoing_payments
         )
 
-        # Positive = profit; negative = loss.
-        net_profit = total_income - total_expense
+        # --------------------------------------------------
+        # 16. PROFIT / LOSS
+        # --------------------------------------------------
+        net_profit = (
+            total_income - total_expense
+        )
 
         # --------------------------------------------------
-        # 13. RESPONSE
+        # 17. RESPONSE
         # --------------------------------------------------
         return Response(
             {
                 "success": True,
+
                 "count": len(combined_data),
+
                 "data": combined_data,
+
                 "payment_groups": payment_data,
+
                 "totals": {
                     "total_income": float(total_income),
+
                     "total_expense": float(total_expense),
+
                     "net_profit": float(net_profit),
+
                     "total_salary": float(total_salary),
+
+                    # Cumulative advance for summary card
                     "total_advance": float(total_advance),
-                    "total_journal_income": float(journal_income),
+
+                    # Selected-month advance for expense calculation
+                    "monthly_advance": float(monthly_advance),
+
+                    "total_journal_income": float(
+                        journal_income
+                    ),
+
                     "total_journal_expense": float(
                         total_journal_expense
                     ),
+
                     "total_incoming_payments": float(
                         total_incoming_payments
                     ),
+
                     "total_outgoing_payments": float(
                         total_outgoing_payments
                     ),
                 },
+
                 "current_month": {
                     "month": month,
                     "year": year,
@@ -6064,11 +6087,13 @@ class JournalAPIView(APIView):
     # POST — CREATE JOURNAL ENTRY
     # ======================================================
     def post(self, request):
+
         serializer = JournalEntrySerializer(
             data=request.data
         )
 
         if not serializer.is_valid():
+
             return Response(
                 {
                     "success": False,
@@ -22975,6 +23000,7 @@ class AdminStatisticsAPIView(APIView):
 
     def get(self, request):
         period = request.query_params.get("period", "month")
+
         if period not in VALID_PERIODS:
             period = "month"
 
@@ -22985,19 +23011,25 @@ class AdminStatisticsAPIView(APIView):
             period, from_date, to_date
         )
 
-        # Custom ranges are grouped month-wise (same as before)
+        # Custom ranges are grouped month-wise
         granularity = "month" if period == "custom" else period
         trunc = TRUNC_BY_GRANULARITY[granularity]
 
         zero = Decimal("0.00")
-        money_field = DecimalField(max_digits=24, decimal_places=2)
+        money_field = DecimalField(
+            max_digits=24,
+            decimal_places=2,
+        )
 
         def sum_if(value_field, **condition):
             """SUM(value_field) WHERE condition, 0 when nothing matches."""
             return Coalesce(
                 Sum(
                     Case(
-                        When(then=value_field, **condition),
+                        When(
+                            then=value_field,
+                            **condition,
+                        ),
                         default=Value(zero),
                         output_field=money_field,
                     )
@@ -23007,15 +23039,18 @@ class AdminStatisticsAPIView(APIView):
             )
 
         # =====================================================
-        # 1. TIMELINE BUCKETS (continuous, zero-filled)
+        # 1. TIMELINE BUCKETS
         # =====================================================
         timeline_map = {}
 
         def ensure_bucket(value):
             value = _normalize_date(value)
+
             if value is None:
                 return None
+
             key = value.isoformat()
+
             if key not in timeline_map:
                 timeline_map[key] = {
                     "key": key,
@@ -23023,16 +23058,23 @@ class AdminStatisticsAPIView(APIView):
                     "revenue": zero,
                     "expenses": zero,
                 }
+
             return key
 
-        bucket_starts = list(_iter_buckets(granularity, start_date, end_date))
+        bucket_starts = list(
+            _iter_buckets(
+                granularity,
+                start_date,
+                end_date,
+            )
+        )
+
         if len(bucket_starts) <= MAX_FILLED_BUCKETS:
             for bucket_start in bucket_starts:
                 ensure_bucket(bucket_start)
 
         # =====================================================
-        # 2. JOURNAL ENTRIES  (grouped by `date`)
-        #    One query: income + expenses per bucket
+        # 2. JOURNAL ENTRIES
         # =====================================================
         journal_qs = JournalEntry.objects.filter(
             date__gte=start_date,
@@ -23044,8 +23086,14 @@ class AdminStatisticsAPIView(APIView):
             .annotate(bucket=trunc("date"))
             .values("bucket")
             .annotate(
-                income=sum_if("amount", type=JournalEntry.EntryType.INCOME),
-                expenses=sum_if("amount", type=JournalEntry.EntryType.EXPENSE),
+                income=sum_if(
+                    "amount",
+                    type=JournalEntry.EntryType.INCOME,
+                ),
+                expenses=sum_if(
+                    "amount",
+                    type=JournalEntry.EntryType.EXPENSE,
+                ),
             )
             .order_by("bucket")
         )
@@ -23055,16 +23103,18 @@ class AdminStatisticsAPIView(APIView):
 
         for row in journal_rows:
             key = ensure_bucket(row["bucket"])
+
             if key is None:
                 continue
+
             timeline_map[key]["revenue"] += row["income"]
             timeline_map[key]["expenses"] += row["expenses"]
+
             journal_income += row["income"]
             journal_expenses += row["expenses"]
 
         # =====================================================
-        # 3. PAYMENT RECORDS  (grouped by `paid_date`)
-        #    incoming -> revenue, outgoing -> expenses
+        # 3. PAYMENT RECORDS
         # =====================================================
         payment_qs = PaymentRecord.objects.filter(
             paid_date__gte=start_date,
@@ -23078,11 +23128,15 @@ class AdminStatisticsAPIView(APIView):
             .annotate(
                 incoming=sum_if(
                     "paid_amount",
-                    payment_direction=PaymentRecord.PaymentDirection.INCOMING,
+                    payment_direction=(
+                        PaymentRecord.PaymentDirection.INCOMING
+                    ),
                 ),
                 outgoing=sum_if(
                     "paid_amount",
-                    payment_direction=PaymentRecord.PaymentDirection.OUTGOING,
+                    payment_direction=(
+                        PaymentRecord.PaymentDirection.OUTGOING
+                    ),
                 ),
             )
             .order_by("bucket")
@@ -23093,15 +23147,18 @@ class AdminStatisticsAPIView(APIView):
 
         for row in payment_rows:
             key = ensure_bucket(row["bucket"])
+
             if key is None:
                 continue
+
             timeline_map[key]["revenue"] += row["incoming"]
             timeline_map[key]["expenses"] += row["outgoing"]
+
             incoming_payments += row["incoming"]
             outgoing_payments += row["outgoing"]
 
         # =====================================================
-        # 4. SALARY PAYMENTS (grouped by `paid_date`)
+        # 4. SALARY PAYMENTS
         # =====================================================
         salary_rows = (
             SalaryPayment.objects.filter(
@@ -23119,14 +23176,18 @@ class AdminStatisticsAPIView(APIView):
 
         for row in salary_rows:
             key = ensure_bucket(row["bucket"])
+
             if key is None:
                 continue
+
             amount = row["total"] or zero
+
             timeline_map[key]["expenses"] += amount
+
             salary_paid += amount
 
         # =====================================================
-        # 5. ADVANCES (grouped by `advance_date`)
+        # 5. ADVANCES — GROUPED BY DATE
         # =====================================================
         advance_rows = (
             Advance.objects.filter(
@@ -23143,24 +23204,39 @@ class AdminStatisticsAPIView(APIView):
 
         for row in advance_rows:
             key = ensure_bucket(row["bucket"])
+
             if key is None:
                 continue
+
             amount = row["total"] or zero
+
+            # Advance contributes to expenses on its date.
             timeline_map[key]["expenses"] += amount
+
             advances += amount
 
         # =====================================================
-        # 6. REVENUE, EXPENSES AND PROFIT/LOSS (period totals)
-        #    These equal the sum of the chart buckets.
+        # 6. TOTAL REVENUE, EXPENSES AND PROFIT/LOSS
         # =====================================================
-        total_revenue = journal_income + incoming_payments
-        total_expenses = (
-            journal_expenses + outgoing_payments + salary_paid + advances
+        total_revenue = (
+            journal_income
+            + incoming_payments
         )
-        net_profit = total_revenue - total_expenses
+
+        total_expenses = (
+            journal_expenses
+            + outgoing_payments
+            + salary_paid
+            + advances
+        )
+
+        net_profit = (
+            total_revenue
+            - total_expenses
+        )
 
         # =====================================================
-        # 7. CHART DATA (oldest -> newest, per-bucket profit/loss)
+        # 7. CHART DATA
         # =====================================================
         chart_data = [
             {
@@ -23168,34 +23244,52 @@ class AdminStatisticsAPIView(APIView):
                 "label": item["label"],
                 "revenue": float(item["revenue"]),
                 "expenses": float(item["expenses"]),
-                "profit_loss": float(item["revenue"] - item["expenses"]),
+                "profit_loss": float(
+                    item["revenue"] - item["expenses"]
+                ),
             }
-            for item in sorted(timeline_map.values(), key=lambda i: i["key"])
+            for item in sorted(
+                timeline_map.values(),
+                key=lambda item: item["key"],
+            )
         ]
 
         # =====================================================
-        # 8. OUTSTANDING (all dates, unpaid + non-cancelled)
+        # 8. OUTSTANDING INVOICES
         # =====================================================
         outstanding_tax_invoices = (
             TaxInvoice.objects.filter(
-                payment_status=TaxInvoice.PaymentStatus.PENDING,
+                payment_status=(
+                    TaxInvoice.PaymentStatus.PENDING
+                ),
             )
-            .exclude(status=TaxInvoice.Status.CANCELLED)
-            .aggregate(total=Sum("grand_total"))["total"]
+            .exclude(
+                status=TaxInvoice.Status.CANCELLED
+            )
+            .aggregate(
+                total=Sum("grand_total")
+            )["total"]
             or zero
         )
 
         outstanding_proforma_invoices = (
             ProformaInvoice.objects.filter(
-                payment_status=ProformaInvoice.PaymentStatus.PENDING,
+                payment_status=(
+                    ProformaInvoice.PaymentStatus.PENDING
+                ),
             )
-            .exclude(status=ProformaInvoice.Status.CANCELLED)
-            .aggregate(total=Sum("grand_total"))["total"]
+            .exclude(
+                status=ProformaInvoice.Status.CANCELLED
+            )
+            .aggregate(
+                total=Sum("grand_total")
+            )["total"]
             or zero
         )
 
         total_outstanding = (
-            outstanding_tax_invoices + outstanding_proforma_invoices
+            outstanding_tax_invoices
+            + outstanding_proforma_invoices
         )
 
         # =====================================================
@@ -23203,44 +23297,79 @@ class AdminStatisticsAPIView(APIView):
         # =====================================================
         category_rows = (
             journal_qs
-            .filter(type=JournalEntry.EntryType.EXPENSE)
+            .filter(
+                type=JournalEntry.EntryType.EXPENSE
+            )
             .values("category")
-            .annotate(total=Sum("amount"))
+            .annotate(
+                total=Sum("amount")
+            )
             .order_by()
         )
 
         breakdown_map = {}
+
         for row in category_rows:
             name = row["category"] or "Other"
+
             breakdown_map[name] = (
-                breakdown_map.get(name, 0.0) + float(row["total"] or zero)
+                breakdown_map.get(name, 0.0)
+                + float(row["total"] or zero)
             )
 
+        # Outgoing payment breakdown
         outgoing_by_document = (
             payment_qs
-            .filter(payment_direction=PaymentRecord.PaymentDirection.OUTGOING)
+            .filter(
+                payment_direction=(
+                    PaymentRecord.PaymentDirection.OUTGOING
+                )
+            )
             .values("document_type")
-            .annotate(total=Sum("paid_amount"))
+            .annotate(
+                total=Sum("paid_amount")
+            )
             .order_by()
         )
 
         for row in outgoing_by_document:
-            category = f"Payment - {row['document_type'] or 'Other'}"
-            breakdown_map[category] = (
-                breakdown_map.get(category, 0.0) + float(row["total"] or zero)
+            category = (
+                f"Payment - {row['document_type'] or 'Other'}"
             )
 
+            breakdown_map[category] = (
+                breakdown_map.get(category, 0.0)
+                + float(row["total"] or zero)
+            )
+
+        # -----------------------------------------------------
+        # SALARY — SEPARATE CATEGORY
+        # -----------------------------------------------------
         breakdown_map["Salary"] = (
             breakdown_map.get("Salary", 0.0)
             + float(salary_paid)
+        )
+
+        # -----------------------------------------------------
+        # ADVANCE — SEPARATE CATEGORY
+        # -----------------------------------------------------
+        breakdown_map["Advance"] = (
+            breakdown_map.get("Advance", 0.0)
             + float(advances)
         )
 
         expense_breakdown = [
-            {"category": name, "amount": amount}
+            {
+                "category": name,
+                "amount": amount,
+            }
             for name, amount in breakdown_map.items()
         ]
-        expense_breakdown.sort(key=lambda item: item["amount"], reverse=True)
+
+        expense_breakdown.sort(
+            key=lambda item: item["amount"],
+            reverse=True,
+        )
 
         # =====================================================
         # 10. PURCHASE ORDER STATUS
@@ -23249,30 +23378,47 @@ class AdminStatisticsAPIView(APIView):
             PurchaseOrderItem.objects
             .select_related("purchase_order")
             .filter(
-                purchase_order__status=PurchaseOrder.Status.CONFIRMED,
+                purchase_order__status=(
+                    PurchaseOrder.Status.CONFIRMED
+                ),
                 purchase_order__created_at__date__gte=start_date,
                 purchase_order__created_at__date__lte=end_date,
             )
         )
-        item_ids = [item.id for item in real_items]
+
+        item_ids = [
+            item.id for item in real_items
+        ]
 
         material_map = {
-            row["purchase_order_item_id"]: row["total"] or zero
+            row["purchase_order_item_id"]: (
+                row["total"] or zero
+            )
             for row in (
                 MaterialGRN.objects
-                .filter(purchase_order_item_id__in=item_ids)
+                .filter(
+                    purchase_order_item_id__in=item_ids
+                )
                 .values("purchase_order_item_id")
-                .annotate(total=Sum("received_qty"))
+                .annotate(
+                    total=Sum("received_qty")
+                )
             )
         }
 
         consumable_map = {
-            row["purchase_order_item_id"]: row["total"] or zero
+            row["purchase_order_item_id"]: (
+                row["total"] or zero
+            )
             for row in (
                 ConsumableGRN.objects
-                .filter(purchase_order_item_id__in=item_ids)
+                .filter(
+                    purchase_order_item_id__in=item_ids
+                )
                 .values("purchase_order_item_id")
-                .annotate(total=Sum("received_quantity"))
+                .annotate(
+                    total=Sum("received_quantity")
+                )
             )
         }
 
@@ -23285,21 +23431,29 @@ class AdminStatisticsAPIView(APIView):
 
         for item in real_items:
             ordered = item.quantity or zero
+
             received = (
                 material_map.get(item.id, zero)
                 + consumable_map.get(item.id, zero)
             )
+
             balance = ordered - received
 
             if balance <= 0:
                 counts["Fully Received"] += 1
+
             elif received <= 0:
                 counts["Pending"] += 1
+
             else:
                 counts["Partially Received"] += 1
 
         po_status_array = [
-            {"status": name, "count": count} for name, count in counts.items()
+            {
+                "status": name,
+                "count": count,
+            }
+            for name, count in counts.items()
         ]
 
         # =====================================================
@@ -23307,8 +23461,12 @@ class AdminStatisticsAPIView(APIView):
         # =====================================================
         total_projects = (
             Project.objects.filter(
-                Q(start_date__gte=start_date, start_date__lte=end_date)
-                | Q(
+                Q(
+                    start_date__gte=start_date,
+                    start_date__lte=end_date,
+                )
+                |
+                Q(
                     start_date__isnull=True,
                     created_at__date__gte=start_date,
                     created_at__date__lte=end_date,
@@ -23319,40 +23477,67 @@ class AdminStatisticsAPIView(APIView):
         )
 
         # =====================================================
-        # 12. RESPONSE (structure unchanged)
+        # 12. RESPONSE
         # =====================================================
         return Response(
             {
                 "success": True,
+
                 "period": period,
+
                 "range": {
                     "start": start_date.isoformat(),
                     "end": end_date.isoformat(),
                 },
+
                 "data": {
                     "kpis": {
                         "revenue": float(total_revenue),
                         "expenses": float(total_expenses),
+
                         "profit_loss": float(net_profit),
                         "net_profit": float(net_profit),
+
                         "outstanding": float(total_outstanding),
-                        "outstanding_tax_invoices": float(outstanding_tax_invoices),
-                        "outstanding_proforma_invoices": float(outstanding_proforma_invoices),
+
+                        "outstanding_tax_invoices": float(
+                            outstanding_tax_invoices
+                        ),
+
+                        "outstanding_proforma_invoices": float(
+                            outstanding_proforma_invoices
+                        ),
+
                         "projects": total_projects,
+
                         "journal_income": float(journal_income),
                         "journal_expenses": float(journal_expenses),
-                        "incoming_payments": float(incoming_payments),
-                        "outgoing_payments": float(outgoing_payments),
+
+                        "incoming_payments": float(
+                            incoming_payments
+                        ),
+
+                        "outgoing_payments": float(
+                            outgoing_payments
+                        ),
+
                         "salary_paid": float(salary_paid),
+
+                        # Advances included in overall expenses
                         "advances": float(advances),
                     },
+
                     "chart_data": chart_data,
+
                     "expense_breakdown": expense_breakdown,
+
                     "po_status": po_status_array,
                 },
             },
             status=status.HTTP_200_OK,
         )
+
+
 # views.py
 
 from decimal import Decimal, InvalidOperation
