@@ -1,5 +1,6 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { LayoutDashboard } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import api from "../api/axios";
@@ -11,6 +12,15 @@ export default function Header({ navLinks = [] }) {
   const location = useLocation();
 
   const { logout, user, accessToken, isAuthenticated } = useAuth();
+
+  // Show the Admin Dashboard shortcut only to Admin users.
+  const userType = String(
+    user?.user_type ?? user?.userType ?? user?.role ?? ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const isAdmin = userType === "admin" || userType === "administrator";
 
   const [supportOpen, setSupportOpen] = useState(false);
   const [profileData, setProfileData] = useState(null);
@@ -207,6 +217,19 @@ export default function Header({ navLinks = [] }) {
           <span className="erp-action-divider" />
         )}
 
+
+        {/* ADMIN DASHBOARD SHORTCUT — Admin only, hidden on Admin pages */}
+        {isAuthenticated && isAdmin && !location.pathname.startsWith("/admin") && (
+          <button
+            type="button"
+            className="erp-header-action erp-admin-dashboard-action"
+            onClick={() => navigate("/admin/dashboard")}
+            title="Return to Admin Dashboard"
+          >
+            <LayoutDashboard size={18} />
+            <span>Admin Dashboard</span>
+          </button>
+        )}
 
         {/* =========================
             PROFILE

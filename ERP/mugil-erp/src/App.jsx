@@ -50,8 +50,6 @@ import Scrap from "./pages/material-planning/Scrap";
 import Contact from "./components/ContactUs.jsx";
 import HelpCenter from "./components/HelpCenter.jsx";
 
-
-
 import AdminLayout from "./pages/admin/AdminLayout.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import AdminAttendance from "./pages/admin/AdminAttendance.jsx";
@@ -61,7 +59,6 @@ import AdminProjectStatus from "./pages/admin/AdminProjectStatus.jsx";
 import AdminDocumentNumber from "./pages/admin/AdminDocumentNumber.jsx";
 import AdminBufferStock from "./pages/admin/AdminBufferStock.jsx";
 import AdminStatistics from "./pages/admin/AdminStatistics.jsx";
-
 
 /* =====================================================================
    HR LAYOUT
@@ -93,26 +90,17 @@ export default function App() {
     <AuthProvider>
       <Routes>
         {/* ================= ROOT REDIRECT ================= */}
-        <Route
-          path="/"
-          element={<Navigate to="/production/login" replace />}
-        />
+        <Route path="/" element={<Navigate to="/production/login" replace />} />
 
         {/* ================= LOGIN PAGES ================= */}
-        <Route
-          path="/production/login"
-          element={<ProductionLoginPage />}
-        />
+        <Route path="/production/login" element={<ProductionLoginPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/hr/login" element={<HrLoginPage />} />
         <Route
           path="/material-planning/login"
           element={<MaterialPlanningLoginPage />}
         />
-        <Route
-          path="/supervisor/login"
-          element={<SupervisorLoginPage />}
-        />
+        <Route path="/supervisor/login" element={<SupervisorLoginPage />} />
         <Route path="/accounts/login" element={<AccountsLoginPage />} />
 
         {/* ================= SHARED ================= */}
@@ -414,49 +402,52 @@ export default function App() {
           />
         </Route>
 
-        {/* ================= FALLBACK ================= */}
-        <Route
-          path="*"
-          element={<Navigate to="/production/login" replace />}
-        />
-
+        {/* ================= ADMIN ROUTES ================= */}
 
         {/* ================= ADMIN ROUTES ================= */}
-<Route
-  path="/admin"
-  element={
-    <ProtectedRoute>
-      <AdminLayout />
-    </ProtectedRoute>
-  }
->
-  <Route index element={<Navigate to="dashboard" replace />} />
 
-  <Route path="dashboard" element={<AdminDashboard />} />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Navigate to="dashboard" replace />} />
 
-  {/* Admin-specific profile page */}
-  <Route path="profile" element={<ProfileAdmin />} />
+          <Route path="dashboard" element={<AdminDashboard />} />
 
-  <Route path="statistics" element={<AdminStatistics />} />
+          <Route path="profile" element={<ProfileAdmin />} />
 
-  <Route path="attendance" element={<AdminAttendance />} />
+          <Route path="statistics" element={<AdminStatistics />} />
 
-  <Route path="po-pending-grn" element={<AdminPoPendingGrn />} />
+          <Route path="attendance" element={<AdminAttendance />} />
 
-  <Route
-    path="pending-customer-payment"
-    element={<AdminPendingPayments />}
-  />
+          <Route path="po-pending-grn" element={<AdminPoPendingGrn />} />
 
-  <Route path="project-status" element={<AdminProjectStatus />} />
+          <Route
+            path="pending-customer-payment"
+            element={<AdminPendingPayments />}
+          />
 
-  <Route path="document-number" element={<AdminDocumentNumber />} />
+          <Route path="project-status" element={<AdminProjectStatus />} />
 
-  <Route path="buffer-stock" element={<AdminBufferStock />} />
+          <Route path="document-number" element={<AdminDocumentNumber />} />
 
-  {/* Redirect unknown admin routes */}
-  <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
-</Route>
+          <Route path="buffer-stock" element={<AdminBufferStock />} />
+
+          <Route
+            path="*"
+            element={<Navigate to="/admin/dashboard" replace />}
+          />
+
+          {/* ================= FALLBACK ================= */}
+          <Route
+            path="*"
+            element={<Navigate to="/production/login" replace />}
+          />
+        </Route>
       </Routes>
     </AuthProvider>
   );
