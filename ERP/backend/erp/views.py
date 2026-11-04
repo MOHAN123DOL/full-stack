@@ -2368,7 +2368,6 @@ class QuotationNextNumberAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
-    
 class QuotationCustomerAPIView(APIView):
 
     permission_classes = [IsAccounts]
@@ -2382,9 +2381,7 @@ class QuotationCustomerAPIView(APIView):
         # GET /quotation-customers/
         if pk is None:
 
-            customers = Customer.objects.filter(
-                source=Customer.Source.QUOTATION
-            )
+            customers = Customer.objects.all()
 
             serializer = CustomerSerializer(
                 customers,
@@ -2394,7 +2391,7 @@ class QuotationCustomerAPIView(APIView):
             return Response(
                 {
                     "success": True,
-                    "message": "Quotation customers retrieved successfully.",
+                    "message": "Customers retrieved successfully.",
                     "data": serializer.data,
                 },
                 status=status.HTTP_200_OK,
@@ -2402,9 +2399,9 @@ class QuotationCustomerAPIView(APIView):
 
         # GET /quotation-customers/<id>/
         try:
+
             customer = Customer.objects.get(
                 pk=pk,
-                source=Customer.Source.QUOTATION,
             )
 
         except Customer.DoesNotExist:
@@ -2412,7 +2409,7 @@ class QuotationCustomerAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Quotation customer not found.",
+                    "message": "Customer not found.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -2422,7 +2419,7 @@ class QuotationCustomerAPIView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Quotation customer retrieved successfully.",
+                "message": "Customer retrieved successfully.",
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
@@ -2487,7 +2484,6 @@ class QuotationCustomerAPIView(APIView):
 
             customer = Customer.objects.get(
                 pk=pk,
-                source=Customer.Source.QUOTATION,
             )
 
         except Customer.DoesNotExist:
@@ -2495,7 +2491,7 @@ class QuotationCustomerAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Quotation customer not found.",
+                    "message": "Customer not found.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -2508,14 +2504,14 @@ class QuotationCustomerAPIView(APIView):
 
         if serializer.is_valid():
 
-            customer = serializer.save(
-                source=Customer.Source.QUOTATION
-            )
+            # Update existing customer without changing
+            # the original source.
+            customer = serializer.save()
 
             return Response(
                 {
                     "success": True,
-                    "message": "Quotation customer updated successfully.",
+                    "message": "Customer updated successfully.",
                     "data": CustomerSerializer(
                         customer
                     ).data,
@@ -2531,8 +2527,6 @@ class QuotationCustomerAPIView(APIView):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
-
-
 
 class QuotationCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsAccounts]
@@ -3062,9 +3056,13 @@ class DeliveryChallanNextNumberAPIView(APIView):
 # ==================================================================
 # DC CUSTOMERS (GET / POST / PATCH)
 # ==================================================================
+
 class DeliveryChallanCustomerAPIView(APIView):
 
-    permission_classes = [IsAuthenticated, IsAccountsOrMaterialPlanning]
+    permission_classes = [
+        IsAuthenticated,
+        IsAccountsOrMaterialPlanning,
+    ]
 
     # =========================
     # GET
@@ -3075,9 +3073,7 @@ class DeliveryChallanCustomerAPIView(APIView):
         # GET /delivery-challan-customers/
         if pk is None:
 
-            customers = Customer.objects.filter(
-                source=Customer.Source.DELIVERY_CHALLAN
-            )
+            customers = Customer.objects.all()
 
             serializer = CustomerSerializer(
                 customers,
@@ -3087,7 +3083,7 @@ class DeliveryChallanCustomerAPIView(APIView):
             return Response(
                 {
                     "success": True,
-                    "message": "Delivery challan customers retrieved successfully.",
+                    "message": "Customers retrieved successfully.",
                     "data": serializer.data,
                 },
                 status=status.HTTP_200_OK,
@@ -3095,9 +3091,9 @@ class DeliveryChallanCustomerAPIView(APIView):
 
         # GET /delivery-challan-customers/<id>/
         try:
+
             customer = Customer.objects.get(
                 pk=pk,
-                source=Customer.Source.DELIVERY_CHALLAN,
             )
 
         except Customer.DoesNotExist:
@@ -3105,7 +3101,7 @@ class DeliveryChallanCustomerAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Delivery challan customer not found.",
+                    "message": "Customer not found.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -3115,7 +3111,7 @@ class DeliveryChallanCustomerAPIView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Delivery challan customer retrieved successfully.",
+                "message": "Customer retrieved successfully.",
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
@@ -3180,7 +3176,6 @@ class DeliveryChallanCustomerAPIView(APIView):
 
             customer = Customer.objects.get(
                 pk=pk,
-                source=Customer.Source.DELIVERY_CHALLAN,
             )
 
         except Customer.DoesNotExist:
@@ -3188,7 +3183,7 @@ class DeliveryChallanCustomerAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Delivery challan customer not found.",
+                    "message": "Customer not found.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -3201,14 +3196,13 @@ class DeliveryChallanCustomerAPIView(APIView):
 
         if serializer.is_valid():
 
-            customer = serializer.save(
-                source=Customer.Source.DELIVERY_CHALLAN
-            )
+            # Preserve the customer's original source.
+            customer = serializer.save()
 
             return Response(
                 {
                     "success": True,
-                    "message": "Delivery challan customer updated successfully.",
+                    "message": "Customer updated successfully.",
                     "data": CustomerSerializer(
                         customer
                     ).data,
@@ -3224,6 +3218,7 @@ class DeliveryChallanCustomerAPIView(APIView):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+
 
 
 # ==================================================================
@@ -3699,13 +3694,16 @@ class TaxInvoiceNextNumberAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
 # ==================================================================
 # TAX INVOICE CUSTOMERS (GET / POST / PATCH)
 # ==================================================================
+
 class TaxInvoiceCustomerAPIView(APIView):
 
-    permission_classes = [IsAuthenticated, IsAccounts]
+    permission_classes = [
+        IsAuthenticated,
+        IsAccounts,
+    ]
 
     # =========================
     # GET
@@ -3716,9 +3714,7 @@ class TaxInvoiceCustomerAPIView(APIView):
         # GET /tax-invoice-customers/
         if pk is None:
 
-            customers = Customer.objects.filter(
-                source=Customer.Source.TAX_INVOICE
-            )
+            customers = Customer.objects.all()
 
             serializer = CustomerSerializer(
                 customers,
@@ -3728,7 +3724,7 @@ class TaxInvoiceCustomerAPIView(APIView):
             return Response(
                 {
                     "success": True,
-                    "message": "Tax invoice customers retrieved successfully.",
+                    "message": "Customers retrieved successfully.",
                     "data": serializer.data,
                 },
                 status=status.HTTP_200_OK,
@@ -3736,9 +3732,9 @@ class TaxInvoiceCustomerAPIView(APIView):
 
         # GET /tax-invoice-customers/<id>/
         try:
+
             customer = Customer.objects.get(
                 pk=pk,
-                source=Customer.Source.TAX_INVOICE,
             )
 
         except Customer.DoesNotExist:
@@ -3746,7 +3742,7 @@ class TaxInvoiceCustomerAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Tax invoice customer not found.",
+                    "message": "Customer not found.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -3756,7 +3752,7 @@ class TaxInvoiceCustomerAPIView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Tax invoice customer retrieved successfully.",
+                "message": "Customer retrieved successfully.",
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
@@ -3821,7 +3817,6 @@ class TaxInvoiceCustomerAPIView(APIView):
 
             customer = Customer.objects.get(
                 pk=pk,
-                source=Customer.Source.TAX_INVOICE,
             )
 
         except Customer.DoesNotExist:
@@ -3829,7 +3824,7 @@ class TaxInvoiceCustomerAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Tax invoice customer not found.",
+                    "message": "Customer not found.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -3842,14 +3837,13 @@ class TaxInvoiceCustomerAPIView(APIView):
 
         if serializer.is_valid():
 
-            customer = serializer.save(
-                source=Customer.Source.TAX_INVOICE
-            )
+            # Preserve the customer's original source.
+            customer = serializer.save()
 
             return Response(
                 {
                     "success": True,
-                    "message": "Tax invoice customer updated successfully.",
+                    "message": "Customer updated successfully.",
                     "data": CustomerSerializer(
                         customer
                     ).data,
@@ -3865,6 +3859,7 @@ class TaxInvoiceCustomerAPIView(APIView):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+
 
 
 # ==================================================================
@@ -4321,17 +4316,17 @@ class ProformaInvoiceNextNumberAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
-# ==================================================================
+#==========================================================
 # PROFORMA INVOICE CUSTOMERS (GET / POST / PATCH)
-# ------------------------------------------------------------------
-# Shares the same Customer pool as Tax Invoice (source=TAX_INVOICE)
-# so both modules see one consistent customer master. Change the
-# source constant if you want a separate pool.
+# Shares the existing Customer master
 # ==================================================================
+
 class ProformaInvoiceCustomerAPIView(APIView):
 
-    permission_classes = [IsAuthenticated, IsAccounts]
+    permission_classes = [
+        IsAuthenticated,
+        IsAccounts,
+    ]
 
     # =========================
     # GET
@@ -4342,9 +4337,7 @@ class ProformaInvoiceCustomerAPIView(APIView):
         # GET /proforma-invoice-customers/
         if pk is None:
 
-            customers = Customer.objects.filter(
-                source=Customer.Source.TAX_INVOICE
-            )
+            customers = Customer.objects.all()
 
             serializer = CustomerSerializer(
                 customers,
@@ -4362,9 +4355,9 @@ class ProformaInvoiceCustomerAPIView(APIView):
 
         # GET /proforma-invoice-customers/<id>/
         try:
+
             customer = Customer.objects.get(
                 pk=pk,
-                source=Customer.Source.TAX_INVOICE,
             )
 
         except Customer.DoesNotExist:
@@ -4372,7 +4365,7 @@ class ProformaInvoiceCustomerAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Proforma invoice customer not found.",
+                    "message": "Customer not found.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -4447,7 +4440,6 @@ class ProformaInvoiceCustomerAPIView(APIView):
 
             customer = Customer.objects.get(
                 pk=pk,
-                source=Customer.Source.TAX_INVOICE,
             )
 
         except Customer.DoesNotExist:
@@ -4455,7 +4447,7 @@ class ProformaInvoiceCustomerAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Proforma invoice customer not found.",
+                    "message": "Customer not found.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -4468,9 +4460,8 @@ class ProformaInvoiceCustomerAPIView(APIView):
 
         if serializer.is_valid():
 
-            customer = serializer.save(
-                source=Customer.Source.TAX_INVOICE
-            )
+            # Preserve the customer's original source.
+            customer = serializer.save()
 
             return Response(
                 {
