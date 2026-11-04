@@ -2712,7 +2712,6 @@ class QuotationCreateAPIView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-
 @method_decorator(csrf_protect, name="dispatch")
 class QuotationConfirmAPIView(APIView):
 
@@ -2724,21 +2723,23 @@ class QuotationConfirmAPIView(APIView):
         with transaction.atomic():
 
             # ============================================================
-            # 1. Session check (HttpOnly refresh cookie)
+            # 1. Session check (Admin / Accounts refresh cookie)
             # ============================================================
 
-            cookie_name = get_refresh_cookie_name("accounts")
+            refresh_token = None
 
-            if not cookie_name:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Accounts refresh-cookie configuration is missing.",
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            for department in ("admin", "accounts"):
 
-            refresh_token = request.COOKIES.get(cookie_name)
+                cookie_name = get_refresh_cookie_name(department)
+
+                if not cookie_name:
+                    continue
+
+                token_value = request.COOKIES.get(cookie_name)
+
+                if token_value:
+                    refresh_token = token_value
+                    break
 
             if not refresh_token:
                 return Response(
@@ -2752,6 +2753,16 @@ class QuotationConfirmAPIView(APIView):
             try:
                 token = RefreshToken(refresh_token)
                 user_id = token.get("user_id")
+
+                if not user_id:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid session. Please login again.",
+                        },
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+
             except Exception:
                 return Response(
                     {
@@ -2763,6 +2774,7 @@ class QuotationConfirmAPIView(APIView):
 
             try:
                 user = User.objects.get(id=user_id)
+
             except User.DoesNotExist:
                 return Response(
                     {
@@ -2773,14 +2785,19 @@ class QuotationConfirmAPIView(APIView):
                 )
 
             # ============================================================
-            # 2. Accounts-department check (same rule as IsAccounts)
+            # 2. Admin / Accounts permission check
             # ============================================================
 
-            if user.user_type != User.UserType.ACCOUNTS:
+            allowed_user_types = {
+                User.UserType.ADMIN,
+                User.UserType.ACCOUNTS,
+            }
+
+            if user.user_type not in allowed_user_types:
                 return Response(
                     {
                         "success": False,
-                        "message": "Accounts access required.",
+                        "message": "Admin or Accounts access required.",
                     },
                     status=status.HTTP_403_FORBIDDEN,
                 )
@@ -2795,6 +2812,7 @@ class QuotationConfirmAPIView(APIView):
                     .select_for_update()
                     .get(quotation_number=quotation_number)
                 )
+
             except Quotation.DoesNotExist:
                 return Response(
                     {
@@ -2820,9 +2838,13 @@ class QuotationConfirmAPIView(APIView):
                 )
 
             pdf_error = validate_pdf_upload(pdf_file)
+
             if pdf_error:
                 return Response(
-                    {"success": False, "message": pdf_error},
+                    {
+                        "success": False,
+                        "message": pdf_error,
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -2835,9 +2857,10 @@ class QuotationConfirmAPIView(APIView):
                 .replace("/", "-")
                 .replace("\\", "-")
             )
+
             filename = f"{safe_qtn}.pdf"
 
-            # Overwrite any previous file so re-printing stays clean.
+            # Overwrite previous PDF
             if quotation.pdf_file:
                 try:
                     quotation.pdf_file.delete(save=False)
@@ -2855,8 +2878,7 @@ class QuotationConfirmAPIView(APIView):
             # ============================================================
 
             was_already_confirmed = (
-                quotation.status
-                == Quotation.Status.CONFIRMED
+                quotation.status == Quotation.Status.CONFIRMED
             )
 
             quotation.status = Quotation.Status.CONFIRMED
@@ -2870,11 +2892,11 @@ class QuotationConfirmAPIView(APIView):
             )
 
             # ============================================================
-            # 7. Advance the quotation number counter
-            # ------------------------------------------------------------
-            # Only on the first confirmation. Re-printing an
-            # already-confirmed quotation must NOT consume another number.
+            # 7. Advance quotation number counter
             # ============================================================
+
+            # Only increment on first confirmation.
+            # Re-confirming must not consume another number.
 
             if not was_already_confirmed:
 
@@ -2917,7 +2939,6 @@ class QuotationConfirmAPIView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
-
 #for dc
 
 
@@ -3387,21 +3408,23 @@ class DeliveryChallanConfirmAPIView(APIView):
         with transaction.atomic():
 
             # ============================================================
-            # 1. Session check (HttpOnly refresh cookie)
+            # 1. Session check (Admin / Accounts refresh cookie)
             # ============================================================
 
-            cookie_name = get_refresh_cookie_name("accounts")
+            refresh_token = None
 
-            if not cookie_name:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Accounts refresh-cookie configuration is missing.",
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            for department in ("admin", "accounts"):
 
-            refresh_token = request.COOKIES.get(cookie_name)
+                cookie_name = get_refresh_cookie_name(department)
+
+                if not cookie_name:
+                    continue
+
+                token_value = request.COOKIES.get(cookie_name)
+
+                if token_value:
+                    refresh_token = token_value
+                    break
 
             if not refresh_token:
                 return Response(
@@ -3415,6 +3438,16 @@ class DeliveryChallanConfirmAPIView(APIView):
             try:
                 token = RefreshToken(refresh_token)
                 user_id = token.get("user_id")
+
+                if not user_id:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid session. Please login again.",
+                        },
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+
             except Exception:
                 return Response(
                     {
@@ -3426,6 +3459,7 @@ class DeliveryChallanConfirmAPIView(APIView):
 
             try:
                 user = User.objects.get(id=user_id)
+
             except User.DoesNotExist:
                 return Response(
                     {
@@ -3436,10 +3470,22 @@ class DeliveryChallanConfirmAPIView(APIView):
                 )
 
             # ============================================================
-            # 2. Accounts-department check (same rule as IsAccounts)
+            # 2. Admin / Accounts permission check
             # ============================================================
 
-            
+            allowed_user_types = {
+                User.UserType.ADMIN,
+                User.UserType.ACCOUNTS,
+            }
+
+            if user.user_type not in allowed_user_types:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Admin or Accounts access required.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
             # ============================================================
             # 3. Locate the Delivery Challan (locked)
@@ -3451,6 +3497,7 @@ class DeliveryChallanConfirmAPIView(APIView):
                     .select_for_update()
                     .get(dc_number=dc_number)
                 )
+
             except DeliveryChallan.DoesNotExist:
                 return Response(
                     {
@@ -3476,9 +3523,13 @@ class DeliveryChallanConfirmAPIView(APIView):
                 )
 
             pdf_error = validate_pdf_upload(pdf_file)
+
             if pdf_error:
                 return Response(
-                    {"success": False, "message": pdf_error},
+                    {
+                        "success": False,
+                        "message": pdf_error,
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -3491,9 +3542,10 @@ class DeliveryChallanConfirmAPIView(APIView):
                 .replace("/", "-")
                 .replace("\\", "-")
             )
+
             filename = f"{safe_dc}.pdf"
 
-            # Overwrite any previous file so re-printing stays clean.
+            # Overwrite previous PDF
             if dc.pdf_file:
                 try:
                     dc.pdf_file.delete(save=False)
@@ -3511,8 +3563,7 @@ class DeliveryChallanConfirmAPIView(APIView):
             # ============================================================
 
             was_already_confirmed = (
-                dc.status
-                == DeliveryChallan.Status.CONFIRMED
+                dc.status == DeliveryChallan.Status.CONFIRMED
             )
 
             dc.status = DeliveryChallan.Status.CONFIRMED
@@ -3526,11 +3577,11 @@ class DeliveryChallanConfirmAPIView(APIView):
             )
 
             # ============================================================
-            # 7. Advance the DC number counter
-            # ------------------------------------------------------------
-            # Only on the first confirmation. Re-printing an
-            # already-confirmed DC must NOT consume another number.
+            # 7. Advance DC number counter
             # ============================================================
+
+            # Increment only on first confirmation.
+            # Re-confirming must not consume another number.
 
             if not was_already_confirmed:
 
@@ -3994,6 +4045,7 @@ class TaxInvoiceCreateAPIView(APIView):
 # ==================================================================
 # CONFIRM TAX INVOICE (PDF SAVE + STATUS FLIP)
 # ==================================================================
+
 @method_decorator(csrf_protect, name="dispatch")
 class TaxInvoiceConfirmAPIView(APIView):
 
@@ -4005,21 +4057,23 @@ class TaxInvoiceConfirmAPIView(APIView):
         with transaction.atomic():
 
             # ============================================================
-            # 1. Session check (HttpOnly refresh cookie)
+            # 1. Session check (Admin / Accounts refresh cookie)
             # ============================================================
 
-            cookie_name = get_refresh_cookie_name("accounts")
+            refresh_token = None
 
-            if not cookie_name:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Accounts refresh-cookie configuration is missing.",
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            for department in ("admin", "accounts"):
 
-            refresh_token = request.COOKIES.get(cookie_name)
+                cookie_name = get_refresh_cookie_name(department)
+
+                if not cookie_name:
+                    continue
+
+                token_value = request.COOKIES.get(cookie_name)
+
+                if token_value:
+                    refresh_token = token_value
+                    break
 
             if not refresh_token:
                 return Response(
@@ -4033,6 +4087,16 @@ class TaxInvoiceConfirmAPIView(APIView):
             try:
                 token = RefreshToken(refresh_token)
                 user_id = token.get("user_id")
+
+                if not user_id:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid session. Please login again.",
+                        },
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+
             except Exception:
                 return Response(
                     {
@@ -4044,6 +4108,7 @@ class TaxInvoiceConfirmAPIView(APIView):
 
             try:
                 user = User.objects.get(id=user_id)
+
             except User.DoesNotExist:
                 return Response(
                     {
@@ -4054,14 +4119,19 @@ class TaxInvoiceConfirmAPIView(APIView):
                 )
 
             # ============================================================
-            # 2. Accounts-department check
+            # 2. Admin / Accounts permission check
             # ============================================================
 
-            if user.user_type != User.UserType.ACCOUNTS:
+            allowed_user_types = {
+                User.UserType.ADMIN,
+                User.UserType.ACCOUNTS,
+            }
+
+            if user.user_type not in allowed_user_types:
                 return Response(
                     {
                         "success": False,
-                        "message": "Accounts access required.",
+                        "message": "Admin or Accounts access required.",
                     },
                     status=status.HTTP_403_FORBIDDEN,
                 )
@@ -4076,6 +4146,7 @@ class TaxInvoiceConfirmAPIView(APIView):
                     .select_for_update()
                     .get(invoice_number=invoice_number)
                 )
+
             except TaxInvoice.DoesNotExist:
                 return Response(
                     {
@@ -4101,9 +4172,13 @@ class TaxInvoiceConfirmAPIView(APIView):
                 )
 
             pdf_error = validate_pdf_upload(pdf_file)
+
             if pdf_error:
                 return Response(
-                    {"success": False, "message": pdf_error},
+                    {
+                        "success": False,
+                        "message": pdf_error,
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -4116,8 +4191,10 @@ class TaxInvoiceConfirmAPIView(APIView):
                 .replace("/", "-")
                 .replace("\\", "-")
             )
+
             filename = f"{safe_inv}.pdf"
 
+            # Overwrite previous PDF
             if invoice.pdf_file:
                 try:
                     invoice.pdf_file.delete(save=False)
@@ -4135,8 +4212,7 @@ class TaxInvoiceConfirmAPIView(APIView):
             # ============================================================
 
             was_already_confirmed = (
-                invoice.status
-                == TaxInvoice.Status.CONFIRMED
+                invoice.status == TaxInvoice.Status.CONFIRMED
             )
 
             invoice.status = TaxInvoice.Status.CONFIRMED
@@ -4150,11 +4226,11 @@ class TaxInvoiceConfirmAPIView(APIView):
             )
 
             # ============================================================
-            # 7. Advance the invoice number counter
-            # ------------------------------------------------------------
-            # Only on the first confirmation. Re-printing an
-            # already-confirmed invoice must NOT consume another number.
+            # 7. Advance invoice number counter
             # ============================================================
+
+            # Increment only on first confirmation.
+            # Re-confirming must not consume another number.
 
             if not was_already_confirmed:
 
@@ -4581,6 +4657,7 @@ class ProformaInvoiceCreateAPIView(APIView):
 # ==================================================================
 # CONFIRM PROFORMA INVOICE (PDF SAVE + STATUS FLIP)
 # ==================================================================
+
 @method_decorator(csrf_protect, name="dispatch")
 class ProformaInvoiceConfirmAPIView(APIView):
 
@@ -4592,21 +4669,23 @@ class ProformaInvoiceConfirmAPIView(APIView):
         with transaction.atomic():
 
             # ============================================================
-            # 1. Session check (HttpOnly refresh cookie)
+            # 1. Session check (Admin / Accounts refresh cookie)
             # ============================================================
 
-            cookie_name = get_refresh_cookie_name("accounts")
+            refresh_token = None
 
-            if not cookie_name:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Accounts refresh-cookie configuration is missing.",
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            for department in ("admin", "accounts"):
 
-            refresh_token = request.COOKIES.get(cookie_name)
+                cookie_name = get_refresh_cookie_name(department)
+
+                if not cookie_name:
+                    continue
+
+                token_value = request.COOKIES.get(cookie_name)
+
+                if token_value:
+                    refresh_token = token_value
+                    break
 
             if not refresh_token:
                 return Response(
@@ -4620,6 +4699,16 @@ class ProformaInvoiceConfirmAPIView(APIView):
             try:
                 token = RefreshToken(refresh_token)
                 user_id = token.get("user_id")
+
+                if not user_id:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid session. Please login again.",
+                        },
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+
             except Exception:
                 return Response(
                     {
@@ -4631,6 +4720,7 @@ class ProformaInvoiceConfirmAPIView(APIView):
 
             try:
                 user = User.objects.get(id=user_id)
+
             except User.DoesNotExist:
                 return Response(
                     {
@@ -4641,14 +4731,19 @@ class ProformaInvoiceConfirmAPIView(APIView):
                 )
 
             # ============================================================
-            # 2. Accounts-department check
+            # 2. Admin / Accounts permission check
             # ============================================================
 
-            if user.user_type != User.UserType.ACCOUNTS:
+            allowed_user_types = {
+                User.UserType.ADMIN,
+                User.UserType.ACCOUNTS,
+            }
+
+            if user.user_type not in allowed_user_types:
                 return Response(
                     {
                         "success": False,
-                        "message": "Accounts access required.",
+                        "message": "Admin or Accounts access required.",
                     },
                     status=status.HTTP_403_FORBIDDEN,
                 )
@@ -4663,6 +4758,7 @@ class ProformaInvoiceConfirmAPIView(APIView):
                     .select_for_update()
                     .get(proforma_no=proforma_no)
                 )
+
             except ProformaInvoice.DoesNotExist:
                 return Response(
                     {
@@ -4688,9 +4784,13 @@ class ProformaInvoiceConfirmAPIView(APIView):
                 )
 
             pdf_error = validate_pdf_upload(pdf_file)
+
             if pdf_error:
                 return Response(
-                    {"success": False, "message": pdf_error},
+                    {
+                        "success": False,
+                        "message": pdf_error,
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -4703,8 +4803,10 @@ class ProformaInvoiceConfirmAPIView(APIView):
                 .replace("/", "-")
                 .replace("\\", "-")
             )
+
             filename = f"{safe_pf}.pdf"
 
+            # Overwrite previous PDF
             if proforma.pdf_file:
                 try:
                     proforma.pdf_file.delete(save=False)
@@ -4722,8 +4824,7 @@ class ProformaInvoiceConfirmAPIView(APIView):
             # ============================================================
 
             was_already_confirmed = (
-                proforma.status
-                == ProformaInvoice.Status.CONFIRMED
+                proforma.status == ProformaInvoice.Status.CONFIRMED
             )
 
             proforma.status = ProformaInvoice.Status.CONFIRMED
@@ -4737,10 +4838,11 @@ class ProformaInvoiceConfirmAPIView(APIView):
             )
 
             # ============================================================
-            # 7. Advance the proforma number counter
-            # ------------------------------------------------------------
-            # Only on the first confirmation.
+            # 7. Advance proforma number counter
             # ============================================================
+
+            # Increment only on first confirmation.
+            # Re-confirming must not consume another number.
 
             if not was_already_confirmed:
 
@@ -4783,6 +4885,8 @@ class ProformaInvoiceConfirmAPIView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
+
 
 #for reports
 from .serializers import AccountsReportRowSerializer
@@ -4867,18 +4971,23 @@ class AccountsReportAPIView(APIView):
         # ============================================================
         # 1. SESSION CHECK
         # ============================================================
-        cookie_name = get_refresh_cookie_name("accounts")
+                # ============================================================
+        # 1. SESSION CHECK - ADMIN OR ACCOUNTS
+        # ============================================================
 
-        if not cookie_name:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Accounts refresh-cookie configuration is missing.",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        # Support both Admin and Accounts sessions.
+        refresh_token = None
 
-        refresh_token = request.COOKIES.get(cookie_name)
+        for department in ("admin", "accounts"):
+
+            cookie_name = get_refresh_cookie_name(department)
+
+            if cookie_name:
+                token_value = request.COOKIES.get(cookie_name)
+
+                if token_value:
+                    refresh_token = token_value
+                    break
 
         if not refresh_token:
             return Response(
@@ -4890,9 +4999,21 @@ class AccountsReportAPIView(APIView):
             )
 
         try:
+
             token = RefreshToken(refresh_token)
             user_id = token.get("user_id")
+
+            if not user_id:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Invalid authentication token.",
+                    },
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
         except Exception:
+
             return Response(
                 {
                     "success": False,
@@ -4902,8 +5023,11 @@ class AccountsReportAPIView(APIView):
             )
 
         try:
+
             user = User.objects.get(id=user_id)
+
         except User.DoesNotExist:
+
             return Response(
                 {
                     "success": False,
@@ -4912,14 +5036,22 @@ class AccountsReportAPIView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+
         # ============================================================
-        # 2. ACCOUNTS DEPARTMENT CHECK
+        # 2. ADMIN OR ACCOUNTS DEPARTMENT CHECK
         # ============================================================
-        if user.user_type != User.UserType.ACCOUNTS:
+
+        allowed_user_types = {
+            User.UserType.ADMIN,
+            User.UserType.ACCOUNTS,
+        }
+
+        if user.user_type not in allowed_user_types:
+
             return Response(
                 {
                     "success": False,
-                    "message": "Accounts access required.",
+                    "message": "Admin or Accounts access required.",
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
