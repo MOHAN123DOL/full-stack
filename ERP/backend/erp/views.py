@@ -3291,32 +3291,30 @@ class DeliveryChallanCreateAPIView(APIView):
 
 
             customer = (
-                Customer.objects
-                .filter(
-                    company_name__iexact=customer_name,
-                    source=Customer.Source.DELIVERY_CHALLAN,
+                    Customer.objects
+                    .filter(
+                        company_name__iexact=customer_name,
+                    )
+                    .first()
                 )
-                .first()
-            )
 
             if customer is None:
 
                 return Response(
                     {
                         "success": False,
-                        "message": "Delivery challan customer not found.",
+                        "message": (
+                            f"Customer '{customer_name}' not found. "
+                            "Please create the customer first."
+                        ),
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            # ==================================================
-            # 4. CONVERT CUSTOMER NAME TO CUSTOMER ID
-            # ==================================================
-
+            
             data["customer_id"] = customer.id
 
-            # Remove customer name because
-            # DeliveryChallanSerializer uses customer/customer_id
+            
             data.pop("customer", None)
 
             
