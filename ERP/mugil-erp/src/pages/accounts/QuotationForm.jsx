@@ -5,15 +5,15 @@ import AmountSummary from "../../components/AmountSummary";
 import TermsEditor from "../../components/TermsEditor";
 import { initialQuoteData } from "../../utils/initialData";
 import "./Quotation.css";
-import { Link, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
+// Renamed from `Error` so it no longer shadows the global Error constructor
+// (this file uses `new Error(...)`).
+import ErrorState from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
-
-const DRAFT_KEY = "mei-erp-quotation-draft";
 
 const QUOTATION_CUSTOMERS_ENDPOINT = "/erp/quotation-customers/";
 const QUOTATION_NEXT_NUMBER_ENDPOINT = "/erp/quotations/next-number/";
@@ -248,6 +248,7 @@ const vendorsAreEqual = (a, b) => {
 };
 
 export default function QuotationForm() {
+  const navigate = useNavigate();
   const location = useLocation();
   const { accessToken } = useAuth();
 
@@ -270,7 +271,6 @@ export default function QuotationForm() {
   });
 
   const [errors, setErrors] = useState({});
-  const [savedAt, setSavedAt] = useState(null);
 
   // Customers
   const [customers, setCustomers] = useState([]);
@@ -292,22 +292,26 @@ export default function QuotationForm() {
   const [submitError, setSubmitError] = useState("");
 
   // ============================================================
-  // LOAD LOCAL DRAFT
+  // BACK NAVIGATION
+  // Menu -> Report -> View -> Form: Back returns to the report.
+  // 1. `returnTo` (+ optional `returnState`) from the report page wins,
+  //    so report context/filters are preserved.
+  // 2. Otherwise go back to the previous in-app page (report or menu).
+  // 3. Otherwise (form opened directly in a fresh tab) fall back to the
+  //    Accounts menu instead of leaving the app.
   // ============================================================
-  useEffect(() => {
-    // Skip draft restore when opened from Reports
-    if (reportMode === "view" && reportNumber) return;
-
-    const raw = localStorage.getItem(DRAFT_KEY);
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(raw);
-      setData(normalizeQuoteData(parsed));
-    } catch {
-      // ignore
+  const handleBack = useCallback(() => {
+    const returnTo = location.state?.returnTo;
+    if (returnTo) {
+      navigate(returnTo, { state: location.state?.returnState });
+      return;
     }
-  }, [reportMode, reportNumber]);
+    if (window.history.state?.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    navigate("/accounts");
+  }, [navigate, location.state]);
 
   // ============================================================
   // LOAD EXISTING QUOTATION FROM ACCOUNTS REPORT
@@ -361,7 +365,6 @@ export default function QuotationForm() {
     setSelectedCustomerId(String(reportCustomer.id || ""));
     setOriginalVendor(reportVendor);
     setErrors({});
-    setSavedAt(null);
   }, [location.state, reportMode, reportNumber]);
 
   // ============================================================
@@ -859,14 +862,6 @@ export default function QuotationForm() {
   };
 
   // ============================================================
-  // SAVE LOCAL DRAFT
-  // ============================================================
-  const saveDraft = () => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
-    setSavedAt(new Date());
-  };
-
-  // ============================================================
   // CLEAR FORM
   // Keeps Quotation Number and Customer details,
   // resets everything else.
@@ -885,8 +880,6 @@ export default function QuotationForm() {
     const preservedSelectedCustomerId = selectedCustomerId;
     const preservedOriginalVendor = originalVendor;
 
-    localStorage.removeItem(DRAFT_KEY);
-
     // Build a fresh quotation, then restore the preserved fields.
     const fresh = normalizeQuoteData(initialQuoteData());
     setData({
@@ -896,7 +889,6 @@ export default function QuotationForm() {
     });
 
     setErrors({});
-    setSavedAt(null);
     setCustomerActionError("");
     setSubmitError("");
     setQuotationNumberError("");
@@ -935,7 +927,8 @@ export default function QuotationForm() {
       company_name: data.companyName || "",
       designation: data.designation || "",
       gst_percent: Number(data.gstPercent) || 0,
-      status: data.status || "DRAFT",
+      // Keep the status of an existing quotation; nothing is sent for new ones.
+      ...(data.status ? { status: data.status } : {}),
     };
 
     try {
@@ -986,8 +979,6 @@ export default function QuotationForm() {
     });
 
     setData(previewData);
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(previewData));
-    setSavedAt(new Date());
 
     try {
       await loadQuotationPrintEngine();
@@ -1071,41 +1062,44 @@ export default function QuotationForm() {
   return (
     <>
       <Header />
-      <div className="qt-page">
-        <Link to="/accounts" className="erp-back-button">
-          <ArrowLeft size={16} />
-          Back
-        </Link>
+      <div className="form-page">
+        <div className="form-header">
+          <button
+            type="button"
+            className="erp-back-button"
+            onClick={handleBack}
+          >
+            <ArrowLeft size={16} />
+            Back
+          </button>
 
-        <div className="qt-header">
-          <div className="qt-header__left">
-            <div className="qt-title">
-              <h1>Quotation</h1>
-              <p>
-                Fill in the details below, then preview the official document.
-              </p>
-            </div>
-          </div>
+          <h2>Quotation</h2>
 
-          <div className="qt-header__actions">
-            <button className="btn btn-ghost" onClick={clearForm}>
-              Clear
-            </button>
+          {/* Spacer keeps the title centred between Back and the right edge */}
+          <div className="form-header-actions" />
+        </div>
 
-            <button className="btn btn-secondary" onClick={saveDraft}>
-              Save Draft
-            </button>
+        {/* TOP ACTIONS */}
+        <div className="form-actions-top">
+          <button
+            type="button"
+            className="btn btn-outline-danger"
+            onClick={clearForm}
+          >
+            Clear
+          </button>
 
-            <button
-              className="btn btn-primary"
-              onClick={goToPreview}
-              disabled={
-                submitting || quotationNumberLoading || !data.quotationNumber
-              }
-            >
-              {submitting ? "Saving..." : "Preview →"}
-            </button>
-          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={goToPreview}
+            disabled={
+              submitting || quotationNumberLoading || !data.quotationNumber
+            }
+            style={{ marginLeft: "auto" }}
+          >
+            {submitting ? "Saving..." : "Preview →"}
+          </button>
         </div>
 
         {/* ---------- NUMBER CHOICE BANNER ---------- */}
@@ -1208,24 +1202,18 @@ export default function QuotationForm() {
         )}
 
         {/* 01 QUOTATION DETAILS */}
-        <section className="qt-card">
-          <div className="qt-card__header">
-            <div className="qt-step">01</div>
-            <div className="qt-card__heading">
-              <h3>Quotation Details</h3>
-              <p>Basic quotation information</p>
-            </div>
-          </div>
+        <section className="form-section">
+          <h3 className="form-section-title">Quotation Details</h3>
 
-          <div className="qt-grid">
-            <label className="qt-field">
-              <span className="qt-label">
+          <div className="form-grid">
+            <label className="form-group">
+              <span className="form-label">
                 Quotation Number
-                <span className="qt-required">*</span>
+                <span className="form-required">*</span>
               </span>
               <input
-                className={`qt-input ${
-                  errors.quotationNumber ? "qt-input--error" : ""
+                className={`form-input ${
+                  errors.quotationNumber ? "form-input-error" : ""
                 }`}
                 value={
                   data.quotationNumber ||
@@ -1235,15 +1223,15 @@ export default function QuotationForm() {
               />
             </label>
 
-            <label className="qt-field">
-              <span className="qt-label">
+            <label className="form-group">
+              <span className="form-label">
                 Quotation Date
-                <span className="qt-required">*</span>
+                <span className="form-required">*</span>
               </span>
               <input
                 type="date"
-                className={`qt-input ${
-                  errors.quotationDate ? "qt-input--error" : ""
+                className={`form-input ${
+                  errors.quotationDate ? "form-input-error" : ""
                 }`}
                 value={data.quotationDate || ""}
                 onChange={(e) => set("quotationDate", e.target.value)}
@@ -1253,14 +1241,8 @@ export default function QuotationForm() {
         </section>
 
         {/* 02 CUSTOMER DETAILS */}
-        <section className="qt-card">
-          <div className="qt-card__header">
-            <div className="qt-step">02</div>
-            <div className="qt-card__heading">
-              <h3>Customer Details</h3>
-              <p>Customer / Company information</p>
-            </div>
-          </div>
+        <section className="form-section">
+          <h3 className="form-section-title">Customer Details</h3>
 
           {customersLoading && (
             <div className="qt-customer-loading">
@@ -1270,21 +1252,21 @@ export default function QuotationForm() {
 
           {!customersLoading && customersError && (
             <div className="qt-customer-error">
-              <Error onRetry={loadCustomers} />
+              <ErrorState onRetry={loadCustomers} />
             </div>
           )}
 
           {!customersLoading && !customersError && (
             <>
               {customers.length > 0 && (
-                <div className="qt-grid">
-                  <label className="qt-field qt-field--full">
-                    <span className="qt-label">
+                <div className="form-grid">
+                  <label className="form-group form-group-wide">
+                    <span className="form-label">
                       Select Existing Customer
                     </span>
 
                     <select
-                      className="qt-input"
+                      className="form-input"
                       value={selectedCustomerId}
                       onChange={(e) => handleCustomerChange(e.target.value)}
                     >
@@ -1408,30 +1390,24 @@ export default function QuotationForm() {
         </section>
 
         {/* 03 INTRODUCTION */}
-        <section className="qt-card">
-          <div className="qt-card__header">
-            <div className="qt-step">03</div>
-            <div className="qt-card__heading">
-              <h3>Introduction</h3>
-              <p>Opening paragraph shown in the quotation</p>
-            </div>
-          </div>
+        <section className="form-section">
+          <h3 className="form-section-title">Introduction</h3>
 
-          <label className="qt-field qt-field--full">
-            <span className="qt-label">Subject</span>
+          <label className="form-group form-group-wide">
+            <span className="form-label">Subject</span>
             <input
               type="text"
-              className="qt-input"
+              className="form-input"
               value={data.subject ?? ""}
               onChange={(e) => set("subject", e.target.value)}
               placeholder="Enter quotation subject..."
             />
           </label>
 
-          <label className="qt-field qt-field--full">
-            <span className="qt-label">Intro Paragraph</span>
+          <label className="form-group form-group-wide">
+            <span className="form-label">Intro Paragraph</span>
             <textarea
-              className="qt-textarea"
+              className="form-textarea"
               rows={5}
               value={data.intro ?? ""}
               onChange={(e) => set("intro", e.target.value)}
@@ -1441,14 +1417,8 @@ export default function QuotationForm() {
         </section>
 
         {/* 04 QUOTATION ITEMS */}
-        <section className="qt-card">
-          <div className="qt-card__header">
-            <div className="qt-step">04</div>
-            <div className="qt-card__heading">
-              <h3>Quotation Items</h3>
-              <p>Products and pricing</p>
-            </div>
-          </div>
+        <section className="form-section">
+          <h3 className="form-section-title">Quotation Items</h3>
 
           <OrderItemsTable
             variant="quote"
@@ -1459,31 +1429,25 @@ export default function QuotationForm() {
         </section>
 
         {/* 05 AMOUNT SUMMARY */}
-        <section className="qt-card">
-          <div className="qt-card__header">
-            <div className="qt-step">05</div>
-            <div className="qt-card__heading">
-              <h3>Amount Summary</h3>
-              <p>Overall quotation value</p>
-            </div>
-          </div>
+        <section className="form-section">
+          <h3 className="form-section-title">Amount Summary</h3>
 
-          <div className="qt-grid">
-            <label className="qt-field">
-              <span className="qt-label">Total Amount (₹)</span>
+          <div className="form-grid">
+            <label className="form-group">
+              <span className="form-label">Total Amount (₹)</span>
               <input
                 type="number"
-                className="qt-input"
+                className="form-input"
                 value={quotationSubtotal.toFixed(2)}
                 readOnly
               />
             </label>
 
-            <label className="qt-field">
-              <span className="qt-label">GST %</span>
+            <label className="form-group">
+              <span className="form-label">GST %</span>
               <input
                 type="number"
-                className="qt-input"
+                className="form-input"
                 value={data.gstPercent ?? ""}
                 onChange={(e) => set("gstPercent", e.target.value)}
                 placeholder="18"
@@ -1491,21 +1455,21 @@ export default function QuotationForm() {
               />
             </label>
 
-            <label className="qt-field">
-              <span className="qt-label">GST Amount (₹)</span>
+            <label className="form-group">
+              <span className="form-label">GST Amount (₹)</span>
               <input
                 type="number"
-                className="qt-input"
+                className="form-input"
                 value={quotationGstAmount.toFixed(2)}
                 readOnly
               />
             </label>
 
-            <label className="qt-field">
-              <span className="qt-label">Final Total (₹)</span>
+            <label className="form-group">
+              <span className="form-label">Final Total (₹)</span>
               <input
                 type="number"
-                className="qt-input"
+                className="form-input"
                 value={quotationFinalTotal.toFixed(2)}
                 readOnly
               />
@@ -1514,17 +1478,12 @@ export default function QuotationForm() {
         </section>
 
         {/* 06 TECHNICAL DETAILS */}
-        <section className="qt-card">
-          <div className="qt-card__header">
-            <div className="qt-step">06</div>
-            <div className="qt-card__heading">
-              <h3>Technical Details</h3>
-              <p>Product specifications and fabrication scope</p>
-            </div>
-
+        <section className="form-section">
+          <div className="form-section-head">
+            <h3 className="form-section-title">Technical Details</h3>
             <button
               type="button"
-              className="btn btn-secondary"
+              className="btn btn-secondary btn-sm"
               onClick={resetToDefaultTechnical}
             >
               ↻ Reset to Default
@@ -1532,12 +1491,12 @@ export default function QuotationForm() {
           </div>
 
           {data.technicalDetails.map((sec, secIdx) => (
-            <div key={secIdx} className="qt-tech-card">
-              <div className="qt-tech-header">
-                <label className="qt-field qt-field--grow">
-                  <span className="qt-label">Section Heading</span>
+            <div key={secIdx} className="form-tech-card">
+              <div className="form-tech-header">
+                <label className="form-group form-field-grow">
+                  <span className="form-label">Section Heading</span>
                   <input
-                    className="qt-input qt-input--bold"
+                    className="form-input form-input-bold"
                     value={sec.heading ?? ""}
                     onChange={(e) =>
                       updateSectionHeading(secIdx, e.target.value)
@@ -1555,12 +1514,12 @@ export default function QuotationForm() {
                 </button>
               </div>
 
-              <div className="qt-tech-points">
+              <div className="form-tech-points">
                 {sec.points.map((pt, ptIdx) => (
-                  <div key={ptIdx} className="qt-tech-point">
-                    <span className="qt-tech-index">{ptIdx + 1}</span>
+                  <div key={ptIdx} className="form-tech-point">
+                    <span className="form-tech-index">{ptIdx + 1}</span>
                     <input
-                      className="qt-input"
+                      className="form-input"
                       value={pt ?? ""}
                       onChange={(e) =>
                         updatePoint(secIdx, ptIdx, e.target.value)
@@ -1588,19 +1547,14 @@ export default function QuotationForm() {
             </div>
           ))}
 
-          <button type="button" className="btn btn-primary" onClick={addSection}>
+          <button type="button" className="btn btn-secondary" onClick={addSection}>
             + Add Section
           </button>
         </section>
 
         {/* 07 TERMS */}
-        <section className="qt-card">
-          <div className="qt-card__header">
-            <div className="qt-step">07</div>
-            <div className="qt-card__heading">
-              <h3>Terms & Conditions</h3>
-            </div>
-          </div>
+        <section className="form-section">
+          <h3 className="form-section-title">Terms & Conditions</h3>
 
           <TermsEditor
             mode="form"
@@ -1610,19 +1564,14 @@ export default function QuotationForm() {
         </section>
 
         {/* 08 SIGNATURE */}
-        <section className="qt-card">
-          <div className="qt-card__header">
-            <div className="qt-step">08</div>
-            <div className="qt-card__heading">
-              <h3>Signature Details</h3>
-            </div>
-          </div>
+        <section className="form-section">
+          <h3 className="form-section-title">Signature Details</h3>
 
-          <div className="qt-grid">
-            <label className="qt-field">
-              <span className="qt-label">Prepared By</span>
+          <div className="form-grid">
+            <label className="form-group">
+              <span className="form-label">Prepared By</span>
               <input
-                className="qt-input"
+                className="form-input"
                 value={data.signatures?.preparedBy ?? ""}
                 onChange={(e) =>
                   setNested("signatures", "preparedBy", e.target.value)
@@ -1630,19 +1579,19 @@ export default function QuotationForm() {
               />
             </label>
 
-            <label className="qt-field">
-              <span className="qt-label">Company Name</span>
+            <label className="form-group">
+              <span className="form-label">Company Name</span>
               <input
-                className="qt-input"
+                className="form-input"
                 value={data.companyName ?? ""}
                 onChange={(e) => set("companyName", e.target.value)}
               />
             </label>
 
-            <label className="qt-field">
-              <span className="qt-label">Designation</span>
+            <label className="form-group">
+              <span className="form-label">Designation</span>
               <input
-                className="qt-input"
+                className="form-input"
                 value={data.designation ?? ""}
                 onChange={(e) => set("designation", e.target.value)}
               />
@@ -1651,26 +1600,17 @@ export default function QuotationForm() {
         </section>
 
         {/* FOOTER */}
-        <div className="qt-footer-actions">
-          <div className="qt-footer-status">
-            {savedAt && <span>Draft saved</span>}
-          </div>
-
-          <div className="qt-footer-buttons">
-            <button className="btn btn-secondary" onClick={saveDraft}>
-              Save Draft
-            </button>
-
-            <button
-              className="btn btn-primary"
-              onClick={goToPreview}
-              disabled={
-                submitting || quotationNumberLoading || !data.quotationNumber
-              }
-            >
-              {submitting ? "Saving..." : "Preview →"}
-            </button>
-          </div>
+        <div className="form-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={goToPreview}
+            disabled={
+              submitting || quotationNumberLoading || !data.quotationNumber
+            }
+          >
+            {submitting ? "Saving..." : "Preview →"}
+          </button>
         </div>
       </div>
     </>

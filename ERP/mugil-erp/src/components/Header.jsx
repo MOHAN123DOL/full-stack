@@ -14,9 +14,7 @@ export default function Header({ navLinks = [] }) {
   const { logout, user, accessToken, isAuthenticated } = useAuth();
 
   // Show the Admin Dashboard shortcut only to Admin users.
-  const userType = String(
-    user?.user_type ?? user?.userType ?? user?.role ?? ""
-  )
+  const userType = String(user?.user_type ?? user?.userType ?? user?.role ?? "")
     .trim()
     .toLowerCase();
 
@@ -26,10 +24,7 @@ export default function Header({ navLinks = [] }) {
   const [profileData, setProfileData] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
 
-  const username =
-    profileData?.username ||
-    user?.username ||
-    "User";
+  const username = profileData?.username || user?.username || "User";
 
   /*
    * LOAD PROFILE DATA
@@ -45,27 +40,17 @@ export default function Header({ navLinks = [] }) {
       try {
         setProfileLoading(true);
 
-        const response = await api.get(
-          "/erp/profile/",
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          }
-        );
+        const response = await api.get("/erp/profile/", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
 
-        if (
-          mounted &&
-          response.data?.success
-        ) {
+        if (mounted && response.data?.success) {
           setProfileData(response.data.data);
         }
-
       } catch (error) {
-        console.error(
-          "Header profile API error:",
-          error
-        );
+        console.error("Header profile API error:", error);
       } finally {
         if (mounted) {
           setProfileLoading(false);
@@ -79,7 +64,6 @@ export default function Header({ navLinks = [] }) {
       mounted = false;
     };
   }, [isAuthenticated, accessToken]);
-
 
   /*
    * INITIALS
@@ -99,22 +83,71 @@ export default function Header({ navLinks = [] }) {
       .toUpperCase();
   };
 
-
   /*
    * SIGN OUT
    */
+  const getDepartmentLoginPath = () => {
+    // Prefer the authenticated user role, then profile API data.
+    const rawDepartment =
+      user?.user_type ??
+      user?.userType ??
+      user?.user_type_name ??
+      user?.department ??
+      user?.role ??
+      profileData?.user_type ??
+      profileData?.userType ??
+      profileData?.user_type_name ??
+      profileData?.department ??
+      profileData?.role ??
+      "";
+
+    const department = String(rawDepartment)
+      .trim()
+      .toLowerCase()
+      .replace(/[_\\s]+/g, "-");
+
+    // Match role/department names to their own login pages.
+    if (department.includes("admin")) return "/admin/login";
+    if (department.includes("hr") || department.includes("human-resource")) {
+      return "/hr/login";
+    }
+    if (department.includes("material")) return "/material-planning/login";
+    if (department.includes("account") || department.includes("finance")) {
+      return "/accounts/login";
+    }
+    if (department.includes("production")) return "/production/login";
+    if (department.includes("supervisor")) return "/supervisor/login";
+
+    // Fallback: infer department from the current URL if user/profile data
+    // does not contain a recognizable department.
+    const path = location.pathname.toLowerCase();
+    if (path.startsWith("/admin")) return "/admin/login";
+    if (path.startsWith("/hr")) return "/hr/login";
+    if (
+      path.startsWith("/material-planning") ||
+      path.startsWith("/inventory")
+    ) {
+      return "/material-planning/login";
+    }
+    if (path.startsWith("/accounts")) return "/accounts/login";
+    if (path.startsWith("/production")) return "/production/login";
+    if (path.startsWith("/supervisor")) return "/supervisor/login";
+
+    // Unknown department: return to the department selection/login page.
+    return "/welcome";
+  };
+
   const handleSignOut = async () => {
+    const loginPath = getDepartmentLoginPath();
+
     try {
       await logout();
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
-      navigate("/login", {
-        replace: true,
-      });
+      navigate(loginPath, { replace: true });
     }
   };
-
 
   /*
    * PROFILE
@@ -126,14 +159,14 @@ export default function Header({ navLinks = [] }) {
     // in case the auth object does not include a user type.
     const userType = String(
       user?.user_type ??
-      user?.userType ??
-      user?.user_type_name ??
-      user?.role ??
-      profileData?.user_type ??
-      profileData?.userType ??
-      profileData?.userTypeName ??
-      profileData?.role ??
-      ""
+        user?.userType ??
+        user?.user_type_name ??
+        user?.role ??
+        profileData?.user_type ??
+        profileData?.userType ??
+        profileData?.userTypeName ??
+        profileData?.role ??
+        "",
     )
       .trim()
       .toLowerCase();
@@ -145,14 +178,12 @@ export default function Header({ navLinks = [] }) {
     }
   };
 
-
   /*
    * SUPPORT
    */
   const handleSupportToggle = () => {
     setSupportOpen((previous) => !previous);
   };
-
 
   /*
    * HELP
@@ -162,7 +193,6 @@ export default function Header({ navLinks = [] }) {
     navigate("/help");
   };
 
-
   /*
    * CONTACT
    */
@@ -171,29 +201,20 @@ export default function Header({ navLinks = [] }) {
     navigate("/contact");
   };
 
-
   return (
     <header className="erp-header">
-
       {/* BRAND */}
       <div className="erp-brand">
-
         <span className="erp-brand-line" />
 
-        <span className="erp-brand-name">
-          Mugil Engineering Industry
-        </span>
-
+        <span className="erp-brand-name">Mugil Engineering Industry</span>
       </div>
-
 
       {/* RIGHT SIDE */}
       <div className="erp-user-area">
-
         {/* CUSTOM NAVIGATION */}
         {navLinks.length > 0 && (
           <nav className="erp-custom-nav">
-
             {navLinks.map((link) => (
               <button
                 key={link.path}
@@ -208,40 +229,35 @@ export default function Header({ navLinks = [] }) {
                 {link.label}
               </button>
             ))}
-
           </nav>
         )}
 
-
-        {navLinks.length > 0 && (
-          <span className="erp-action-divider" />
-        )}
-
+        {navLinks.length > 0 && <span className="erp-action-divider" />}
 
         {/* ADMIN DASHBOARD SHORTCUT — Admin only, hidden on Admin pages */}
-        {isAuthenticated && isAdmin && !location.pathname.startsWith("/admin") && (
-          <button
-            type="button"
-            className="erp-header-action erp-admin-dashboard-action"
-            onClick={() => navigate("/admin/dashboard")}
-            title="Return to Admin Dashboard"
-          >
-            <LayoutDashboard size={18} />
-            <span>Admin Dashboard</span>
-          </button>
-        )}
+        {isAuthenticated &&
+          isAdmin &&
+          !location.pathname.startsWith("/admin") && (
+            <button
+              type="button"
+              className="erp-header-action erp-admin-dashboard-action"
+              onClick={() => navigate("/admin/dashboard")}
+              title="Return to Admin Dashboard"
+            >
+              <LayoutDashboard size={18} />
+              <span>Admin Dashboard</span>
+            </button>
+          )}
 
         {/* =========================
             PROFILE
         ========================== */}
         <div className="erp-profile-wrapper">
-
           <button
             type="button"
             className="erp-header-action erp-profile-action"
             onClick={handleProfile}
           >
-
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -250,160 +266,91 @@ export default function Header({ navLinks = [] }) {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <circle
-                cx="12"
-                cy="8"
-                r="3.5"
-              />
+              <circle cx="12" cy="8" r="3.5" />
 
-              <path
-                d="M5 20c.8-3.4 3.1-5 7-5s6.2 1.6 7 5"
-              />
+              <path d="M5 20c.8-3.4 3.1-5 7-5s6.2 1.6 7 5" />
             </svg>
 
-            <span>
-              Profile
-            </span>
-
+            <span>Profile</span>
           </button>
-
 
           {/* =========================
               PROFILE HOVER CARD
           ========================== */}
           <div className="erp-profile-hover-card">
-
             {profileLoading ? (
-
-              <div className="erp-profile-loading">
-                Loading profile...
-              </div>
-
+              <div className="erp-profile-loading">Loading profile...</div>
             ) : (
-
               <>
-
                 {/* PROFILE PHOTO */}
                 <div className="erp-profile-card-avatar">
-
                   {profileData?.profilePhoto ? (
-
-                    <img
-                      src={profileData.profilePhoto}
-                      alt="Profile"
-                    />
-
+                    <img src={profileData.profilePhoto} alt="Profile" />
                   ) : (
-
-                    <span>
-                      {getInitials()}
-                    </span>
-
+                    <span>{getInitials()}</span>
                   )}
-
                 </div>
-
 
                 {/* USERNAME */}
                 <div className="erp-profile-card-title">
                   {profileData?.username || username}
                 </div>
 
-
                 {/* ROLE */}
                 <div className="erp-profile-card-role">
                   {profileData?.role || "ERP User"}
                 </div>
 
-
                 {/* DETAILS */}
                 <div className="erp-profile-card-details">
-
                   {profileData?.employeeId && (
                     <div className="erp-profile-card-row">
+                      <span>Employee ID</span>
 
-                      <span>
-                        Employee ID
-                      </span>
-
-                      <strong>
-                        {profileData.employeeId}
-                      </strong>
-
+                      <strong>{profileData.employeeId}</strong>
                     </div>
                   )}
-
 
                   {profileData?.department && (
                     <div className="erp-profile-card-row">
+                      <span>Department</span>
 
-                      <span>
-                        Department
-                      </span>
-
-                      <strong>
-                        {profileData.department}
-                      </strong>
-
+                      <strong>{profileData.department}</strong>
                     </div>
                   )}
-
 
                   {profileData?.email && (
                     <div className="erp-profile-card-row">
+                      <span>Email</span>
 
-                      <span>
-                        Email
-                      </span>
-
-                      <strong>
-                        {profileData.email}
-                      </strong>
-
+                      <strong>{profileData.email}</strong>
                     </div>
                   )}
-
 
                   {profileData?.phone && (
                     <div className="erp-profile-card-row">
+                      <span>Phone</span>
 
-                      <span>
-                        Phone
-                      </span>
-
-                      <strong>
-                        {profileData.phone}
-                      </strong>
-
+                      <strong>{profileData.phone}</strong>
                     </div>
                   )}
-
                 </div>
-
               </>
-
             )}
-
           </div>
-
         </div>
-
 
         {/* =========================
             SUPPORT
         ========================== */}
         <div className="erp-support-wrapper">
-
           <button
             type="button"
             className={`erp-header-action erp-support-action ${
-              supportOpen
-                ? "erp-support-action-active"
-                : ""
+              supportOpen ? "erp-support-action-active" : ""
             }`}
             onClick={handleSupportToggle}
           >
-
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -412,40 +359,24 @@ export default function Header({ navLinks = [] }) {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
+              <circle cx="12" cy="12" r="9" />
 
-              <circle
-                cx="12"
-                cy="12"
-                r="9"
-              />
+              <path d="M9.5 9a2.5 2.5 0 1 1 4.5 1.5c-.9 1-2 1.3-2 2.5" />
 
-              <path
-                d="M9.5 9a2.5 2.5 0 1 1 4.5 1.5c-.9 1-2 1.3-2 2.5"
-              />
-
-              <path
-                d="M12 17h.01"
-              />
-
+              <path d="M12 17h.01" />
             </svg>
 
-            <span>
-              Support
-            </span>
-
+            <span>Support</span>
           </button>
-
 
           {/* SUPPORT DROPDOWN */}
           {supportOpen && (
             <div className="erp-support-dropdown">
-
               <button
                 type="button"
                 className="erp-support-dropdown-option"
                 onClick={handleHelp}
               >
-
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -454,36 +385,21 @@ export default function Header({ navLinks = [] }) {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
+                  <circle cx="12" cy="12" r="9" />
 
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="9"
-                  />
+                  <path d="M9.5 9a2.5 2.5 0 1 1 4.5 1.5c-.9 1-2 1.3-2 2.5" />
 
-                  <path
-                    d="M9.5 9a2.5 2.5 0 1 1 4.5 1.5c-.9 1-2 1.3-2 2.5"
-                  />
-
-                  <path
-                    d="M12 17h.01"
-                  />
-
+                  <path d="M12 17h.01" />
                 </svg>
 
-                <span>
-                  Help
-                </span>
-
+                <span>Help</span>
               </button>
-
 
               <button
                 type="button"
                 className="erp-support-dropdown-option"
                 onClick={handleContactUs}
               >
-
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -492,36 +408,19 @@ export default function Header({ navLinks = [] }) {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
 
-                  <rect
-                    x="3"
-                    y="5"
-                    width="18"
-                    height="14"
-                    rx="2"
-                  />
-
-                  <path
-                    d="m3 7 9 6 9-6"
-                  />
-
+                  <path d="m3 7 9 6 9-6" />
                 </svg>
 
-                <span>
-                  Contact Us
-                </span>
-
+                <span>Contact Us</span>
               </button>
-
             </div>
           )}
-
         </div>
-
 
         {/* DIVIDER */}
         <span className="erp-action-divider" />
-
 
         {/* SIGN OUT */}
         <button
@@ -529,7 +428,6 @@ export default function Header({ navLinks = [] }) {
           className="erp-header-action erp-signout-action"
           onClick={handleSignOut}
         >
-
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -538,33 +436,18 @@ export default function Header({ navLinks = [] }) {
             strokeLinecap="round"
             strokeLinejoin="round"
           >
+            <path d="M10 17l5-5-5-5" />
 
-            <path
-              d="M10 17l5-5-5-5"
-            />
+            <path d="M15 12H3" />
 
-            <path
-              d="M15 12H3"
-            />
-
-            <path
-              d="M21 3v18"
-            />
-
+            <path d="M21 3v18" />
           </svg>
 
-          <span className="erp-signout-text">
-            Sign Out
-          </span>
+          <span className="erp-signout-text">Sign Out</span>
 
-          <span className="erp-signout-hover-text">
-            Thanks!
-          </span>
-
+          <span className="erp-signout-hover-text">Thanks!</span>
         </button>
-
       </div>
-
     </header>
   );
 }

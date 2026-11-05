@@ -49,6 +49,40 @@ function fmt(v) {
   return n.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+/** Build a readable label for material options using the PO details. */
+function getMaterialOptionLabel(material) {
+  const poNumber =
+    material?.poNumber ??
+    material?.po_number ??
+    material?.purchaseOrderNumber ??
+    material?.purchase_order_number ??
+    material?.po?.poNumber ??
+    material?.po?.po_number ??
+    "PO not available";
+
+  const poDescription =
+    material?.poDescription ??
+    material?.po_description ??
+    material?.purchaseOrderDescription ??
+    material?.purchase_order_description ??
+    material?.po?.description ??
+    material?.description ??
+    material?.materialDescription ??
+    material?.material_description ??
+    material?.materialName ??
+    material?.material_name ??
+    material?.materialCode ??
+    material?.material_code ??
+    "Description not available";
+
+  const availableQty = fmt(
+    material?.availableQty ?? material?.available_qty ?? material?.quantity_available ?? 0
+  );
+  const unit = material?.unit || material?.uom || "PCS";
+
+  return `(${poNumber} — ${poDescription}) — ${availableQty} ${unit}`;
+}
+
 /* ------------------------------------------------------------------ */
 /* PROCESS ID AUTO-GENERATION                                          */
 /* ------------------------------------------------------------------ */
@@ -1821,8 +1855,7 @@ function StepInputs({
                   {row.sourceType === "material"
                     ? sources.materials.map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.materialName} ({m.materialCode}) —{" "}
-                          {m.availableQty} {m.unit}
+                          {getMaterialOptionLabel(m)}
                         </option>
                       ))
                     : sources.assemblies.map((a) => (
@@ -1966,12 +1999,13 @@ function StepAvailability({ form, rowStatus, inputErrors }) {
     <div className="modal-card">
       <h3 className="modal-card-title">Material Availability</h3>
       <p className="modal-card-hint">
-        Here's what's on hand right now and what's still pending.
+        Check how much material is needed, how much is in stock, whether
+        there is a shortage, and how much will remain after this input.
       </p>
 
       <div className="availability-list">
         {rows.map((row) => {
-          const { disp, available, required, pending, status, error } =
+          const { disp, available, required, pending, balance, status, error } =
             rowStatus(row, form.inputs);
           return (
             <div
@@ -1985,14 +2019,20 @@ function StepAvailability({ form, rowStatus, inputErrors }) {
                 <AvailabilityStatusBadge status={status} />
               </div>
               <div className="availability-numbers">
-                <span>
-                  Required <strong>{fmt(required)}</strong>
+                <span className="availability-metric">
+                  Required for assembly <strong>{fmt(required)}</strong>
                 </span>
-                <span>
-                  Available <strong>{fmt(available)}</strong>
+                <span className="availability-metric">
+                  In stock <strong>{fmt(available)}</strong>
                 </span>
-                <span>
-                  Pending <strong>{fmt(pending)}</strong>
+                <span
+                  className={`availability-metric ${pending > 0 ? "availability-metric-shortage" : "availability-metric-ok"}`}
+                  title="Shortage is the quantity you need but do not currently have available."
+                >
+                  Shortage <strong>{fmt(pending)}</strong>
+                </span>
+                <span className="availability-metric availability-metric-balance">
+                  Left after this input <strong>{fmt(balance)}</strong>
                 </span>
               </div>
               {error && (
@@ -2014,7 +2054,7 @@ function StepAvailability({ form, rowStatus, inputErrors }) {
         </div>
       ) : (
         <div className="info-note info-note-success">
-          Everything you've added is fully available right now.
+          No shortage: all required quantities are available. “Left after this input” shows the stock remaining after the entered quantity is used.
         </div>
       )}
     </div>

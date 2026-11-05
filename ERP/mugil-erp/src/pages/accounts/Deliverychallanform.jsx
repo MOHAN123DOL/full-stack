@@ -4,11 +4,11 @@ import { ArrowLeft } from "lucide-react";
 import "./Deliverychallanform.css";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
+// Renamed from `Error` so it no longer shadows the global Error constructor
+// (this file uses `new Error(...)` below).
+import ErrorState from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
-
-const DRAFT_KEY = "mei-erp-delivery-challan-draft";
 
 const DC_CUSTOMERS_ENDPOINT = "/erp/delivery-challan-customers/";
 const DC_NEXT_NUMBER_ENDPOINT = "/erp/delivery-challans/next-number/";
@@ -290,7 +290,6 @@ export default function DeliveryChallanForm() {
   );
 
   const [errors, setErrors] = useState({});
-  const [savedAt, setSavedAt] = useState(null);
 
   // Flag: user manually edited amountInWords? Then stop auto-syncing.
   const [amountInWordsManual, setAmountInWordsManual] = useState(false);
@@ -313,25 +312,29 @@ export default function DeliveryChallanForm() {
   const [submitError, setSubmitError] = useState("");
 
   /* ============================================================
-     LOAD LOCAL DRAFT
+     BACK NAVIGATION
+     ------------------------------------------------------------
+     Menu -> Report -> View -> Form: Back returns to the report.
+     If the report page passes `returnTo` (and optionally
+     `returnState`) in the router state, we go exactly there so the
+     report context/filters are preserved. Otherwise we fall back to
+     the previous history entry (the report page when opened via View),
+     and finally the Accounts menu if there is no in-app history.
      ============================================================ */
-  useEffect(() => {
-    // Skip draft restore when opened from Reports
-    if (reportMode === "view" && reportNumber) return;
-
-    const raw = localStorage.getItem(DRAFT_KEY);
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(raw);
-      setData(normalizeFormData(parsed));
-      if (parsed?.amountInWords) {
-        setAmountInWordsManual(true);
-      }
-    } catch {
-      // ignore
+  const handleBack = useCallback(() => {
+    const returnTo = location.state?.returnTo;
+    if (returnTo) {
+      navigate(returnTo, { state: location.state?.returnState });
+      return;
     }
-  }, [reportMode, reportNumber]);
+    // In-app history entry exists (report page / menu page) -> go back to it.
+    if (window.history.state?.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    // Form opened directly in a fresh tab: don't leave the app.
+    navigate("/accounts");
+  }, [navigate, location.state]);
 
   /* ============================================================
      LOAD CUSTOMERS
@@ -946,27 +949,16 @@ export default function DeliveryChallanForm() {
   };
 
   /* ============================================================
-     SAVE LOCAL DRAFT
-     ============================================================ */
-  const saveDraft = () => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
-    setSavedAt(new Date());
-  };
-
-  /* ============================================================
-     NEW / CLEAR
+     NEW CHALLAN
      ============================================================ */
   const clearForm = async () => {
     if (!window.confirm("Clear all fields and start a new Delivery Challan?"))
       return;
 
-    localStorage.removeItem(DRAFT_KEY);
-
     const fresh = normalizeFormData(createEmptyFormData());
 
     setData(fresh);
     setErrors({});
-    setSavedAt(null);
     setSelectedCustomerId("");
     setOriginalCustomer(null);
     setCustomerActionError("");
@@ -981,7 +973,7 @@ export default function DeliveryChallanForm() {
   };
 
   /* ============================================================
-     CLEAR ALL (KEEP DC NUMBER, ADDRESS & CUSTOMER)
+     CLEAR (KEEP DC NUMBER, ADDRESS & CUSTOMER)
      ============================================================ */
   const clearAllKeepDetails = () => {
     if (
@@ -1006,13 +998,8 @@ export default function DeliveryChallanForm() {
 
     setData(cleared);
 
-    // Keep the saved draft in sync so a reload doesn't bring old values back
-    // (the preserved fields stay in it).
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(cleared));
-
     // Reset only UI state tied to the cleared fields.
     setErrors({});
-    setSavedAt(null);
     setSubmitError("");
     setAmountInWordsManual(false);
 
@@ -1051,9 +1038,10 @@ export default function DeliveryChallanForm() {
       amount_in_words: data.amountInWords || "",
       prepared_by: data.preparedBy || "",
 
+      // Keep whatever status an existing challan already has.
       ...(numberChoice === "existing" && data.status
         ? { status: data.status }
-        : { status: "DRAFT" }),
+        : {}),
     };
 
     try {
@@ -1103,8 +1091,6 @@ export default function DeliveryChallanForm() {
     });
 
     setData(previewData);
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(previewData));
-    setSavedAt(new Date());
 
     const dataParam = encodeURIComponent(JSON.stringify(previewData));
     window.location.href = `/DeliveryChallanPrint.html?data=${dataParam}`;
@@ -1131,7 +1117,7 @@ export default function DeliveryChallanForm() {
           <button
             type="button"
             className="erp-back-button"
-            onClick={() => navigate(-1)}
+            onClick={handleBack}
           >
             <ArrowLeft size={16} />
             Back
@@ -1139,26 +1125,12 @@ export default function DeliveryChallanForm() {
 
           <h2>Delivery Challan</h2>
 
-          <div className="form-header-actions">
-            {savedAt && (
-              <span className="form-status form-status-meta">
-                Last saved: {savedAt.toLocaleTimeString()}
-              </span>
-            )}
-          </div>
+          {/* Spacer keeps the title centred between Back and the right edge */}
+          <div className="form-header-actions" />
         </div>
 
         {/* TOP ACTIONS */}
-        <div
-          className="form-actions-top"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            marginBottom: "16px",
-            flexWrap: "wrap",
-          }}
-        >
+        <div className="form-actions-top">
           <button
             type="button"
             className="btn btn-secondary"
@@ -1171,12 +1143,8 @@ export default function DeliveryChallanForm() {
             type="button"
             className="btn btn-outline-danger"
             onClick={clearAllKeepDetails}
-            style={{
-              color: "#dc3545",
-              borderColor: "#dc3545",
-            }}
           >
-            Clear Draft
+            Clear
           </button>
 
           <button
@@ -1297,7 +1265,7 @@ export default function DeliveryChallanForm() {
         <section className="form-section">
           <h3 className="form-section-title">Delivery Challan Details</h3>
 
-          <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <div className="form-grid form-grid-2">
             <div className="form-group">
               <label className="form-label">DC Number</label>
               <input
@@ -1307,11 +1275,6 @@ export default function DeliveryChallanForm() {
                 readOnly
                 disabled
                 title="Auto-generated — cannot be edited"
-                style={{
-                  backgroundColor: "var(--bg-surface-muted)",
-                  color: "var(--text-secondary)",
-                  cursor: "not-allowed",
-                }}
               />
               {errors.dcNumber && (
                 <span className="form-error-text">{errors.dcNumber}</span>
@@ -1410,7 +1373,7 @@ export default function DeliveryChallanForm() {
 
           {!customersLoading && customersError && (
             <div className="qt-customer-error">
-              <Error onRetry={loadCustomers} />
+              <ErrorState onRetry={loadCustomers} />
             </div>
           )}
 
@@ -1682,22 +1645,26 @@ export default function DeliveryChallanForm() {
                       }
                     />
                   </td>
-                  <td className="form-table-actions">
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      onClick={() => duplicateRow(item.id)}
-                    >
-                      Duplicate
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-sm"
-                      onClick={() => deleteRow(item.id)}
-                      disabled={data.items.length <= 1}
-                    >
-                      Delete
-                    </button>
+                  <td>
+                    {/* Flex wrapper lives inside the cell so the <td> keeps
+                        its table-cell layout and row borders stay aligned. */}
+                    <div className="form-table-actions">
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        onClick={() => duplicateRow(item.id)}
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() => deleteRow(item.id)}
+                        disabled={data.items.length <= 1}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1765,7 +1732,7 @@ export default function DeliveryChallanForm() {
             style={{
               marginTop: "6px",
               fontSize: "12px",
-              color: "var(--text-secondary)",
+              color: "var(--text-secondary, #64748b)",
             }}
           >
             {amountInWordsManual
@@ -1789,14 +1756,6 @@ export default function DeliveryChallanForm() {
 
         {/* FOOTER ACTIONS */}
         <div className="form-actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={saveDraft}
-          >
-            Save Draft
-          </button>
-
           <button
             type="button"
             className="btn btn-primary"

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import "./TaxInvoice.css";
-import { Link, useLocation } from "react-router-dom";
+import "./ProformaInvoiceForm.css";
+import { useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
+// Renamed from `Error` so it no longer shadows the global Error constructor
+// (this file uses `new Error(...)`).
+import ErrorState from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 
@@ -110,8 +112,6 @@ const emptyItem = () => ({
   rate: "",
 });
 
-const DRAFT_KEY = "proformaInvoiceDraft:__unsaved__";
-
 const defaultFormData = {
   proformaNo: "",
   date: "",
@@ -165,13 +165,38 @@ function numberToWordsIndian(num) {
   if (num === 0) return "Zero";
 
   const ones = [
-    "", "One", "Two", "Three", "Four", "Five", "Six", "Seven",
-    "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen",
-    "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen",
+    "",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
   ];
   const tens = [
-    "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty",
-    "Seventy", "Eighty", "Ninety",
+    "",
+    "",
+    "Twenty",
+    "Thirty",
+    "Forty",
+    "Fifty",
+    "Sixty",
+    "Seventy",
+    "Eighty",
+    "Ninety",
   ];
 
   const twoDigits = (n) => {
@@ -254,6 +279,7 @@ const partiesAreEqual = (a, b) => {
 
 export default function ProformaInvoiceForm() {
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
 
   // ============================================================
@@ -293,42 +319,29 @@ export default function ProformaInvoiceForm() {
   const [submitError, setSubmitError] = useState("");
 
   /* ============================================================
-     RESTORE WORKING DRAFT
+     BACK NAVIGATION
+     ------------------------------------------------------------
+     Menu -> Report -> View -> Form: Back returns to the report.
+     1. If the report page passes `returnTo` (and optionally
+        `returnState`) in the router state, go exactly there so the
+        report context/filters are preserved.
+     2. Otherwise, if there is an in-app history entry, go back to it
+        (the report page when opened via View, or the menu page).
+     3. Otherwise (form opened directly in a fresh tab) fall back to
+        the Accounts menu instead of leaving the app.
      ============================================================ */
-  useEffect(() => {
-    if (reportMode === "view" && reportNumber) return;
-
-    try {
-      const saved = localStorage.getItem(DRAFT_KEY);
-      if (!saved) return;
-      const parsed = JSON.parse(saved);
-      if (parsed.formData)
-        setFormData({ ...defaultFormData, ...parsed.formData });
-      if (parsed.items && parsed.items.length) setItems(parsed.items);
-    } catch (e) {
-      console.error("Failed to restore draft", e);
+  const handleBack = useCallback(() => {
+    const returnTo = location.state?.returnTo;
+    if (returnTo) {
+      navigate(returnTo, { state: location.state?.returnState });
+      return;
     }
-  }, [reportMode, reportNumber]);
-
-  /* ============================================================
-     AUTOSAVE WORKING DRAFT
-     ============================================================ */
-  useEffect(() => {
-    // Do not overwrite the working draft when viewing/editing a report record.
-    if (reportMode === "view" && reportNumber) return;
-
-    const handle = setTimeout(() => {
-      try {
-        localStorage.setItem(
-          DRAFT_KEY,
-          JSON.stringify({ formData, items }),
-        );
-      } catch (e) {
-        console.error("Failed to save draft", e);
-      }
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [formData, items, reportMode, reportNumber]);
+    if (window.history.state?.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    navigate("/accounts");
+  }, [navigate, location.state]);
 
   /* ============================================================
      LOAD COMPANY BANK DETAILS (READ-ONLY)
@@ -431,16 +444,12 @@ export default function ProformaInvoiceForm() {
 
           date: serverData.date || prev.date,
           validUntil: serverData.valid_until || prev.validUntil,
-          paymentTerms:
-            serverData.payment_terms ?? prev.paymentTerms,
+          paymentTerms: serverData.payment_terms ?? prev.paymentTerms,
 
-          referenceNo:
-            serverData.reference_no ?? prev.referenceNo,
-          customerPoNo:
-            serverData.customer_po_no ?? prev.customerPoNo,
+          referenceNo: serverData.reference_no ?? prev.referenceNo,
+          customerPoNo: serverData.customer_po_no ?? prev.customerPoNo,
           poDate: serverData.po_date ?? prev.poDate,
-          placeOfSupply:
-            serverData.place_of_supply ?? prev.placeOfSupply,
+          placeOfSupply: serverData.place_of_supply ?? prev.placeOfSupply,
 
           receiverGst: serverData.receiver_gst ?? prev.receiverGst,
           consigneeGst: serverData.consignee_gst ?? prev.consigneeGst,
@@ -470,8 +479,7 @@ export default function ProformaInvoiceForm() {
           // not from previously saved invoice data.
 
           declaration: serverData.declaration ?? prev.declaration,
-          enclosureText:
-            serverData.enclosure_text ?? prev.enclosureText,
+          enclosureText: serverData.enclosure_text ?? prev.enclosureText,
         }));
 
         if (Array.isArray(serverData.items) && serverData.items.length) {
@@ -522,19 +530,35 @@ export default function ProformaInvoiceForm() {
         // dropdowns and customer actions show the correct selection.
         const receiverCustomer = customerList.find(
           (customer) =>
-            String(customer.company_name || "").trim().toLowerCase() ===
-            String(receiver.companyName || "").trim().toLowerCase(),
+            String(customer.company_name || "")
+              .trim()
+              .toLowerCase() ===
+            String(receiver.companyName || "")
+              .trim()
+              .toLowerCase(),
         );
         const consigneeCustomer = customerList.find(
           (customer) =>
-            String(customer.company_name || "").trim().toLowerCase() ===
-            String(consignee.companyName || "").trim().toLowerCase(),
+            String(customer.company_name || "")
+              .trim()
+              .toLowerCase() ===
+            String(consignee.companyName || "")
+              .trim()
+              .toLowerCase(),
         );
 
-        setSelectedReceiverId(receiverCustomer ? String(receiverCustomer.id) : "");
-        setSelectedConsigneeId(consigneeCustomer ? String(consigneeCustomer.id) : "");
-        setOriginalReceiver(receiverCustomer ? backendToParty(receiverCustomer) : null);
-        setOriginalConsignee(consigneeCustomer ? backendToParty(consigneeCustomer) : null);
+        setSelectedReceiverId(
+          receiverCustomer ? String(receiverCustomer.id) : "",
+        );
+        setSelectedConsigneeId(
+          consigneeCustomer ? String(consigneeCustomer.id) : "",
+        );
+        setOriginalReceiver(
+          receiverCustomer ? backendToParty(receiverCustomer) : null,
+        );
+        setOriginalConsignee(
+          consigneeCustomer ? backendToParty(consigneeCustomer) : null,
+        );
 
         setFormData((prev) => ({
           ...prev,
@@ -550,8 +574,10 @@ export default function ProformaInvoiceForm() {
           consigneeGst: responseData.consignee_gst ?? consignee.gst ?? "",
           receiverDetails: receiver,
           consigneeDetails: consignee,
-          receiverAddressOptionId: responseData.receiver_address_option_id ?? "",
-          consigneeAddressOptionId: responseData.consignee_address_option_id ?? "",
+          receiverAddressOptionId:
+            responseData.receiver_address_option_id ?? "",
+          consigneeAddressOptionId:
+            responseData.consignee_address_option_id ?? "",
           companyAddressId: responseData.company_address_id ?? "unit1",
           cgstPct: responseData.cgst_percent ?? 0,
           sgstPct: responseData.sgst_percent ?? 0,
@@ -618,8 +644,7 @@ export default function ProformaInvoiceForm() {
       const customerList = await loadCustomers();
       if (cancelled) return;
 
-      const cameFromReportWithNumber =
-        reportMode === "view" && !!reportNumber;
+      const cameFromReportWithNumber = reportMode === "view" && !!reportNumber;
 
       if (cameFromReportWithNumber) {
         await loadExistingProforma(reportNumber, customerList || []);
@@ -791,7 +816,9 @@ export default function ProformaInvoiceForm() {
     return (
       customers.find(
         (c) =>
-          String(c.company_name || "").trim().toLowerCase() === name,
+          String(c.company_name || "")
+            .trim()
+            .toLowerCase() === name,
       ) || null
     );
   }, [customers, formData.receiverDetails?.companyName]);
@@ -820,14 +847,14 @@ export default function ProformaInvoiceForm() {
      CONSIGNEE — ACTION STATE
      ============================================================ */
   const consigneeMatched = useMemo(() => {
-    const name = formData.consigneeDetails?.companyName
-      ?.trim()
-      .toLowerCase();
+    const name = formData.consigneeDetails?.companyName?.trim().toLowerCase();
     if (!name) return null;
     return (
       customers.find(
         (c) =>
-          String(c.company_name || "").trim().toLowerCase() === name,
+          String(c.company_name || "")
+            .trim()
+            .toLowerCase() === name,
       ) || null
     );
   }, [customers, formData.consigneeDetails?.companyName]);
@@ -886,9 +913,7 @@ export default function ProformaInvoiceForm() {
 
     const updated = responseData.data;
     setCustomers((prev) =>
-      prev.map((c) =>
-        String(c.id) === String(updated.id) ? updated : c,
-      ),
+      prev.map((c) => (String(c.id) === String(updated.id) ? updated : c)),
     );
     return updated;
   };
@@ -1028,9 +1053,7 @@ export default function ProformaInvoiceForm() {
      ============================================================ */
   const itemsWithAmount = items.map((it) => ({
     ...it,
-    amount: round2(
-      (parseFloat(it.quantity) || 0) * (parseFloat(it.rate) || 0),
-    ),
+    amount: round2((parseFloat(it.quantity) || 0) * (parseFloat(it.rate) || 0)),
   }));
 
   const subtotal = round2(
@@ -1050,8 +1073,7 @@ export default function ProformaInvoiceForm() {
   const beforeRounding = round2(
     subtotal + cgstAmount + sgstAmount + igstAmount,
   );
-  const grandTotalRaw =
-    beforeRounding + (parseFloat(formData.roundedOff) || 0);
+  const grandTotalRaw = beforeRounding + (parseFloat(formData.roundedOff) || 0);
   const grandTotal = Math.round(grandTotalRaw);
   const roundedOffAuto = round2(grandTotal - beforeRounding);
 
@@ -1059,9 +1081,8 @@ export default function ProformaInvoiceForm() {
 
   const selectedCompanyAddress = useMemo(
     () =>
-      COMPANY_ADDRESSES.find(
-        (a) => a.id === formData.companyAddressId,
-      ) || COMPANY_ADDRESSES[0],
+      COMPANY_ADDRESSES.find((a) => a.id === formData.companyAddressId) ||
+      COMPANY_ADDRESSES[0],
     [formData.companyAddressId],
   );
 
@@ -1108,13 +1129,11 @@ export default function ProformaInvoiceForm() {
 
       receiver_details: formData.receiverDetails,
       receiver_gst: formData.receiverGst || "",
-      receiver_address_option_id:
-        formData.receiverAddressOptionId || "",
+      receiver_address_option_id: formData.receiverAddressOptionId || "",
 
       consignee_details: formData.consigneeDetails,
       consignee_gst: formData.consigneeGst || "",
-      consignee_address_option_id:
-        formData.consigneeAddressOptionId || "",
+      consignee_address_option_id: formData.consigneeAddressOptionId || "",
 
       company_address_id: formData.companyAddressId || "unit1",
 
@@ -1141,8 +1160,6 @@ export default function ProformaInvoiceForm() {
       enclosure_text: formData.enclosureText || "",
 
       document_data: previewData,
-
-      ...(numberChoice === "existing" ? {} : { status: "DRAFT" }),
     };
 
     try {
@@ -1205,48 +1222,37 @@ export default function ProformaInvoiceForm() {
   return (
     <>
       <Header />
-      <div className="ti-form-page">
-        <Link to="/accounts" className="erp-back-button">
-          <ArrowLeft size={16} />
-          Back
-        </Link>
-
-        <div className="ti-form-header">
-          <div className="ti-form-header-left">
-            <div className="ti-form-title-block">
-              <h1 className="ti-form-title">Proforma Invoice</h1>
-              <p className="ti-form-subtitle">
-                Create and manage proforma invoice details
-              </p>
-            </div>
-          </div>
-
-          <div
-            className="ti-form-invoice-io"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              flexWrap: "wrap",
-            }}
+      <div className="form-page">
+        <div className="form-header">
+          <button
+            type="button"
+            className="erp-back-button"
+            onClick={handleBack}
           >
+            <ArrowLeft size={16} />
+            Back
+          </button>
+
+          <h2>Proforma Invoice</h2>
+
+          {/* Spacer keeps the title centred between Back and the right edge */}
+          <div className="form-header-actions" />
+        </div>
+
+        {/* TOP ACTIONS */}
+        <div className="form-actions-top">
+          <div className="form-actions-top-right">
+            {saveStatus && (
+              <span className="form-save-status">{saveStatus}</span>
+            )}
             <button
               type="button"
-              className="ti-form-preview-btn"
+              className="btn btn-primary"
               onClick={goToPrint}
               disabled={submitting || proformaNumberLoading}
             >
               {submitting ? "Saving..." : "Preview Invoice"}
             </button>
-
-            {saveStatus && (
-              <span
-                className="ti-form-save-status"
-                style={{ fontSize: "13px", color: "#555" }}
-              >
-                {saveStatus}
-              </span>
-            )}
           </div>
         </div>
 
@@ -1309,8 +1315,7 @@ export default function ProformaInvoiceForm() {
             <div className="qt-alert__icon">i</div>
             <div className="qt-alert__content">
               <strong>
-                Creating a new proforma:{" "}
-                {formData.proformaNo || "Loading..."}
+                Creating a new proforma: {formData.proformaNo || "Loading..."}
               </strong>
               <span>
                 A fresh number from the current sequence will be used.
@@ -1338,20 +1343,17 @@ export default function ProformaInvoiceForm() {
           </div>
         )}
 
-        <div className="ti-form-content">
+        <div className="form-content">
           {/* 1. Proforma Details */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">01</span>
-              <h2 className="ti-form-section-title">Proforma Details</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Proforma Details</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-grid">
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Proforma No</label>
+            <div className="form-section-body">
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Proforma No</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={
                       formData.proformaNo ||
                       (proformaNumberLoading ? "Loading..." : "")
@@ -1361,32 +1363,30 @@ export default function ProformaInvoiceForm() {
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Date</label>
+                <div className="form-group">
+                  <label className="form-label">Date</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     type="date"
                     value={formData.date}
                     onChange={(e) => updateField("date", e.target.value)}
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Valid Until</label>
+                <div className="form-group">
+                  <label className="form-label">Valid Until</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     type="date"
                     value={formData.validUntil}
-                    onChange={(e) =>
-                      updateField("validUntil", e.target.value)
-                    }
+                    onChange={(e) => updateField("validUntil", e.target.value)}
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Payment Terms</label>
+                <div className="form-group">
+                  <label className="form-label">Payment Terms</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.paymentTerms}
                     onChange={(e) =>
                       updateField("paymentTerms", e.target.value)
@@ -1395,10 +1395,10 @@ export default function ProformaInvoiceForm() {
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Address</label>
+                <div className="form-group">
+                  <label className="form-label">Address</label>
                   <select
-                    className="ti-form-select"
+                    className="form-input"
                     value={selectedCompanyAddress.id}
                     onChange={(e) =>
                       updateField("companyAddressId", e.target.value)
@@ -1424,28 +1424,24 @@ export default function ProformaInvoiceForm() {
 
           {!customersLoading && customersError && (
             <div className="qt-customer-error">
-              <Error onRetry={loadCustomers} />
+              <ErrorState onRetry={loadCustomers} />
             </div>
           )}
 
           {!customersLoading && !customersError && (
             <>
               {/* 2. Receiver / 3. Consignee */}
-              <div className="ti-form-party-grid">
-                <section className="ti-form-party-card">
-                  <div className="ti-form-party-card-header">
-                    <h2 className="ti-form-party-card-title">
-                      02 &nbsp; Details of Receiver (Billed To)
-                    </h2>
-                  </div>
+              <div className="form-party-grid">
+                <section className="form-section">
+                  <h3 className="form-section-title">
+                    Details of Receiver (Billed To)
+                  </h3>
 
-                  <div className="ti-form-party-card-body">
-                    <div className="ti-form-field ti-form-customer-select">
-                      <label className="ti-form-label">
-                        Select Customer
-                      </label>
+                  <div className="form-section-body">
+                    <div className="form-group form-customer-select">
+                      <label className="form-label">Select Customer</label>
                       <select
-                        className="ti-form-select"
+                        className="form-input"
                         value={selectedReceiverId}
                         onChange={(e) =>
                           handleReceiverCustomerChange(e.target.value)
@@ -1461,17 +1457,15 @@ export default function ProformaInvoiceForm() {
                     </div>
 
                     {formData.receiverGst === COMPANY.gstin && (
-                      <div className="ti-form-field ti-form-customer-select">
-                        <label className="ti-form-label">
+                      <div className="form-group form-customer-select">
+                        <label className="form-label">
                           Mugil Industry — Address
                         </label>
                         <select
-                          className="ti-form-select"
+                          className="form-input"
                           value={formData.receiverAddressOptionId}
                           onChange={(e) =>
-                            handleReceiverAddressOptionChange(
-                              e.target.value,
-                            )
+                            handleReceiverAddressOptionChange(e.target.value)
                           }
                         >
                           <option value="">
@@ -1486,25 +1480,22 @@ export default function ProformaInvoiceForm() {
                       </div>
                     )}
 
-                    <div className="ti-form-grid ti-form-grid--two">
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">Company Name</label>
+                    <div className="form-grid form-grid-2">
+                      <div className="form-group">
+                        <label className="form-label">Company Name</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.companyName}
                           onChange={(e) =>
-                            updateReceiverField(
-                              "companyName",
-                              e.target.value,
-                            )
+                            updateReceiverField("companyName", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">GST Number</label>
+                      <div className="form-group">
+                        <label className="form-label">GST Number</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.gst}
                           onChange={(e) =>
                             updateReceiverField("gst", e.target.value)
@@ -1512,10 +1503,10 @@ export default function ProformaInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field ti-form-field--span-2">
-                        <label className="ti-form-label">Address</label>
+                      <div className="form-group form-group-wide">
+                        <label className="form-label">Address</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.address}
                           onChange={(e) =>
                             updateReceiverField("address", e.target.value)
@@ -1523,10 +1514,10 @@ export default function ProformaInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">State</label>
+                      <div className="form-group">
+                        <label className="form-label">State</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.state}
                           onChange={(e) =>
                             updateReceiverField("state", e.target.value)
@@ -1534,26 +1525,21 @@ export default function ProformaInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">State Code</label>
+                      <div className="form-group">
+                        <label className="form-label">State Code</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.stateCode}
                           onChange={(e) =>
-                            updateReceiverField(
-                              "stateCode",
-                              e.target.value,
-                            )
+                            updateReceiverField("stateCode", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">
-                          Phone Number
-                        </label>
+                      <div className="form-group">
+                        <label className="form-label">Phone Number</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.phone}
                           onChange={(e) =>
                             updateReceiverField("phone", e.target.value)
@@ -1561,10 +1547,10 @@ export default function ProformaInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">Email</label>
+                      <div className="form-group">
+                        <label className="form-label">Email</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.email}
                           onChange={(e) =>
                             updateReceiverField("email", e.target.value)
@@ -1661,20 +1647,16 @@ export default function ProformaInvoiceForm() {
                   </div>
                 </section>
 
-                <section className="ti-form-party-card">
-                  <div className="ti-form-party-card-header">
-                    <h2 className="ti-form-party-card-title">
-                      03 &nbsp; Details of Consignee (Shipped To)
-                    </h2>
-                  </div>
+                <section className="form-section">
+                  <h3 className="form-section-title">
+                    Details of Consignee (Shipped To)
+                  </h3>
 
-                  <div className="ti-form-party-card-body">
-                    <div className="ti-form-field ti-form-customer-select">
-                      <label className="ti-form-label">
-                        Select Customer
-                      </label>
+                  <div className="form-section-body">
+                    <div className="form-group form-customer-select">
+                      <label className="form-label">Select Customer</label>
                       <select
-                        className="ti-form-select"
+                        className="form-input"
                         value={selectedConsigneeId}
                         onChange={(e) =>
                           handleConsigneeCustomerChange(e.target.value)
@@ -1690,17 +1672,15 @@ export default function ProformaInvoiceForm() {
                     </div>
 
                     {formData.consigneeGst === COMPANY.gstin && (
-                      <div className="ti-form-field ti-form-customer-select">
-                        <label className="ti-form-label">
+                      <div className="form-group form-customer-select">
+                        <label className="form-label">
                           Mugil Industry — Address
                         </label>
                         <select
-                          className="ti-form-select"
+                          className="form-input"
                           value={formData.consigneeAddressOptionId}
                           onChange={(e) =>
-                            handleConsigneeAddressOptionChange(
-                              e.target.value,
-                            )
+                            handleConsigneeAddressOptionChange(e.target.value)
                           }
                         >
                           <option value="">
@@ -1715,25 +1695,22 @@ export default function ProformaInvoiceForm() {
                       </div>
                     )}
 
-                    <div className="ti-form-grid ti-form-grid--two">
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">Company Name</label>
+                    <div className="form-grid form-grid-2">
+                      <div className="form-group">
+                        <label className="form-label">Company Name</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.companyName}
                           onChange={(e) =>
-                            updateConsigneeField(
-                              "companyName",
-                              e.target.value,
-                            )
+                            updateConsigneeField("companyName", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">GST</label>
+                      <div className="form-group">
+                        <label className="form-label">GST</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.gst}
                           onChange={(e) =>
                             updateConsigneeField("gst", e.target.value)
@@ -1741,24 +1718,21 @@ export default function ProformaInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field ti-form-field--span-2">
-                        <label className="ti-form-label">Address</label>
+                      <div className="form-group form-group-wide">
+                        <label className="form-label">Address</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.address}
                           onChange={(e) =>
-                            updateConsigneeField(
-                              "address",
-                              e.target.value,
-                            )
+                            updateConsigneeField("address", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">State</label>
+                      <div className="form-group">
+                        <label className="form-label">State</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.state}
                           onChange={(e) =>
                             updateConsigneeField("state", e.target.value)
@@ -1766,26 +1740,21 @@ export default function ProformaInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">State Code</label>
+                      <div className="form-group">
+                        <label className="form-label">State Code</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.stateCode}
                           onChange={(e) =>
-                            updateConsigneeField(
-                              "stateCode",
-                              e.target.value,
-                            )
+                            updateConsigneeField("stateCode", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">
-                          Phone Number
-                        </label>
+                      <div className="form-group">
+                        <label className="form-label">Phone Number</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.phone}
                           onChange={(e) =>
                             updateConsigneeField("phone", e.target.value)
@@ -1793,10 +1762,10 @@ export default function ProformaInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">Email</label>
+                      <div className="form-group">
+                        <label className="form-label">Email</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.email}
                           onChange={(e) =>
                             updateConsigneeField("email", e.target.value)
@@ -1897,32 +1866,27 @@ export default function ProformaInvoiceForm() {
           )}
 
           {/* 4. Reference / Order Information */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">04</span>
-              <h2 className="ti-form-section-title">
-                Reference / Order Information
-              </h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">
+              Reference / Order Information
+            </h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-grid ti-form-grid--two">
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Reference No</label>
+            <div className="form-section-body">
+              <div className="form-grid form-grid-2">
+                <div className="form-group">
+                  <label className="form-label">Reference No</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.referenceNo}
-                    onChange={(e) =>
-                      updateField("referenceNo", e.target.value)
-                    }
+                    onChange={(e) => updateField("referenceNo", e.target.value)}
                     placeholder="e.g. REF-2026-089"
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Customer PO No</label>
+                <div className="form-group">
+                  <label className="form-label">Customer PO No</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.customerPoNo}
                     onChange={(e) =>
                       updateField("customerPoNo", e.target.value)
@@ -1931,20 +1895,20 @@ export default function ProformaInvoiceForm() {
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">PO Date</label>
+                <div className="form-group">
+                  <label className="form-label">PO Date</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     type="date"
                     value={formData.poDate}
                     onChange={(e) => updateField("poDate", e.target.value)}
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Place of Supply</label>
+                <div className="form-group">
+                  <label className="form-label">Place of Supply</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.placeOfSupply}
                     onChange={(e) =>
                       updateField("placeOfSupply", e.target.value)
@@ -1957,15 +1921,12 @@ export default function ProformaInvoiceForm() {
           </section>
 
           {/* 5. Proforma Items */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">05</span>
-              <h2 className="ti-form-section-title">Proforma Items</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Proforma Items</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-items-wrapper">
-                <table className="ti-form-items-table">
+            <div className="form-section-body">
+              <div className="form-table-wrapper">
+                <table className="form-table form-table-wide">
                   <thead>
                     <tr>
                       <th style={{ width: 40 }}>SL</th>
@@ -1982,25 +1943,21 @@ export default function ProformaInvoiceForm() {
                   <tbody>
                     {itemsWithAmount.map((it, idx) => (
                       <tr key={it.id}>
-                        <td className="ti-form-item-sl">{idx + 1}</td>
+                        <td>{idx + 1}</td>
 
                         <td>
                           <input
-                            className="ti-form-item-input"
+                            className="form-input"
                             value={it.description}
                             onChange={(e) =>
-                              updateItem(
-                                it.id,
-                                "description",
-                                e.target.value,
-                              )
+                              updateItem(it.id, "description", e.target.value)
                             }
                           />
                         </td>
 
                         <td>
                           <input
-                            className="ti-form-item-input"
+                            className="form-input"
                             value={it.hsn}
                             onChange={(e) =>
                               updateItem(it.id, "hsn", e.target.value)
@@ -2010,22 +1967,18 @@ export default function ProformaInvoiceForm() {
 
                         <td>
                           <input
-                            className="ti-form-item-input ti-form-item-number"
+                            className="form-input form-input-number"
                             type="number"
                             value={it.quantity}
                             onChange={(e) =>
-                              updateItem(
-                                it.id,
-                                "quantity",
-                                e.target.value,
-                              )
+                              updateItem(it.id, "quantity", e.target.value)
                             }
                           />
                         </td>
 
                         <td>
                           <input
-                            className="ti-form-item-input"
+                            className="form-input"
                             value={it.unit}
                             onChange={(e) =>
                               updateItem(it.id, "unit", e.target.value)
@@ -2036,7 +1989,7 @@ export default function ProformaInvoiceForm() {
 
                         <td>
                           <input
-                            className="ti-form-item-input ti-form-item-number"
+                            className="form-input form-input-number"
                             type="number"
                             value={it.rate}
                             onChange={(e) =>
@@ -2045,29 +1998,32 @@ export default function ProformaInvoiceForm() {
                           />
                         </td>
 
-                        <td className="ti-form-item-amount">
+                        <td className="form-table-amount">
                           ₹
                           {it.amount.toLocaleString("en-IN", {
                             minimumFractionDigits: 2,
                           })}
                         </td>
 
-                        <td className="ti-form-row-actions">
-                          <button
-                            type="button"
-                            className="ti-form-row-btn"
-                            onClick={() => duplicateRow(it.id)}
-                          >
-                            Duplicate
-                          </button>
+                        <td>
+                          <div className="form-table-actions">
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              onClick={() => duplicateRow(it.id)}
+                            >
+                              Duplicate
+                            </button>
 
-                          <button
-                            type="button"
-                            className="ti-form-row-btn ti-form-row-btn--delete"
-                            onClick={() => deleteRow(it.id)}
-                          >
-                            Delete
-                          </button>
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              onClick={() => deleteRow(it.id)}
+                              disabled={items.length <= 1}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2077,7 +2033,7 @@ export default function ProformaInvoiceForm() {
 
               <button
                 type="button"
-                className="ti-form-add-row"
+                className="btn btn-secondary"
                 onClick={addRow}
               >
                 + Add Row
@@ -2086,106 +2042,95 @@ export default function ProformaInvoiceForm() {
           </section>
 
           {/* 6. Amount Summary */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">06</span>
-              <h2 className="ti-form-section-title">Amount Summary</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Amount Summary</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-summary-layout">
-                <div className="ti-form-tax-grid">
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">Subtotal</label>
+            <div className="form-section-body">
+              <div className="form-summary-layout">
+                <div className="form-tax-grid">
+                  <div className="form-group">
+                    <label className="form-label">Subtotal</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={subtotal.toFixed(2)}
                       readOnly
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">CGST %</label>
+                  <div className="form-group">
+                    <label className="form-label">CGST %</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       type="number"
                       value={formData.cgstPct}
-                      onChange={(e) =>
-                        updateField("cgstPct", e.target.value)
-                      }
+                      onChange={(e) => updateField("cgstPct", e.target.value)}
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">CGST Amount</label>
+                  <div className="form-group">
+                    <label className="form-label">CGST Amount</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={cgstAmount.toFixed(2)}
                       readOnly
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">SGST %</label>
+                  <div className="form-group">
+                    <label className="form-label">SGST %</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       type="number"
                       value={formData.sgstPct}
-                      onChange={(e) =>
-                        updateField("sgstPct", e.target.value)
-                      }
+                      onChange={(e) => updateField("sgstPct", e.target.value)}
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">SGST Amount</label>
+                  <div className="form-group">
+                    <label className="form-label">SGST Amount</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={sgstAmount.toFixed(2)}
                       readOnly
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">IGST %</label>
+                  <div className="form-group">
+                    <label className="form-label">IGST %</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       type="number"
                       value={formData.igstPct}
-                      onChange={(e) =>
-                        updateField("igstPct", e.target.value)
-                      }
+                      onChange={(e) => updateField("igstPct", e.target.value)}
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">IGST Amount</label>
+                  <div className="form-group">
+                    <label className="form-label">IGST Amount</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={igstAmount.toFixed(2)}
                       readOnly
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">Rounded Off</label>
+                  <div className="form-group">
+                    <label className="form-label">Rounded Off</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={roundedOffAuto.toFixed(2)}
                       readOnly
                     />
                   </div>
                 </div>
 
-                <div className="ti-form-grand-total">
-                  <div className="ti-form-grand-total-header">
-                    Grand Total
-                  </div>
+                <div className="form-grand-total">
+                  <div className="form-grand-total-header">Grand Total</div>
 
-                  <div className="ti-form-grand-total-body">
-                    <p className="ti-form-total-label">Grand Total</p>
+                  <div className="form-grand-total-body">
+                    <p className="form-total-label">Grand Total</p>
 
-                    <p className="ti-form-total-value">
+                    <p className="form-total-value">
                       ₹
                       {grandTotal.toLocaleString("en-IN", {
                         minimumFractionDigits: 2,
@@ -2193,12 +2138,12 @@ export default function ProformaInvoiceForm() {
                       })}
                     </p>
 
-                    <div className="ti-form-amount-words">
-                      <div className="ti-form-amount-words-label">
+                    <div className="form-amount-words">
+                      <div className="form-amount-words-label">
                         Total Amount in Words
                       </div>
 
-                      <div className="ti-form-amount-words-value">
+                      <div className="form-amount-words-value">
                         {amountInWords}
                       </div>
                     </div>
@@ -2209,60 +2154,55 @@ export default function ProformaInvoiceForm() {
           </section>
 
           {/* 7. Bank Details */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">07</span>
-              <h2 className="ti-form-section-title">
-                Company Bank Details
-              </h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Company Bank Details</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-grid">
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Bank Name</label>
+            <div className="form-section-body">
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Bank Name</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.bankName}
                     readOnly
                     disabled
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Account Number</label>
+                <div className="form-group">
+                  <label className="form-label">Account Number</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.accountNumber}
                     readOnly
                     disabled
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Branch</label>
+                <div className="form-group">
+                  <label className="form-label">Branch</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.branch}
                     readOnly
                     disabled
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">IFSC</label>
+                <div className="form-group">
+                  <label className="form-label">IFSC</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.ifsc}
                     readOnly
                     disabled
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">PAN</label>
+                <div className="form-group">
+                  <label className="form-label">PAN</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={COMPANY.pan}
                     readOnly
                     disabled
@@ -2273,51 +2213,41 @@ export default function ProformaInvoiceForm() {
           </section>
 
           {/* 8. Declaration */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">08</span>
-              <h2 className="ti-form-section-title">Declaration</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Declaration</h3>
 
-            <div className="ti-form-section-body">
+            <div className="form-section-body">
               <textarea
-                className="ti-form-textarea"
+                className="form-textarea"
                 rows={4}
                 value={formData.declaration}
-                onChange={(e) =>
-                  updateField("declaration", e.target.value)
-                }
+                onChange={(e) => updateField("declaration", e.target.value)}
               />
             </div>
           </section>
 
           {/* 9. Terms / Encl */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">09</span>
-              <h2 className="ti-form-section-title">Terms / Encl</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Terms / Encl</h3>
 
-            <div className="ti-form-section-body">
-              <p className="ti-form-hint">
-                Each line becomes one numbered point under &quot;Encl :&quot;
-                on the PDF.
+            <div className="form-section-body">
+              <p className="form-hint">
+                Each line becomes one numbered point under &quot;Encl :&quot; on
+                the PDF.
               </p>
               <textarea
-                className="ti-form-textarea"
+                className="form-textarea"
                 rows={5}
                 value={formData.enclosureText}
-                onChange={(e) =>
-                  updateField("enclosureText", e.target.value)
-                }
+                onChange={(e) => updateField("enclosureText", e.target.value)}
               />
             </div>
           </section>
 
-          <div className="ti-form-actions">
+          <div className="form-actions">
             <button
               type="button"
-              className="ti-form-preview-btn"
+              className="btn btn-primary"
               onClick={goToPrint}
               disabled={submitting || proformaNumberLoading}
             >

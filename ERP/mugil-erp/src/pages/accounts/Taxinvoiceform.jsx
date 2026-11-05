@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import "./TaxInvoice.css";
-import { Link, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
+// Renamed from `Error` so it no longer shadows the global Error constructor
+// (this file uses `new Error(...)`).
+import ErrorState from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 
@@ -109,8 +111,6 @@ const emptyItem = () => ({
   rate: "",
 });
 
-const DRAFT_KEY = "taxInvoiceDraft:__unsaved__";
-
 const defaultFormData = {
   invoiceNumber: "",
   invoiceDate: "",
@@ -166,13 +166,38 @@ function numberToWordsIndian(num) {
   if (num === 0) return "Zero";
 
   const ones = [
-    "", "One", "Two", "Three", "Four", "Five", "Six", "Seven",
-    "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen",
-    "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen",
+    "",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
   ];
   const tens = [
-    "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty",
-    "Seventy", "Eighty", "Ninety",
+    "",
+    "",
+    "Twenty",
+    "Thirty",
+    "Forty",
+    "Fifty",
+    "Sixty",
+    "Seventy",
+    "Eighty",
+    "Ninety",
   ];
 
   const twoDigits = (n) => {
@@ -255,6 +280,7 @@ const partiesAreEqual = (a, b) => {
 
 export default function TaxInvoiceForm() {
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
 
   // ============================================================
@@ -294,43 +320,29 @@ export default function TaxInvoiceForm() {
   const [submitError, setSubmitError] = useState("");
 
   /* ============================================================
-     RESTORE WORKING DRAFT
+     BACK NAVIGATION
+     ------------------------------------------------------------
+     Menu -> Report -> View -> Form: Back returns to the report.
+     1. If the report page passes `returnTo` (and optionally
+        `returnState`) in the router state, go exactly there so the
+        report context/filters are preserved.
+     2. Otherwise, if there is an in-app history entry, go back to it
+        (the report page when opened via View, or the menu page).
+     3. Otherwise (form opened directly in a fresh tab) fall back to
+        the Accounts menu instead of leaving the app.
      ============================================================ */
-  useEffect(() => {
-    // Skip draft restore when opened from Reports
-    if (reportMode === "view" && reportNumber) return;
-
-    try {
-      const saved = localStorage.getItem(DRAFT_KEY);
-      if (!saved) return;
-      const parsed = JSON.parse(saved);
-      if (parsed.formData)
-        setFormData({ ...defaultFormData, ...parsed.formData });
-      if (parsed.items && parsed.items.length) setItems(parsed.items);
-    } catch (e) {
-      console.error("Failed to restore draft", e);
+  const handleBack = useCallback(() => {
+    const returnTo = location.state?.returnTo;
+    if (returnTo) {
+      navigate(returnTo, { state: location.state?.returnState });
+      return;
     }
-  }, [reportMode, reportNumber]);
-
-  /* ============================================================
-     AUTOSAVE WORKING DRAFT
-     ============================================================ */
-  useEffect(() => {
-    // Report records must never overwrite the unsaved working draft.
-    if (reportMode === "view" && reportNumber) return;
-
-    const handle = setTimeout(() => {
-      try {
-        localStorage.setItem(
-          DRAFT_KEY,
-          JSON.stringify({ formData, items }),
-        );
-      } catch (e) {
-        console.error("Failed to save draft", e);
-      }
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [formData, items, reportMode, reportNumber]);
+    if (window.history.state?.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    navigate("/accounts");
+  }, [navigate, location.state]);
 
   /* ============================================================
      LOAD COMPANY BANK DETAILS FROM BACKEND .env
@@ -437,8 +449,7 @@ export default function TaxInvoiceForm() {
           dateOfSupply: serverData.date_of_supply || prev.dateOfSupply,
           reverseCharge: serverData.reverse_charge ?? prev.reverseCharge,
           vehicleNumber: serverData.vehicle_number ?? prev.vehicleNumber,
-          modeOfTransport:
-            serverData.mode_of_transport ?? prev.modeOfTransport,
+          modeOfTransport: serverData.mode_of_transport ?? prev.modeOfTransport,
           stateNameCode: serverData.state_name_code ?? prev.stateNameCode,
 
           receiverGst: serverData.receiver_gst ?? prev.receiverGst,
@@ -494,97 +505,100 @@ export default function TaxInvoiceForm() {
   /* ============================================================
      LOAD EXISTING TAX INVOICE FROM ACCOUNTS REPORTS
      ============================================================ */
-  const loadExistingTaxInvoice = useCallback(async (invoiceNumber) => {
-    if (!accessToken || !invoiceNumber) return;
+  const loadExistingTaxInvoice = useCallback(
+    async (invoiceNumber) => {
+      if (!accessToken || !invoiceNumber) return;
 
-    try {
-      setInvoiceNumberLoading(true);
-      setInvoiceNumberError("");
-      setSubmitError("");
+      try {
+        setInvoiceNumberLoading(true);
+        setInvoiceNumberError("");
+        setSubmitError("");
 
-      const response = await api.get(
-        `${TI_DETAIL_ENDPOINT}${encodeURIComponent(invoiceNumber)}/`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      );
-
-      const invoice = response.data?.data ?? response.data;
-      if (!invoice || !invoice.invoice_number) {
-        throw new Error("Tax invoice details were not returned.");
-      }
-
-      const receiver = {
-        ...EMPTY_PARTY,
-        ...(invoice.receiver_details || {}),
-      };
-      const consignee = {
-        ...EMPTY_PARTY,
-        ...(invoice.consignee_details || {}),
-      };
-
-      setFormData((prev) => ({
-        ...prev,
-        invoiceNumber: invoice.invoice_number || invoiceNumber,
-        invoiceDate: invoice.invoice_date
-          ? String(invoice.invoice_date).slice(0, 10)
-          : "",
-        dateOfSupply: invoice.date_of_supply
-          ? String(invoice.date_of_supply).slice(0, 10)
-          : "",
-        reverseCharge: invoice.reverse_charge ?? "NO",
-        vehicleNumber: invoice.vehicle_number ?? "",
-        modeOfTransport: invoice.mode_of_transport ?? "",
-        stateNameCode: invoice.state_name_code ?? "",
-        receiverGst: invoice.receiver_gst ?? "",
-        consigneeGst: invoice.consignee_gst ?? "",
-        receiverDetails: receiver,
-        consigneeDetails: consignee,
-        receiverAddressOptionId: invoice.receiver_address_option_id ?? "",
-        consigneeAddressOptionId: invoice.consignee_address_option_id ?? "",
-        placeOfSupplyState: invoice.place_of_supply_state ?? "",
-        placeOfSupplyStateCode: invoice.place_of_supply_state_code ?? "",
-        companyAddressId: invoice.company_address_id ?? "unit1",
-        cgstPct: invoice.cgst_percent ?? 9,
-        sgstPct: invoice.sgst_percent ?? 9,
-        igstPct: invoice.igst_percent ?? 0,
-        roundedOff: invoice.rounded_off ?? 0,
-        bankName: invoice.bank_name ?? prev.bankName,
-        accountNumber: invoice.account_number ?? prev.accountNumber,
-        branch: invoice.branch ?? prev.branch,
-        ifsc: invoice.ifsc ?? prev.ifsc,
-        declaration: invoice.declaration ?? prev.declaration,
-        enclosures: invoice.enclosures ?? prev.enclosures,
-      }));
-
-      if (Array.isArray(invoice.items) && invoice.items.length > 0) {
-        setItems(
-          invoice.items.map((item, index) => ({
-            ...item,
-            id: item.id ?? `${invoice.invoice_number}-${index}`,
-            description: item.description ?? "",
-            hsn: item.hsn ?? "",
-            quantity: item.quantity ?? "",
-            unit: item.unit ?? "",
-            rate: item.rate ?? "",
-          })),
+        const response = await api.get(
+          `${TI_DETAIL_ENDPOINT}${encodeURIComponent(invoiceNumber)}/`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          },
         );
-      } else {
-        setItems([emptyItem()]);
-      }
 
-      setNumberChoice("existing");
-    } catch (error) {
-      console.error("Failed to load existing tax invoice:", error);
-      setInvoiceNumberError(
-        error.response?.status === 404
-          ? `Tax invoice ${invoiceNumber} was not found.`
-          : GENERIC_ERROR,
-      );
-    } finally {
-      setInvoiceNumberLoading(false);
-    }
-  }, [accessToken]);
+        const invoice = response.data?.data ?? response.data;
+        if (!invoice || !invoice.invoice_number) {
+          throw new Error("Tax invoice details were not returned.");
+        }
+
+        const receiver = {
+          ...EMPTY_PARTY,
+          ...(invoice.receiver_details || {}),
+        };
+        const consignee = {
+          ...EMPTY_PARTY,
+          ...(invoice.consignee_details || {}),
+        };
+
+        setFormData((prev) => ({
+          ...prev,
+          invoiceNumber: invoice.invoice_number || invoiceNumber,
+          invoiceDate: invoice.invoice_date
+            ? String(invoice.invoice_date).slice(0, 10)
+            : "",
+          dateOfSupply: invoice.date_of_supply
+            ? String(invoice.date_of_supply).slice(0, 10)
+            : "",
+          reverseCharge: invoice.reverse_charge ?? "NO",
+          vehicleNumber: invoice.vehicle_number ?? "",
+          modeOfTransport: invoice.mode_of_transport ?? "",
+          stateNameCode: invoice.state_name_code ?? "",
+          receiverGst: invoice.receiver_gst ?? "",
+          consigneeGst: invoice.consignee_gst ?? "",
+          receiverDetails: receiver,
+          consigneeDetails: consignee,
+          receiverAddressOptionId: invoice.receiver_address_option_id ?? "",
+          consigneeAddressOptionId: invoice.consignee_address_option_id ?? "",
+          placeOfSupplyState: invoice.place_of_supply_state ?? "",
+          placeOfSupplyStateCode: invoice.place_of_supply_state_code ?? "",
+          companyAddressId: invoice.company_address_id ?? "unit1",
+          cgstPct: invoice.cgst_percent ?? 9,
+          sgstPct: invoice.sgst_percent ?? 9,
+          igstPct: invoice.igst_percent ?? 0,
+          roundedOff: invoice.rounded_off ?? 0,
+          bankName: invoice.bank_name ?? prev.bankName,
+          accountNumber: invoice.account_number ?? prev.accountNumber,
+          branch: invoice.branch ?? prev.branch,
+          ifsc: invoice.ifsc ?? prev.ifsc,
+          declaration: invoice.declaration ?? prev.declaration,
+          enclosures: invoice.enclosures ?? prev.enclosures,
+        }));
+
+        if (Array.isArray(invoice.items) && invoice.items.length > 0) {
+          setItems(
+            invoice.items.map((item, index) => ({
+              ...item,
+              id: item.id ?? `${invoice.invoice_number}-${index}`,
+              description: item.description ?? "",
+              hsn: item.hsn ?? "",
+              quantity: item.quantity ?? "",
+              unit: item.unit ?? "",
+              rate: item.rate ?? "",
+            })),
+          );
+        } else {
+          setItems([emptyItem()]);
+        }
+
+        setNumberChoice("existing");
+      } catch (error) {
+        console.error("Failed to load existing tax invoice:", error);
+        setInvoiceNumberError(
+          error.response?.status === 404
+            ? `Tax invoice ${invoiceNumber} was not found.`
+            : GENERIC_ERROR,
+        );
+      } finally {
+        setInvoiceNumberLoading(false);
+      }
+    },
+    [accessToken],
+  );
 
   /* ============================================================
      REPORT-VIEW: NUMBER CHOICE HANDLERS
@@ -617,8 +631,7 @@ export default function TaxInvoiceForm() {
     if (!accessToken) return;
     loadCustomers();
 
-    const cameFromReportWithNumber =
-      reportMode === "view" && !!reportNumber;
+    const cameFromReportWithNumber = reportMode === "view" && !!reportNumber;
 
     if (cameFromReportWithNumber) {
       loadExistingTaxInvoice(reportNumber);
@@ -761,8 +774,7 @@ export default function TaxInvoiceForm() {
         consigneeDetails: party,
         consigneeAddressOptionId: "",
         placeOfSupplyState: party.state || prev.placeOfSupplyState,
-        placeOfSupplyStateCode:
-          party.stateCode || prev.placeOfSupplyStateCode,
+        placeOfSupplyStateCode: party.stateCode || prev.placeOfSupplyStateCode,
       }));
     },
     [customers],
@@ -795,7 +807,9 @@ export default function TaxInvoiceForm() {
     return (
       customers.find(
         (c) =>
-          String(c.company_name || "").trim().toLowerCase() === name,
+          String(c.company_name || "")
+            .trim()
+            .toLowerCase() === name,
       ) || null
     );
   }, [customers, formData.receiverDetails?.companyName]);
@@ -824,14 +838,14 @@ export default function TaxInvoiceForm() {
      CONSIGNEE — ACTION STATE
      ============================================================ */
   const consigneeMatched = useMemo(() => {
-    const name = formData.consigneeDetails?.companyName
-      ?.trim()
-      .toLowerCase();
+    const name = formData.consigneeDetails?.companyName?.trim().toLowerCase();
     if (!name) return null;
     return (
       customers.find(
         (c) =>
-          String(c.company_name || "").trim().toLowerCase() === name,
+          String(c.company_name || "")
+            .trim()
+            .toLowerCase() === name,
       ) || null
     );
   }, [customers, formData.consigneeDetails?.companyName]);
@@ -890,9 +904,7 @@ export default function TaxInvoiceForm() {
 
     const updated = responseData.data;
     setCustomers((prev) =>
-      prev.map((c) =>
-        String(c.id) === String(updated.id) ? updated : c,
-      ),
+      prev.map((c) => (String(c.id) === String(updated.id) ? updated : c)),
     );
     return updated;
   };
@@ -1032,9 +1044,7 @@ export default function TaxInvoiceForm() {
      ============================================================ */
   const itemsWithAmount = items.map((it) => ({
     ...it,
-    amount: round2(
-      (parseFloat(it.quantity) || 0) * (parseFloat(it.rate) || 0),
-    ),
+    amount: round2((parseFloat(it.quantity) || 0) * (parseFloat(it.rate) || 0)),
   }));
 
   const subtotal = round2(
@@ -1054,8 +1064,7 @@ export default function TaxInvoiceForm() {
   const beforeRounding = round2(
     subtotal + cgstAmount + sgstAmount + igstAmount,
   );
-  const grandTotalRaw =
-    beforeRounding + (parseFloat(formData.roundedOff) || 0);
+  const grandTotalRaw = beforeRounding + (parseFloat(formData.roundedOff) || 0);
   const grandTotal = Math.round(grandTotalRaw);
   const roundedOffAuto = round2(grandTotal - beforeRounding);
 
@@ -1063,9 +1072,8 @@ export default function TaxInvoiceForm() {
 
   const selectedCompanyAddress = useMemo(
     () =>
-      COMPANY_ADDRESSES.find(
-        (a) => a.id === formData.companyAddressId,
-      ) || COMPANY_ADDRESSES[0],
+      COMPANY_ADDRESSES.find((a) => a.id === formData.companyAddressId) ||
+      COMPANY_ADDRESSES[0],
     [formData.companyAddressId],
   );
 
@@ -1118,8 +1126,7 @@ export default function TaxInvoiceForm() {
 
       consignee_details: formData.consigneeDetails,
       consignee_gst: formData.consigneeGst || "",
-      consignee_address_option_id:
-        formData.consigneeAddressOptionId || "",
+      consignee_address_option_id: formData.consigneeAddressOptionId || "",
 
       place_of_supply_state: formData.placeOfSupplyState || "",
       place_of_supply_state_code: formData.placeOfSupplyStateCode || "",
@@ -1150,10 +1157,6 @@ export default function TaxInvoiceForm() {
       enclosures: formData.enclosures || {},
 
       document_data: previewData,
-
-      // Preserve status on an existing invoice. The backend uses invoice_number
-      // to update an existing record; sending DRAFT here could downgrade CONFIRMED.
-      ...(numberChoice === "new" || !reportNumber ? { status: "DRAFT" } : {}),
     };
 
     try {
@@ -1216,44 +1219,37 @@ export default function TaxInvoiceForm() {
   return (
     <>
       <Header />
-      <div className="ti-form-page">
-        <Link to="/accounts" className="erp-back-button">
-          <ArrowLeft size={16} />
-          Back
-        </Link>
-
-        <div className="ti-form-header">
-          <div className="ti-form-header-left"></div>
-
-          <div
-            className="ti-form-invoice-io"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "flex-end",
-              gap: "8px",
-              flexWrap: "wrap",
-              marginLeft: "auto",
-              transform: "translateX(-8px)",
-            }}
+      <div className="form-page">
+        <div className="form-header">
+          <button
+            type="button"
+            className="erp-back-button"
+            onClick={handleBack}
           >
+            <ArrowLeft size={16} />
+            Back
+          </button>
+
+          <h2>Tax Invoice</h2>
+
+          {/* Spacer keeps the title centred between Back and the right edge */}
+          <div className="form-header-actions" />
+        </div>
+
+        {/* TOP ACTIONS */}
+        <div className="form-actions-top">
+          <div className="form-actions-top-right">
+            {saveStatus && (
+              <span className="form-save-status">{saveStatus}</span>
+            )}
             <button
               type="button"
-              className="ti-form-preview-btn"
+              className="btn btn-primary"
               onClick={goToPrint}
               disabled={submitting || invoiceNumberLoading}
             >
               {submitting ? "Saving..." : "Preview Invoice"}
             </button>
-
-            {saveStatus && (
-              <span
-                className="ti-form-save-status"
-                style={{ fontSize: "13px", color: "#555" }}
-              >
-                {saveStatus}
-              </span>
-            )}
           </div>
         </div>
 
@@ -1342,27 +1338,17 @@ export default function TaxInvoiceForm() {
           </div>
         )}
 
-        <div className="ti-form-content">
-          <div className="ti-form-title-block">
-            <h1 className="ti-form-title">Tax Invoice</h1>
-            <p className="ti-form-subtitle">
-              Create and manage tax invoice details
-            </p>
-          </div>
-
+        <div className="form-content">
           {/* 1. Invoice Details */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">01</span>
-              <h2 className="ti-form-section-title">Invoice Details</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Invoice Details</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-grid">
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Invoice Number</label>
+            <div className="form-section-body">
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Invoice Number</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={
                       formData.invoiceNumber ||
                       (invoiceNumberLoading ? "Loading..." : "")
@@ -1372,22 +1358,20 @@ export default function TaxInvoiceForm() {
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Invoice Date</label>
+                <div className="form-group">
+                  <label className="form-label">Invoice Date</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     type="date"
                     value={formData.invoiceDate}
-                    onChange={(e) =>
-                      updateField("invoiceDate", e.target.value)
-                    }
+                    onChange={(e) => updateField("invoiceDate", e.target.value)}
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Date of Supply</label>
+                <div className="form-group">
+                  <label className="form-label">Date of Supply</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     type="date"
                     value={formData.dateOfSupply}
                     onChange={(e) =>
@@ -1396,12 +1380,10 @@ export default function TaxInvoiceForm() {
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">
-                    Reverse Charge (Y/N)
-                  </label>
+                <div className="form-group">
+                  <label className="form-label">Reverse Charge (Y/N)</label>
                   <select
-                    className="ti-form-select"
+                    className="form-input"
                     value={formData.reverseCharge}
                     onChange={(e) =>
                       updateField("reverseCharge", e.target.value)
@@ -1412,10 +1394,10 @@ export default function TaxInvoiceForm() {
                   </select>
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Vehicle Number</label>
+                <div className="form-group">
+                  <label className="form-label">Vehicle Number</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.vehicleNumber}
                     onChange={(e) =>
                       updateField("vehicleNumber", e.target.value)
@@ -1424,10 +1406,10 @@ export default function TaxInvoiceForm() {
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Mode of Transport</label>
+                <div className="form-group">
+                  <label className="form-label">Mode of Transport</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.modeOfTransport}
                     onChange={(e) =>
                       updateField("modeOfTransport", e.target.value)
@@ -1436,10 +1418,10 @@ export default function TaxInvoiceForm() {
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Address</label>
+                <div className="form-group">
+                  <label className="form-label">Address</label>
                   <select
-                    className="ti-form-select"
+                    className="form-input"
                     value={selectedCompanyAddress.id}
                     onChange={(e) =>
                       updateField("companyAddressId", e.target.value)
@@ -1465,28 +1447,24 @@ export default function TaxInvoiceForm() {
 
           {!customersLoading && customersError && (
             <div className="qt-customer-error">
-              <Error onRetry={loadCustomers} />
+              <ErrorState onRetry={loadCustomers} />
             </div>
           )}
 
           {!customersLoading && !customersError && (
             <>
               {/* 2. Receiver / 3. Consignee */}
-              <div className="ti-form-party-grid">
-                <section className="ti-form-party-card">
-                  <div className="ti-form-party-card-header">
-                    <h2 className="ti-form-party-card-title">
-                      02 &nbsp; Details of Receiver (Billed To)
-                    </h2>
-                  </div>
+              <div className="form-party-grid">
+                <section className="form-section">
+                  <h3 className="form-section-title">
+                    Details of Receiver (Billed To)
+                  </h3>
 
-                  <div className="ti-form-party-card-body">
-                    <div className="ti-form-field ti-form-customer-select">
-                      <label className="ti-form-label">
-                        Select Customer
-                      </label>
+                  <div className="form-section-body">
+                    <div className="form-group form-customer-select">
+                      <label className="form-label">Select Customer</label>
                       <select
-                        className="ti-form-select"
+                        className="form-input"
                         value={selectedReceiverId}
                         onChange={(e) =>
                           handleReceiverCustomerChange(e.target.value)
@@ -1502,17 +1480,15 @@ export default function TaxInvoiceForm() {
                     </div>
 
                     {formData.receiverGst === COMPANY.gstin && (
-                      <div className="ti-form-field ti-form-customer-select">
-                        <label className="ti-form-label">
+                      <div className="form-group form-customer-select">
+                        <label className="form-label">
                           Mugil Industry — Address
                         </label>
                         <select
-                          className="ti-form-select"
+                          className="form-input"
                           value={formData.receiverAddressOptionId}
                           onChange={(e) =>
-                            handleReceiverAddressOptionChange(
-                              e.target.value,
-                            )
+                            handleReceiverAddressOptionChange(e.target.value)
                           }
                         >
                           <option value="">
@@ -1527,25 +1503,22 @@ export default function TaxInvoiceForm() {
                       </div>
                     )}
 
-                    <div className="ti-form-grid ti-form-grid--two">
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">Company Name</label>
+                    <div className="form-grid form-grid-2">
+                      <div className="form-group">
+                        <label className="form-label">Company Name</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.companyName}
                           onChange={(e) =>
-                            updateReceiverField(
-                              "companyName",
-                              e.target.value,
-                            )
+                            updateReceiverField("companyName", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">GST Number</label>
+                      <div className="form-group">
+                        <label className="form-label">GST Number</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.gst}
                           onChange={(e) =>
                             updateReceiverField("gst", e.target.value)
@@ -1553,10 +1526,10 @@ export default function TaxInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field ti-form-field--span-2">
-                        <label className="ti-form-label">Address</label>
+                      <div className="form-group form-group-wide">
+                        <label className="form-label">Address</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.address}
                           onChange={(e) =>
                             updateReceiverField("address", e.target.value)
@@ -1564,10 +1537,10 @@ export default function TaxInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">State</label>
+                      <div className="form-group">
+                        <label className="form-label">State</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.state}
                           onChange={(e) =>
                             updateReceiverField("state", e.target.value)
@@ -1575,26 +1548,21 @@ export default function TaxInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">State Code</label>
+                      <div className="form-group">
+                        <label className="form-label">State Code</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.stateCode}
                           onChange={(e) =>
-                            updateReceiverField(
-                              "stateCode",
-                              e.target.value,
-                            )
+                            updateReceiverField("stateCode", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">
-                          Phone Number
-                        </label>
+                      <div className="form-group">
+                        <label className="form-label">Phone Number</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.phone}
                           onChange={(e) =>
                             updateReceiverField("phone", e.target.value)
@@ -1602,10 +1570,10 @@ export default function TaxInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">Email</label>
+                      <div className="form-group">
+                        <label className="form-label">Email</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.receiverDetails.email}
                           onChange={(e) =>
                             updateReceiverField("email", e.target.value)
@@ -1701,20 +1669,16 @@ export default function TaxInvoiceForm() {
                   </div>
                 </section>
 
-                <section className="ti-form-party-card">
-                  <div className="ti-form-party-card-header">
-                    <h2 className="ti-form-party-card-title">
-                      03 &nbsp; Details of Consignee (Shipped To)
-                    </h2>
-                  </div>
+                <section className="form-section">
+                  <h3 className="form-section-title">
+                    Details of Consignee (Shipped To)
+                  </h3>
 
-                  <div className="ti-form-party-card-body">
-                    <div className="ti-form-field ti-form-customer-select">
-                      <label className="ti-form-label">
-                        Select Customer
-                      </label>
+                  <div className="form-section-body">
+                    <div className="form-group form-customer-select">
+                      <label className="form-label">Select Customer</label>
                       <select
-                        className="ti-form-select"
+                        className="form-input"
                         value={selectedConsigneeId}
                         onChange={(e) =>
                           handleConsigneeCustomerChange(e.target.value)
@@ -1730,17 +1694,15 @@ export default function TaxInvoiceForm() {
                     </div>
 
                     {formData.consigneeGst === COMPANY.gstin && (
-                      <div className="ti-form-field ti-form-customer-select">
-                        <label className="ti-form-label">
+                      <div className="form-group form-customer-select">
+                        <label className="form-label">
                           Mugil Industry — Address
                         </label>
                         <select
-                          className="ti-form-select"
+                          className="form-input"
                           value={formData.consigneeAddressOptionId}
                           onChange={(e) =>
-                            handleConsigneeAddressOptionChange(
-                              e.target.value,
-                            )
+                            handleConsigneeAddressOptionChange(e.target.value)
                           }
                         >
                           <option value="">
@@ -1755,25 +1717,22 @@ export default function TaxInvoiceForm() {
                       </div>
                     )}
 
-                    <div className="ti-form-grid ti-form-grid--two">
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">Company Name</label>
+                    <div className="form-grid form-grid-2">
+                      <div className="form-group">
+                        <label className="form-label">Company Name</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.companyName}
                           onChange={(e) =>
-                            updateConsigneeField(
-                              "companyName",
-                              e.target.value,
-                            )
+                            updateConsigneeField("companyName", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">GST</label>
+                      <div className="form-group">
+                        <label className="form-label">GST</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.gst}
                           onChange={(e) =>
                             updateConsigneeField("gst", e.target.value)
@@ -1781,24 +1740,21 @@ export default function TaxInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field ti-form-field--span-2">
-                        <label className="ti-form-label">Address</label>
+                      <div className="form-group form-group-wide">
+                        <label className="form-label">Address</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.address}
                           onChange={(e) =>
-                            updateConsigneeField(
-                              "address",
-                              e.target.value,
-                            )
+                            updateConsigneeField("address", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">State</label>
+                      <div className="form-group">
+                        <label className="form-label">State</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.state}
                           onChange={(e) =>
                             updateConsigneeField("state", e.target.value)
@@ -1806,26 +1762,21 @@ export default function TaxInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">State Code</label>
+                      <div className="form-group">
+                        <label className="form-label">State Code</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.stateCode}
                           onChange={(e) =>
-                            updateConsigneeField(
-                              "stateCode",
-                              e.target.value,
-                            )
+                            updateConsigneeField("stateCode", e.target.value)
                           }
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">
-                          Phone Number
-                        </label>
+                      <div className="form-group">
+                        <label className="form-label">Phone Number</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.phone}
                           onChange={(e) =>
                             updateConsigneeField("phone", e.target.value)
@@ -1833,10 +1784,10 @@ export default function TaxInvoiceForm() {
                         />
                       </div>
 
-                      <div className="ti-form-field">
-                        <label className="ti-form-label">Email</label>
+                      <div className="form-group">
+                        <label className="form-label">Email</label>
                         <input
-                          className="ti-form-input"
+                          className="form-input"
                           value={formData.consigneeDetails.email}
                           onChange={(e) =>
                             updateConsigneeField("email", e.target.value)
@@ -1936,20 +1887,15 @@ export default function TaxInvoiceForm() {
           )}
 
           {/* 4. Place of Supply */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">04</span>
-              <h2 className="ti-form-section-title">Place of Supply</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Place of Supply</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-grid ti-form-grid--two">
-                <div className="ti-form-field">
-                  <label className="ti-form-label">
-                    Place of Supply (State)
-                  </label>
+            <div className="form-section-body">
+              <div className="form-grid form-grid-2">
+                <div className="form-group">
+                  <label className="form-label">Place of Supply (State)</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.placeOfSupplyState}
                     onChange={(e) =>
                       updateField("placeOfSupplyState", e.target.value)
@@ -1958,29 +1904,26 @@ export default function TaxInvoiceForm() {
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">
+                <div className="form-group">
+                  <label className="form-label">
                     Place of Supply (State Code)
                   </label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.placeOfSupplyStateCode}
                     onChange={(e) =>
-                      updateField(
-                        "placeOfSupplyStateCode",
-                        e.target.value,
-                      )
+                      updateField("placeOfSupplyStateCode", e.target.value)
                     }
                     placeholder="Auto from Consignee — editable"
                   />
                 </div>
 
-                <div className="ti-form-field ti-form-field--span-2">
-                  <label className="ti-form-label">
+                <div className="form-group form-group-wide">
+                  <label className="form-label">
                     Name & Code of State (Enter Manually)
                   </label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.stateNameCode}
                     onChange={(e) =>
                       updateField("stateNameCode", e.target.value)
@@ -1993,15 +1936,12 @@ export default function TaxInvoiceForm() {
           </section>
 
           {/* 5. Invoice Items */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">05</span>
-              <h2 className="ti-form-section-title">Invoice Items</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Invoice Items</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-items-wrapper">
-                <table className="ti-form-items-table">
+            <div className="form-section-body">
+              <div className="form-table-wrapper">
+                <table className="form-table form-table-wide">
                   <thead>
                     <tr>
                       <th style={{ width: 40 }}>SL</th>
@@ -2018,25 +1958,21 @@ export default function TaxInvoiceForm() {
                   <tbody>
                     {itemsWithAmount.map((it, idx) => (
                       <tr key={it.id}>
-                        <td className="ti-form-item-sl">{idx + 1}</td>
+                        <td>{idx + 1}</td>
 
                         <td>
                           <input
-                            className="ti-form-item-input"
+                            className="form-input"
                             value={it.description}
                             onChange={(e) =>
-                              updateItem(
-                                it.id,
-                                "description",
-                                e.target.value,
-                              )
+                              updateItem(it.id, "description", e.target.value)
                             }
                           />
                         </td>
 
                         <td>
                           <input
-                            className="ti-form-item-input"
+                            className="form-input"
                             value={it.hsn}
                             onChange={(e) =>
                               updateItem(it.id, "hsn", e.target.value)
@@ -2046,22 +1982,18 @@ export default function TaxInvoiceForm() {
 
                         <td>
                           <input
-                            className="ti-form-item-input ti-form-item-number"
+                            className="form-input form-input-number"
                             type="number"
                             value={it.quantity}
                             onChange={(e) =>
-                              updateItem(
-                                it.id,
-                                "quantity",
-                                e.target.value,
-                              )
+                              updateItem(it.id, "quantity", e.target.value)
                             }
                           />
                         </td>
 
                         <td>
                           <input
-                            className="ti-form-item-input"
+                            className="form-input"
                             value={it.unit}
                             onChange={(e) =>
                               updateItem(it.id, "unit", e.target.value)
@@ -2072,7 +2004,7 @@ export default function TaxInvoiceForm() {
 
                         <td>
                           <input
-                            className="ti-form-item-input ti-form-item-number"
+                            className="form-input form-input-number"
                             type="number"
                             value={it.rate}
                             onChange={(e) =>
@@ -2081,29 +2013,32 @@ export default function TaxInvoiceForm() {
                           />
                         </td>
 
-                        <td className="ti-form-item-amount">
+                        <td className="form-table-amount">
                           ₹
                           {it.amount.toLocaleString("en-IN", {
                             minimumFractionDigits: 2,
                           })}
                         </td>
 
-                        <td className="ti-form-row-actions">
-                          <button
-                            type="button"
-                            className="ti-form-row-btn"
-                            onClick={() => duplicateRow(it.id)}
-                          >
-                            Duplicate
-                          </button>
+                        <td>
+                          <div className="form-table-actions">
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              onClick={() => duplicateRow(it.id)}
+                            >
+                              Duplicate
+                            </button>
 
-                          <button
-                            type="button"
-                            className="ti-form-row-btn ti-form-row-btn--delete"
-                            onClick={() => deleteRow(it.id)}
-                          >
-                            Delete
-                          </button>
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              onClick={() => deleteRow(it.id)}
+                              disabled={items.length <= 1}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2113,7 +2048,7 @@ export default function TaxInvoiceForm() {
 
               <button
                 type="button"
-                className="ti-form-add-row"
+                className="btn btn-secondary"
                 onClick={addRow}
               >
                 + Add Row
@@ -2122,106 +2057,95 @@ export default function TaxInvoiceForm() {
           </section>
 
           {/* 6. Amount Summary */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">06</span>
-              <h2 className="ti-form-section-title">Amount Summary</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Amount Summary</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-summary-layout">
-                <div className="ti-form-tax-grid">
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">Subtotal</label>
+            <div className="form-section-body">
+              <div className="form-summary-layout">
+                <div className="form-tax-grid">
+                  <div className="form-group">
+                    <label className="form-label">Subtotal</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={subtotal.toFixed(2)}
                       readOnly
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">CGST %</label>
+                  <div className="form-group">
+                    <label className="form-label">CGST %</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       type="number"
                       value={formData.cgstPct}
-                      onChange={(e) =>
-                        updateField("cgstPct", e.target.value)
-                      }
+                      onChange={(e) => updateField("cgstPct", e.target.value)}
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">CGST Amount</label>
+                  <div className="form-group">
+                    <label className="form-label">CGST Amount</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={cgstAmount.toFixed(2)}
                       readOnly
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">SGST %</label>
+                  <div className="form-group">
+                    <label className="form-label">SGST %</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       type="number"
                       value={formData.sgstPct}
-                      onChange={(e) =>
-                        updateField("sgstPct", e.target.value)
-                      }
+                      onChange={(e) => updateField("sgstPct", e.target.value)}
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">SGST Amount</label>
+                  <div className="form-group">
+                    <label className="form-label">SGST Amount</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={sgstAmount.toFixed(2)}
                       readOnly
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">IGST %</label>
+                  <div className="form-group">
+                    <label className="form-label">IGST %</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       type="number"
                       value={formData.igstPct}
-                      onChange={(e) =>
-                        updateField("igstPct", e.target.value)
-                      }
+                      onChange={(e) => updateField("igstPct", e.target.value)}
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">IGST Amount</label>
+                  <div className="form-group">
+                    <label className="form-label">IGST Amount</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={igstAmount.toFixed(2)}
                       readOnly
                     />
                   </div>
 
-                  <div className="ti-form-field">
-                    <label className="ti-form-label">Rounded Off</label>
+                  <div className="form-group">
+                    <label className="form-label">Rounded Off</label>
                     <input
-                      className="ti-form-input"
+                      className="form-input"
                       value={roundedOffAuto.toFixed(2)}
                       readOnly
                     />
                   </div>
                 </div>
 
-                <div className="ti-form-grand-total">
-                  <div className="ti-form-grand-total-header">
-                    Grand Total
-                  </div>
+                <div className="form-grand-total">
+                  <div className="form-grand-total-header">Grand Total</div>
 
-                  <div className="ti-form-grand-total-body">
-                    <p className="ti-form-total-label">Grand Total</p>
+                  <div className="form-grand-total-body">
+                    <p className="form-total-label">Grand Total</p>
 
-                    <p className="ti-form-total-value">
+                    <p className="form-total-value">
                       ₹
                       {grandTotal.toLocaleString("en-IN", {
                         minimumFractionDigits: 2,
@@ -2229,12 +2153,12 @@ export default function TaxInvoiceForm() {
                       })}
                     </p>
 
-                    <div className="ti-form-amount-words">
-                      <div className="ti-form-amount-words-label">
+                    <div className="form-amount-words">
+                      <div className="form-amount-words-label">
                         Total Amount in Words
                       </div>
 
-                      <div className="ti-form-amount-words-value">
+                      <div className="form-amount-words-value">
                         {amountInWords}
                       </div>
                     </div>
@@ -2245,94 +2169,77 @@ export default function TaxInvoiceForm() {
           </section>
 
           {/* 7. Bank Details */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">07</span>
-              <h2 className="ti-form-section-title">
-                Company Bank Details
-              </h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Company Bank Details</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-grid">
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Bank Name</label>
+            <div className="form-section-body">
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Bank Name</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.bankName}
                     readOnly
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Account Number</label>
+                <div className="form-group">
+                  <label className="form-label">Account Number</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.accountNumber}
                     readOnly
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">Branch</label>
+                <div className="form-group">
+                  <label className="form-label">Branch</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.branch}
                     readOnly
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">IFSC</label>
+                <div className="form-group">
+                  <label className="form-label">IFSC</label>
                   <input
-                    className="ti-form-input"
+                    className="form-input"
                     value={formData.ifsc}
                     readOnly
                   />
                 </div>
 
-                <div className="ti-form-field">
-                  <label className="ti-form-label">PAN</label>
-                  <input
-                    className="ti-form-input"
-                    value={COMPANY.pan}
-                    readOnly
-                  />
+                <div className="form-group">
+                  <label className="form-label">PAN</label>
+                  <input className="form-input" value={COMPANY.pan} readOnly />
                 </div>
               </div>
             </div>
           </section>
 
           {/* 8. Declaration */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">08</span>
-              <h2 className="ti-form-section-title">Declaration</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Declaration</h3>
 
-            <div className="ti-form-section-body">
+            <div className="form-section-body">
               <textarea
-                className="ti-form-textarea"
+                className="form-textarea"
                 rows={4}
                 value={formData.declaration}
-                onChange={(e) =>
-                  updateField("declaration", e.target.value)
-                }
+                onChange={(e) => updateField("declaration", e.target.value)}
               />
             </div>
           </section>
 
           {/* 9. Enclosures */}
-          <section className="ti-form-section">
-            <div className="ti-form-section-header">
-              <span className="ti-form-section-number">09</span>
-              <h2 className="ti-form-section-title">Enclosures</h2>
-            </div>
+          <section className="form-section">
+            <h3 className="form-section-title">Enclosures</h3>
 
-            <div className="ti-form-section-body">
-              <div className="ti-form-enclosure-list">
+            <div className="form-section-body">
+              <div className="form-enclosure-list">
                 {Object.keys(formData.enclosures).map((label) => (
-                  <label key={label} className="ti-form-checkbox">
+                  <label key={label} className="form-checkbox">
                     <input
                       type="checkbox"
                       checked={formData.enclosures[label]}
@@ -2345,10 +2252,10 @@ export default function TaxInvoiceForm() {
             </div>
           </section>
 
-          <div className="ti-form-actions">
+          <div className="form-actions">
             <button
               type="button"
-              className="ti-form-preview-btn"
+              className="btn btn-primary"
               onClick={goToPrint}
               disabled={submitting || invoiceNumberLoading}
             >

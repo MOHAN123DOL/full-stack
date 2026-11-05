@@ -9,7 +9,9 @@ import OrderItemsTable, {
 import AmountSummary from "../../components/AmountSummary";
 import TermsEditor from "../../components/TermsEditor";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
+// Renamed from `Error` so it no longer shadows the global Error constructor
+// (this file uses `new Error(...)` in the print-engine loader).
+import ErrorState from "../../components/error";
 
 import { initialPOData } from "../../utils/initialData";
 import { summarizePOItems } from "../../utils/calculations";
@@ -18,7 +20,7 @@ import "./PurchaseOrder.css";
 import "../../styles/form.css";
 import "../../styles/print.css";
 
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 
 import Header from "../../components/Header";
@@ -26,8 +28,6 @@ import Header from "../../components/Header";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 
-const DRAFT_KEY = "mei-erp-po-draft";
-const DRAFT_VERSION = 2;
 const PRINT_ENGINE_SRC = "/PurchaseOrderPrint.js";
 
 const CUSTOMERS_ENDPOINT = "/erp/customers/";
@@ -433,7 +433,6 @@ export default function PurchaseOrderForm() {
 
   const [data, setData] = useState(buildFreshData);
   const [errors, setErrors] = useState({});
-  const [savedAt, setSavedAt] = useState(null);
   const [includeAmountDetails, setIncludeAmountDetails] = useState(true);
 
   // ==========================================================
@@ -478,52 +477,34 @@ export default function PurchaseOrderForm() {
   const printEnginePreloadedRef = useRef(false);
 
   // ==========================================================
-  // LOAD LOCAL DRAFT
+  // BACK NAVIGATION
+  // Menu -> Report -> View -> Form: Back returns to the report.
+  // If the report passes `returnTo` (and optionally `returnState`) in the
+  // router state we go exactly there, so report context/filters survive.
+  // Opened from a report without `returnTo` -> previous history entry
+  // (the report). Opened straight from the menu -> the Accounts menu.
   // ==========================================================
 
-  useEffect(() => {
-    // Reports must load the selected PO, not a stale local draft.
-    if (isReportEdit) return;
+  const handleBack = useCallback(() => {
+    const returnTo = location.state?.returnTo;
 
-    const raw = localStorage.getItem(DRAFT_KEY);
-
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(raw);
-
-      if (parsed && parsed.__version === DRAFT_VERSION && parsed.data) {
-        setData((prev) => ({
-          ...prev,
-          ...parsed.data,
-          items: normalizePOItems(parsed.data.items || []),
-          vendor: normalizeVendor(parsed.data.vendor),
-        }));
-
-        if (parsed.columns && parsed.columns.length) {
-          setColumns(normalizePOColumns(parsed.columns));
-        }
-
-        if (typeof parsed.includeAmountDetails === "boolean") {
-          setIncludeAmountDetails(parsed.includeAmountDetails);
-        }
-      } else if (parsed && typeof parsed === "object") {
-        setData((prev) => ({
-          ...prev,
-          ...parsed,
-          items: normalizePOItems(parsed.items || []),
-          vendor: normalizeVendor(parsed.vendor),
-        }));
-      }
-    } catch {
-      // Corrupt draft — ignore
+    if (returnTo) {
+      navigate(returnTo, { state: location.state?.returnState });
+      return;
     }
-  }, [isReportEdit]);
+
+    if (isReportEdit) {
+      navigate(-1);
+      return;
+    }
+
+    navigate("/accounts");
+  }, [navigate, location.state, isReportEdit]);
 
   // ==========================================================
   // LOAD REPORT RECORD (existing PO)
   // Supports both camelCase and snake_case report API payloads.
-  // Report data takes priority over local draft/next-number data.
+  // Report data takes priority over next-number data.
 
   useEffect(() => {
     const reportRecord = location.state?.reportRecord;
@@ -580,7 +561,6 @@ export default function PurchaseOrderForm() {
     setNumberChoice("existing");
     setPoNumberError("");
     setErrors({});
-    setSavedAt(null);
   }, [location.state, isReportEdit, reportNumber]);
 
   // ==========================================================
@@ -766,7 +746,6 @@ export default function PurchaseOrderForm() {
 
           syncSelectedCustomer(serverData.vendor);
 
-          setSavedAt(null);
 
           return;
         }
@@ -842,7 +821,6 @@ export default function PurchaseOrderForm() {
 
           syncSelectedCustomer(serverData.vendor);
 
-          setSavedAt(null);
 
           return;
         }
@@ -1281,24 +1259,6 @@ export default function PurchaseOrderForm() {
   }, [data]);
 
   // ==========================================================
-  // SAVE LOCAL DRAFT
-  // ==========================================================
-
-  const saveDraft = useCallback(() => {
-    localStorage.setItem(
-      DRAFT_KEY,
-      JSON.stringify({
-        __version: DRAFT_VERSION,
-        data,
-        columns,
-        includeAmountDetails,
-      }),
-    );
-
-    setSavedAt(new Date());
-  }, [data, columns, includeAmountDetails]);
-
-  // ==========================================================
   // CLEAR FORM
   // Keeps PO Number and Customer details (vendor + selection),
   // resets everything else.
@@ -1319,8 +1279,6 @@ export default function PurchaseOrderForm() {
     const preservedSelectedCustomerId = selectedCustomerId;
     const preservedOriginalVendor = originalVendor;
 
-    localStorage.removeItem(DRAFT_KEY);
-
     // Build a fresh PO, then restore the preserved fields.
     setData(() => {
       const fresh = buildFreshData();
@@ -1333,7 +1291,6 @@ export default function PurchaseOrderForm() {
 
     setColumns(normalizePOColumns(createDefaultColumns("po")));
     setErrors({});
-    setSavedAt(null);
     setCustomerActionError("");
     setSubmitError("");
     setIncludeAmountDetails(true);
@@ -1459,18 +1416,6 @@ export default function PurchaseOrderForm() {
       };
 
       setData(previewData);
-
-      localStorage.setItem(
-        DRAFT_KEY,
-        JSON.stringify({
-          __version: DRAFT_VERSION,
-          data: previewData,
-          columns,
-          includeAmountDetails,
-        }),
-      );
-
-      setSavedAt(new Date());
 
       await loadPurchaseOrderPrintEngine();
 
@@ -1683,74 +1628,50 @@ export default function PurchaseOrderForm() {
 
       <div className="po-page">
         <div className="po-container">
-          {/* HERO / HEADER SECTION (Plain - No Blue Box) */}
-          <section className="po-hero po-hero--plain">
-            <div className="po-hero__top">
-              <Link to="/accounts" className="erp-back-button">
-                <ArrowLeft size={16} />
-                Back
-              </Link>
+          {/* HEADER */}
+          <div className="po-header">
+            <button
+              type="button"
+              className="erp-back-button"
+              onClick={handleBack}
+            >
+              <ArrowLeft size={16} />
+              Back
+            </button>
 
-              <div className="po-hero__actions">
-                <button
-                  type="button"
-                  className="po-btn po-btn--secondary" // <-- TO THIS
-                  onClick={clearForm}
-                  disabled={submitting}
-                >
-                  Clear
-                </button>
+            <h2>Purchase Order</h2>
 
-                <button
-                  type="button"
-                  className="po-btn po-btn--secondary"
-                  onClick={saveDraft}
-                  disabled={submitting}
-                >
-                  Save Draft
-                </button>
+            {/* Spacer keeps the title centred between Back and the right edge */}
+            <div className="po-header__spacer" />
+          </div>
 
-                <button
-                  type="button"
-                  className="po-btn po-btn--primary"
-                  onClick={goToPreview}
-                  disabled={submitting || !data.poNumber}
-                >
-                  {submitting ? (
-                    <>
-                      <span className="po-btn-spinner" />
-                      Creating PO...
-                    </>
-                  ) : (
-                    "Preview →"
-                  )}
-                </button>
-              </div>
-            </div>
+          {/* TOP ACTIONS */}
+          <div className="po-actions-top">
+            <button
+              type="button"
+              className="po-btn po-btn--outline-danger"
+              onClick={clearForm}
+              disabled={submitting}
+            >
+              Clear
+            </button>
 
-            <div className="po-hero__content">
-              <div className="po-hero__heading">
-                <h1>Purchase Order</h1>
-                <p>
-                  Fill in the details below, then preview the official document.
-                </p>
-              </div>
-
-              <div className="po-status">
-                <div className="po-status__card">
-                  <span className="po-status__label">Draft Status</span>
-                  <strong>{savedAt ? "Saved" : "Not Saved"}</strong>
-                </div>
-
-                <div className="po-status__card">
-                  <span className="po-status__label">Last Saved</span>
-                  <strong>
-                    {savedAt ? savedAt.toLocaleTimeString() : "--"}
-                  </strong>
-                </div>
-              </div>
-            </div>
-          </section>
+            <button
+              type="button"
+              className="po-btn po-btn--primary po-actions-top__preview"
+              onClick={goToPreview}
+              disabled={submitting || !data.poNumber}
+            >
+              {submitting ? (
+                <>
+                  <span className="po-btn-spinner" />
+                  Creating PO...
+                </>
+              ) : (
+                "Preview →"
+              )}
+            </button>
+          </div>
 
           {Object.keys(errors).length > 0 && (
             <div className="po-validation">
@@ -1799,7 +1720,6 @@ export default function PurchaseOrderForm() {
           {/* 01 PURCHASE DETAILS */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">01</div>
               <div className="po-card__heading">
                 <h3>Purchase Details</h3>
               </div>
@@ -1879,7 +1799,6 @@ export default function PurchaseOrderForm() {
           {/* 02 CUSTOMER DETAILS */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">02</div>
               <div className="po-card__heading">
                 <h3>Customer Details</h3>
               </div>
@@ -1893,7 +1812,7 @@ export default function PurchaseOrderForm() {
 
             {!customersLoading && customersError && (
               <div className="po-customer-error">
-                <Error onRetry={() => loadCustomers(accessToken)} />
+                <ErrorState onRetry={() => loadCustomers(accessToken)} />
               </div>
             )}
 
@@ -2033,7 +1952,6 @@ export default function PurchaseOrderForm() {
           {/* 03 INTRO */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">03</div>
               <div className="po-card__heading">
                 <h3>Intro Paragraph</h3>
               </div>
@@ -2053,7 +1971,6 @@ export default function PurchaseOrderForm() {
           {/* 04 ORDER ITEMS */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">04</div>
               <div className="po-card__heading">
                 <h3>Order Items</h3>
 
@@ -2090,7 +2007,6 @@ export default function PurchaseOrderForm() {
           {/* 05 AMOUNT SUMMARY */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">05</div>
               <div className="po-card__heading">
                 <h3>Amount Summary</h3>
               </div>
@@ -2147,7 +2063,6 @@ export default function PurchaseOrderForm() {
           {/* 06 DELIVERY */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">06</div>
               <div className="po-card__heading">
                 <h3>Delivery Details</h3>
               </div>
@@ -2206,7 +2121,6 @@ export default function PurchaseOrderForm() {
           {/* 07 PAYMENT */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">07</div>
               <div className="po-card__heading">
                 <h3>Payment Details</h3>
               </div>
@@ -2266,7 +2180,6 @@ export default function PurchaseOrderForm() {
           {/* 08 TERMS */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">08</div>
               <div className="po-card__heading">
                 <h3>Terms &amp; Conditions</h3>
               </div>
@@ -2284,7 +2197,6 @@ export default function PurchaseOrderForm() {
           {/* 09 NOTES */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">09</div>
               <div className="po-card__heading">
                 <h3>Notes</h3>
               </div>
@@ -2303,7 +2215,6 @@ export default function PurchaseOrderForm() {
           {/* 10 SIGNATURE */}
           <section className="po-card">
             <div className="po-card__header">
-              <div className="po-card__step">10</div>
               <div className="po-card__heading">
                 <h3>Signature</h3>
               </div>
@@ -2347,31 +2258,7 @@ export default function PurchaseOrderForm() {
 
           {/* FOOTER */}
           <div className="po-footerbar">
-            <div className="po-footerbar__status">
-              {savedAt
-                ? `Draft saved at ${savedAt.toLocaleTimeString()}`
-                : "Not saved yet"}
-            </div>
-
             <div className="po-footerbar__actions">
-              <button
-                type="button"
-                className="po-btn po-btn--secondary" // <-- TO THIS
-                onClick={clearForm}
-                disabled={submitting}
-              >
-                Clear
-              </button>
-
-              <button
-                type="button"
-                className="po-btn po-btn--secondary"
-                onClick={saveDraft}
-                disabled={submitting}
-              >
-                Save Draft
-              </button>
-
               <button
                 type="button"
                 className="po-btn po-btn--primary"
