@@ -450,77 +450,81 @@ export default function DeliveryChallanForm() {
   /* ============================================================
      LOAD SAVED DC DETAILS (ACCOUNTS REPORTS)
      ============================================================ */
-  const loadExistingDc = useCallback(async (dcNumber) => {
-    if (!accessToken || !dcNumber) return;
+  const loadExistingDc = useCallback(
+    async (dcNumber) => {
+      if (!accessToken || !dcNumber) return;
 
-    try {
-      setDcNumberLoading(true);
-      setDcNumberError("");
+      try {
+        setDcNumberLoading(true);
+        setDcNumberError("");
 
-      const response = await api.get(
-        `${DC_DETAIL_ENDPOINT}${encodeURIComponent(dcNumber)}/`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      );
-
-      const responseData = response.data;
-      const dc = responseData?.data ?? responseData;
-
-      if (responseData?.success === false || !dc?.dc_number) {
-        throw new Error(responseData?.message || "Delivery challan not found.");
-      }
-
-      const customer = dc.customer || {};
-      const customerFromServer = backendToCustomer(customer);
-
-      const loadedItems = Array.isArray(dc.items) && dc.items.length
-        ? dc.items.map((item) => ({
-            ...createEmptyItem(),
-            ...item,
-            id: item.id || generateItemId(),
-            description: item.description ?? "",
-            quantity: item.quantity ?? "",
-            rate: item.rate ?? "",
-            remarks: item.remarks ?? "",
-          }))
-        : [createEmptyItem()];
-
-      setData((previous) =>
-        normalizeFormData({
-          ...previous,
-          dcNumber: dc.dc_number || dcNumber,
-          dcDate: dc.dc_date || "",
-          poNumber: dc.po_number ?? "",
-          poDate: dc.po_date || "",
-          billNumber: dc.bill_number ?? "",
-          billDate: dc.bill_date || "",
-          deliveryAt: dc.delivery_at ?? "",
-          companyAddressId: dc.company_address_id ?? "unit1",
-          customer: {
-            ...customerFromServer,
-            returnable: dc.returnable ?? false,
+        const response = await api.get(
+          `${DC_DETAIL_ENDPOINT}${encodeURIComponent(dcNumber)}/`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
           },
-          items: loadedItems,
-          amountInWords: dc.amount_in_words ?? "",
-          preparedBy: dc.prepared_by ?? "",
-          status: dc.status,
-        }),
-      );
+        );
 
-      setSelectedCustomerId(String(customer.id ?? ""));
-      setOriginalCustomer(customerFromServer);
-      setAmountInWordsManual(!!dc.amount_in_words);
-      setNumberChoice("existing");
-    } catch (error) {
-      console.error("Failed to load existing delivery challan:", error);
-      setDcNumberError(
-        error?.response?.data?.message || GENERIC_ERROR,
-      );
-    } finally {
-      setDcNumberLoading(false);
-    }
-  }, [accessToken]);
+        const responseData = response.data;
+        const dc = responseData?.data ?? responseData;
+
+        if (responseData?.success === false || !dc?.dc_number) {
+          throw new Error(
+            responseData?.message || "Delivery challan not found.",
+          );
+        }
+
+        const customer = dc.customer || {};
+        const customerFromServer = backendToCustomer(customer);
+
+        const loadedItems =
+          Array.isArray(dc.items) && dc.items.length
+            ? dc.items.map((item) => ({
+                ...createEmptyItem(),
+                ...item,
+                id: item.id || generateItemId(),
+                description: item.description ?? "",
+                quantity: item.quantity ?? "",
+                rate: item.rate ?? "",
+                remarks: item.remarks ?? "",
+              }))
+            : [createEmptyItem()];
+
+        setData((previous) =>
+          normalizeFormData({
+            ...previous,
+            dcNumber: dc.dc_number || dcNumber,
+            dcDate: dc.dc_date || "",
+            poNumber: dc.po_number ?? "",
+            poDate: dc.po_date || "",
+            billNumber: dc.bill_number ?? "",
+            billDate: dc.bill_date || "",
+            deliveryAt: dc.delivery_at ?? "",
+            companyAddressId: dc.company_address_id ?? "unit1",
+            customer: {
+              ...customerFromServer,
+              returnable: dc.returnable ?? false,
+            },
+            items: loadedItems,
+            amountInWords: dc.amount_in_words ?? "",
+            preparedBy: dc.prepared_by ?? "",
+            status: dc.status,
+          }),
+        );
+
+        setSelectedCustomerId(String(customer.id ?? ""));
+        setOriginalCustomer(customerFromServer);
+        setAmountInWordsManual(!!dc.amount_in_words);
+        setNumberChoice("existing");
+      } catch (error) {
+        console.error("Failed to load existing delivery challan:", error);
+        setDcNumberError(error?.response?.data?.message || GENERIC_ERROR);
+      } finally {
+        setDcNumberLoading(false);
+      }
+    },
+    [accessToken],
+  );
 
   /* ============================================================
      REPORT-VIEW: NUMBER CHOICE HANDLERS
@@ -555,7 +559,14 @@ export default function DeliveryChallanForm() {
     } else {
       loadDcNumber();
     }
-  }, [accessToken, loadCustomers, loadDcNumber, loadExistingDc, reportMode, reportNumber]);
+  }, [
+    accessToken,
+    loadCustomers,
+    loadDcNumber,
+    loadExistingDc,
+    reportMode,
+    reportNumber,
+  ]);
 
   /* ============================================================
      SYNC DROPDOWN AFTER CUSTOMERS LOAD
@@ -949,30 +960,6 @@ export default function DeliveryChallanForm() {
   };
 
   /* ============================================================
-     NEW CHALLAN
-     ============================================================ */
-  const clearForm = async () => {
-    if (!window.confirm("Clear all fields and start a new Delivery Challan?"))
-      return;
-
-    const fresh = normalizeFormData(createEmptyFormData());
-
-    setData(fresh);
-    setErrors({});
-    setSelectedCustomerId("");
-    setOriginalCustomer(null);
-    setCustomerActionError("");
-    setSubmitError("");
-    setDcNumberError("");
-    setAmountInWordsManual(false);
-    setNumberChoice("auto");
-
-    if (accessToken) {
-      await loadDcNumber();
-    }
-  };
-
-  /* ============================================================
      CLEAR (KEEP DC NUMBER, ADDRESS & CUSTOMER)
      ============================================================ */
   const clearAllKeepDetails = () => {
@@ -1131,14 +1118,6 @@ export default function DeliveryChallanForm() {
 
         {/* TOP ACTIONS */}
         <div className="form-actions-top">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={clearForm}
-          >
-            + New Challan
-          </button>
-
           <button
             type="button"
             className="btn btn-outline-danger"
