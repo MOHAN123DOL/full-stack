@@ -1108,6 +1108,42 @@ export default function ProformaInvoiceForm() {
   };
 
   /* ============================================================
+     CLEAR (KEEP PROFORMA NUMBER, ADDRESS, CUSTOMERS & BANK)
+     ------------------------------------------------------------
+     Clears everything the user typed. API-generated values stay:
+     the document number, company address, receiver/consignee details
+     and the bank details loaded from the backend.
+     ============================================================ */
+  const clearForm = () => {
+    if (
+      !window.confirm(
+        "Clear all entered details? The Proforma number, customer details and bank details will be kept.",
+      )
+    )
+      return;
+
+    setFormData((prev) => ({
+      ...defaultFormData,
+      // ---- kept ----
+      proformaNo: prev.proformaNo,
+      companyAddressId: prev.companyAddressId,
+      receiverGst: prev.receiverGst,
+      consigneeGst: prev.consigneeGst,
+      receiverDetails: prev.receiverDetails,
+      consigneeDetails: prev.consigneeDetails,
+      receiverAddressOptionId: prev.receiverAddressOptionId,
+      consigneeAddressOptionId: prev.consigneeAddressOptionId,
+      bankName: prev.bankName,
+      accountNumber: prev.accountNumber,
+      branch: prev.branch,
+      ifsc: prev.ifsc,
+    }));
+    setItems([emptyItem()]);
+    setSubmitError("");
+    setSaveStatus("");
+  };
+
+  /* ============================================================
      SAVE PROFORMA TO BACKEND
      ============================================================ */
   const saveProformaToBackend = async () => {
@@ -1241,6 +1277,14 @@ export default function ProformaInvoiceForm() {
 
         {/* TOP ACTIONS */}
         <div className="form-actions-top">
+          <button
+            type="button"
+            className="btn btn-outline-danger"
+            onClick={clearForm}
+          >
+            Clear
+          </button>
+
           <div className="form-actions-top-right">
             {saveStatus && (
               <span className="form-save-status">{saveStatus}</span>
