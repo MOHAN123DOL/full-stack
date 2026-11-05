@@ -3396,6 +3396,39 @@ class DeliveryChallanCreateAPIView(APIView):
         )
 
 
+# ==================================================================
+# GET DELIVERY CHALLAN DETAILS BY DC NUMBER
+# ==================================================================
+class DeliveryChallanDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAccountsOrMaterialPlanning]
+
+    def get(self, request, dc_number):
+        try:
+            dc = (
+                DeliveryChallan.objects
+                .select_related("customer")
+                .get(dc_number=dc_number)
+            )
+        except DeliveryChallan.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Delivery Challan not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = DeliveryChallanSerializer(dc)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Delivery Challan retrieved successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 @method_decorator(csrf_protect, name="dispatch")
 class DeliveryChallanConfirmAPIView(APIView):
@@ -3912,7 +3945,41 @@ class TaxInvoiceCustomerAPIView(APIView):
         )
 
 
+# ==========================================================
+# GET TAX INVOICE BY INVOICE NUMBER
+# ==========================================================
 
+class TaxInvoiceDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def get(self, request, invoice_number):
+
+        try:
+            invoice = TaxInvoice.objects.get(
+                invoice_number=invoice_number
+            )
+
+        except TaxInvoice.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Tax invoice not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = TaxInvoiceSerializer(invoice)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Tax invoice retrieved successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
 # ==================================================================
 # CREATE / UPDATE TAX INVOICE
 # ==================================================================
@@ -4653,7 +4720,41 @@ class ProformaInvoiceCreateAPIView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
+# ==================================================================
+# GET PROFORMA INVOICE DETAILS BY PROFORMA NUMBER
+# ==================================================================
 
+class ProformaInvoiceDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated, IsAccounts]
+
+    def get(self, request, proforma_no):
+
+        try:
+            proforma = ProformaInvoice.objects.get(
+                proforma_no=proforma_no
+            )
+
+        except ProformaInvoice.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Proforma invoice not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = ProformaInvoiceSerializer(proforma)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Proforma invoice retrieved successfully.",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
 # ==================================================================
 # CONFIRM PROFORMA INVOICE (PDF SAVE + STATUS FLIP)
 # ==================================================================
@@ -4953,7 +5054,6 @@ from decimal import Decimal
 from django.db.models import Sum, Prefetch
 from django.db.models.functions import Coalesce
 
-
 @method_decorator(csrf_protect, name="dispatch")
 class AccountsReportAPIView(APIView):
     """
@@ -4969,13 +5069,9 @@ class AccountsReportAPIView(APIView):
     def get(self, request, document_type=None):
 
         # ============================================================
-        # 1. SESSION CHECK
-        # ============================================================
-                # ============================================================
         # 1. SESSION CHECK - ADMIN OR ACCOUNTS
         # ============================================================
 
-        # Support both Admin and Accounts sessions.
         refresh_token = None
 
         for department in ("admin", "accounts"):
@@ -4999,7 +5095,6 @@ class AccountsReportAPIView(APIView):
             )
 
         try:
-
             token = RefreshToken(refresh_token)
             user_id = token.get("user_id")
 
@@ -5013,7 +5108,6 @@ class AccountsReportAPIView(APIView):
                 )
 
         except Exception:
-
             return Response(
                 {
                     "success": False,
@@ -5023,11 +5117,9 @@ class AccountsReportAPIView(APIView):
             )
 
         try:
-
             user = User.objects.get(id=user_id)
 
         except User.DoesNotExist:
-
             return Response(
                 {
                     "success": False,
@@ -5035,7 +5127,6 @@ class AccountsReportAPIView(APIView):
                 },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-
 
         # ============================================================
         # 2. ADMIN OR ACCOUNTS DEPARTMENT CHECK
@@ -5047,7 +5138,6 @@ class AccountsReportAPIView(APIView):
         }
 
         if user.user_type not in allowed_user_types:
-
             return Response(
                 {
                     "success": False,
@@ -5059,6 +5149,7 @@ class AccountsReportAPIView(APIView):
         # ============================================================
         # 3. DOCUMENT TYPE FILTER
         # ============================================================
+
         type_filter = (
             document_type
             or request.query_params.get("type")
@@ -5073,6 +5164,7 @@ class AccountsReportAPIView(APIView):
         # ============================================================
         # 4. PURCHASE ORDERS + MATERIAL GRN STATUS
         # ============================================================
+
         if want("PO"):
 
             purchase_orders = list(
@@ -5081,7 +5173,6 @@ class AccountsReportAPIView(APIView):
 
             po_ids = [po.id for po in purchase_orders]
 
-            # Fetch all PO items and their GRN records efficiently.
             po_items = (
                 PurchaseOrderItem.objects
                 .filter(purchase_order_id__in=po_ids)
@@ -5093,15 +5184,15 @@ class AccountsReportAPIView(APIView):
                 )
             )
 
-            # Group PO items by purchase order.
             items_by_po = {}
 
             for item in po_items:
+
                 items_by_po.setdefault(
-                    item.purchase_order_id, []
+                    item.purchase_order_id,
+                    [],
                 ).append(item)
 
-            # Build each PO response.
             for po in purchase_orders:
 
                 ordered_total = Decimal("0.000")
@@ -5110,6 +5201,10 @@ class AccountsReportAPIView(APIView):
                 grn_details = []
 
                 po_line_items = items_by_po.get(po.id, [])
+
+                # ====================================================
+                # 4.1 GRN DETAILS
+                # ====================================================
 
                 for item in po_line_items:
 
@@ -5138,48 +5233,55 @@ class AccountsReportAPIView(APIView):
                         received_qty,
                     )
 
-                    grn_details.append({
-                        "purchase_order_item_id": item.id,
+                    grn_details.append(
+                        {
+                            "purchase_order_item_id": item.id,
 
-                        "material": (
-                            grn_records[0].material
-                            if grn_records
-                            else ""
-                        ),
+                            "material": (
+                                grn_records[0].material
+                                if grn_records
+                                else item.material
+                            ),
 
-                        "description": (
-                            grn_records[0].description
-                            if grn_records
-                            else ""
-                        ),
+                            "description": (
+                                grn_records[0].description
+                                if grn_records
+                                else item.description
+                            ),
 
-                        "ordered_qty": float(ordered_qty),
-                        "received_qty": float(received_qty),
-                        "remaining_qty": float(remaining_qty),
+                            "ordered_qty": float(ordered_qty),
+                            "received_qty": float(received_qty),
+                            "remaining_qty": float(remaining_qty),
 
-                        "status": item_status,
+                            "status": item_status,
 
-                        "grn_numbers": [
-                            grn.grn_number
-                            for grn in grn_records
-                        ],
+                            "grn_numbers": [
+                                grn.grn_number
+                                for grn in grn_records
+                            ],
 
-                        "grn_records": [
-                            {
-                                "grn_number": grn.grn_number,
-                                "grn_date": _iso(grn.grn_date),
-                                "received_qty": float(
-                                    grn.received_qty
-                                ),
-                                "receiving_unit": grn.receiving_unit,
-                                "received_by": grn.received_by,
-                                "remarks": grn.remarks,
-                            }
-                            for grn in grn_records
-                        ],
-                    })
+                            "grn_records": [
+                                {
+                                    "grn_number": grn.grn_number,
+                                    "grn_date": _iso(grn.grn_date),
 
-                # Overall PO received status.
+                                    "received_qty": float(
+                                        grn.received_qty or 0
+                                    ),
+
+                                    "receiving_unit": grn.receiving_unit,
+                                    "received_by": grn.received_by,
+                                    "remarks": grn.remarks,
+                                }
+                                for grn in grn_records
+                            ],
+                        }
+                    )
+
+                # ====================================================
+                # 4.2 OVERALL GRN STATUS
+                # ====================================================
+
                 received_status = self.get_received_status(
                     ordered_total,
                     received_total,
@@ -5190,56 +5292,124 @@ class AccountsReportAPIView(APIView):
                     Decimal("0.000"),
                 )
 
-                # Existing PO document data.
-                doc_data = po.document_data or {
-                    "poNumber": po.po_number,
-                    "poDate": _iso(po.po_date),
-                    "refQuoteNumber": po.ref_quote_number,
-                    "refDate": _iso(po.ref_date),
-                    "subject": po.subject,
-                    "preparedBy": po.prepared_by,
-                    "vendor": po.vendor,
-                    "introText": po.intro_text,
-                    "items": po.items,
-                    "columns": po.columns,
-                    "includeAmountDetails": po.include_amount_details,
-                    "subtotal": float(po.subtotal),
-                    "gstPercent": float(po.gst_percent),
-                    "gstAmount": float(po.gst_amount),
-                    "grandTotal": float(po.grand_total),
-                    "delivery": po.delivery,
-                    "payment": po.payment,
-                    "terms": po.terms,
-                    "notes": po.notes,
-                    "signatures": po.signatures,
+                # ====================================================
+                # 4.3 PURCHASE ORDER DOCUMENT DATA
+                # ====================================================
+
+                saved_document_data = (
+                    po.document_data
+                    if isinstance(po.document_data, dict)
+                    else {}
+                )
+
+                # Start with document_data to preserve custom fields.
+                doc_data = {
+                    **saved_document_data,
                 }
 
-                rows.append({
-                    "id": f"PO-{po.id}",
-                    "type": "Purchase Order",
-                    "short": "PO",
-                    "document_number": po.po_number,
+                # Actual PurchaseOrder database fields override
+                # potentially stale document_data values.
+                model_document_data = {
+                    "poNumber": po.po_number,
+                    "poDate": _iso(po.po_date),
 
-                    # Payment status is independent of GRN.
+                    "refQuoteNumber": po.ref_quote_number,
+                    "refDate": _iso(po.ref_date),
+
+                    "subject": po.subject,
+                    "preparedBy": po.prepared_by,
+
+                    "vendor": po.vendor or {},
+                    "introText": po.intro_text,
+
+                    "items": po.items or [],
+                    "columns": po.columns or [],
+
+                    "includeAmountDetails": po.include_amount_details,
+
+                    "subtotal": float(po.subtotal or 0),
+                    "gstPercent": float(po.gst_percent or 0),
+                    "gstAmount": float(po.gst_amount or 0),
+                    "grandTotal": float(po.grand_total or 0),
+
+                    "delivery": po.delivery or {},
+                    "payment": po.payment or {},
+
+                    "terms": po.terms or [],
+                    "notes": po.notes or "",
+
+                    "signatures": po.signatures or {},
+                }
+
+                # IMPORTANT:
+                # Model values have priority over saved document_data.
+                doc_data.update(model_document_data)
+
+                # Always use the actual database PO number.
+                doc_data["poNumber"] = po.po_number
+
+                # ====================================================
+                # 4.4 SNAKE_CASE COMPATIBILITY
+                # ====================================================
+
+                aliases = {
+                    "po_number": "poNumber",
+                    "po_date": "poDate",
+
+                    "ref_quote_number": "refQuoteNumber",
+                    "ref_date": "refDate",
+
+                    "prepared_by": "preparedBy",
+                    "intro_text": "introText",
+
+                    "gst_percent": "gstPercent",
+                    "gst_amount": "gstAmount",
+                    "grand_total": "grandTotal",
+
+                    "include_amount_details": "includeAmountDetails",
+                }
+
+                for snake_key, camel_key in aliases.items():
+
+                    if camel_key in doc_data:
+                        doc_data[snake_key] = doc_data[camel_key]
+
+                # ====================================================
+                # 4.5 APPEND PO REPORT ROW
+                # ====================================================
+
+                rows.append(
+                    {
+                        "id": f"PO-{po.id}",
+
+                        "type": "Purchase Order",
+                        "short": "PO",
+
+                        "document_number": po.po_number,
+
                         "payment_status": po.payment_status or "Pending",
                         "delivery_status": po.delivery_status or "Pending",
+
                         "received_status": received_status,
+
                         "grn_summary": {
                             "ordered_qty": float(ordered_total),
                             "received_qty": float(received_total),
                             "remaining_qty": float(remaining_total),
                         },
-                        "grn_details": grn_details,
-                                            # Item-wise GRN information.
-                    
 
-                    "path": "/accounts/po",
-                    "document_data": doc_data,
-                })
+                        "grn_details": grn_details,
+
+                        "path": "/accounts/po",
+
+                        "document_data": doc_data,
+                    }
+                )
 
         # ============================================================
         # 5. QUOTATIONS
         # ============================================================
+
         if want("QO"):
 
             qs = (
@@ -5254,35 +5424,49 @@ class AccountsReportAPIView(APIView):
                 doc_data = {
                     "quotationNumber": qo.quotation_number,
                     "quotationDate": _iso(qo.quotation_date),
+
                     "customer": _customer_block(qo.customer),
+
                     "subject": qo.subject,
                     "intro": qo.intro,
+
                     "items": qo.items,
                     "technicalDetails": qo.technical_details,
+
                     "terms": qo.terms,
                     "signatures": qo.signatures,
+
                     "companyName": qo.company_name,
                     "designation": qo.designation,
+
                     "subtotal": float(qo.subtotal),
                     "gstPercent": float(qo.gst_percent),
                     "gstAmount": float(qo.gst_amount),
                     "grandTotal": float(qo.grand_total),
                 }
 
-                rows.append({
-                    "id": f"QO-{qo.id}",
-                    "type": "Quotation",
-                    "short": "QO",
-                    "document_number": qo.quotation_number,
-                    "payment_status": qo.payment_status or "Pending",
-                    "delivery_status": qo.delivery_status or "Pending",
-                    "path": "/accounts/qo",
-                    "document_data": doc_data,
-                })
+                rows.append(
+                    {
+                        "id": f"QO-{qo.id}",
+
+                        "type": "Quotation",
+                        "short": "QO",
+
+                        "document_number": qo.quotation_number,
+
+                        "payment_status": qo.payment_status or "Pending",
+                        "delivery_status": qo.delivery_status or "Pending",
+
+                        "path": "/accounts/qo",
+
+                        "document_data": doc_data,
+                    }
+                )
 
         # ============================================================
         # 6. DELIVERY CHALLANS
         # ============================================================
+
         if want("DC"):
 
             qs = (
@@ -5297,33 +5481,48 @@ class AccountsReportAPIView(APIView):
                 doc_data = {
                     "dcNumber": dc.dc_number,
                     "dcDate": _iso(dc.dc_date),
+
                     "customer": _customer_block(dc.customer),
+
                     "poNumber": dc.po_number,
                     "poDate": _iso(dc.po_date),
+
                     "billNumber": dc.bill_number,
                     "billDate": _iso(dc.bill_date),
+
                     "deliveryAt": dc.delivery_at,
                     "companyAddressId": dc.company_address_id,
+
                     "returnable": dc.returnable,
+
                     "items": dc.items,
+
                     "amountInWords": dc.amount_in_words,
                     "preparedBy": dc.prepared_by,
                 }
 
-                rows.append({
-                    "id": f"DC-{dc.id}",
-                    "type": "Delivery Challan",
-                    "short": "DC",
-                    "document_number": dc.dc_number,
-                    "payment_status": dc.payment_status or "N/A",
-                    "delivery_status": dc.delivery_status or "Delivered",
-                    "path": "/accounts/DeliveryChallan",
-                    "document_data": doc_data,
-                })
+                rows.append(
+                    {
+                        "id": f"DC-{dc.id}",
+
+                        "type": "Delivery Challan",
+                        "short": "DC",
+
+                        "document_number": dc.dc_number,
+
+                        "payment_status": dc.payment_status or "N/A",
+                        "delivery_status": dc.delivery_status or "Delivered",
+
+                        "path": "/accounts/DeliveryChallan",
+
+                        "document_data": doc_data,
+                    }
+                )
 
         # ============================================================
         # 7. TAX INVOICES
         # ============================================================
+
         if want("TI"):
 
             for ti in TaxInvoice.objects.all().order_by("-created_at"):
@@ -5331,29 +5530,42 @@ class AccountsReportAPIView(APIView):
                 doc_data = ti.document_data or {
                     "invoiceNumber": ti.invoice_number,
                     "invoiceDate": _iso(ti.invoice_date),
+
                     "dateOfSupply": _iso(ti.date_of_supply),
+
                     "receiverDetails": ti.receiver_details,
                     "consigneeDetails": ti.consignee_details,
+
                     "items": ti.items,
+
                     "subtotal": float(ti.subtotal),
                     "grandTotal": float(ti.grand_total),
+
                     "amountInWords": ti.amount_in_words,
                 }
 
-                rows.append({
-                    "id": f"TI-{ti.id}",
-                    "type": "Tax Invoice",
-                    "short": "TI",
-                    "document_number": ti.invoice_number,
-                    "payment_status": ti.payment_status or "Pending",
-                    "delivery_status": ti.delivery_status or "Pending",
-                    "path": "/accounts/TaxInvoice",
-                    "document_data": doc_data,
-                })
+                rows.append(
+                    {
+                        "id": f"TI-{ti.id}",
+
+                        "type": "Tax Invoice",
+                        "short": "TI",
+
+                        "document_number": ti.invoice_number,
+
+                        "payment_status": ti.payment_status or "Pending",
+                        "delivery_status": ti.delivery_status or "Pending",
+
+                        "path": "/accounts/TaxInvoice",
+
+                        "document_data": doc_data,
+                    }
+                )
 
         # ============================================================
         # 8. PROFORMA INVOICES
         # ============================================================
+
         if want("PI"):
 
             for pi in ProformaInvoice.objects.all().order_by("-created_at"):
@@ -5361,29 +5573,42 @@ class AccountsReportAPIView(APIView):
                 doc_data = pi.document_data or {
                     "proformaNo": pi.proforma_no,
                     "date": _iso(pi.date),
+
                     "validUntil": _iso(pi.valid_until),
+
                     "receiverDetails": pi.receiver_details,
                     "consigneeDetails": pi.consignee_details,
+
                     "items": pi.items,
+
                     "subtotal": float(pi.subtotal),
                     "grandTotal": float(pi.grand_total),
+
                     "amountInWords": pi.amount_in_words,
                 }
 
-                rows.append({
-                    "id": f"PI-{pi.id}",
-                    "type": "Proforma Invoice",
-                    "short": "PI",
-                    "document_number": pi.proforma_no,
-                    "payment_status": pi.payment_status or "Pending",
-                    "delivery_status": pi.delivery_status or "Pending",
-                    "path": "/accounts/ProformaInvoice",
-                    "document_data": doc_data,
-                })
+                rows.append(
+                    {
+                        "id": f"PI-{pi.id}",
+
+                        "type": "Proforma Invoice",
+                        "short": "PI",
+
+                        "document_number": pi.proforma_no,
+
+                        "payment_status": pi.payment_status or "Pending",
+                        "delivery_status": pi.delivery_status or "Pending",
+
+                        "path": "/accounts/ProformaInvoice",
+
+                        "document_data": doc_data,
+                    }
+                )
 
         # ============================================================
         # 9. GLOBAL NEWEST-FIRST ORDERING
         # ============================================================
+
         rows.sort(
             key=lambda r: r["document_number"],
             reverse=True,
@@ -5392,6 +5617,7 @@ class AccountsReportAPIView(APIView):
         # ============================================================
         # 10. SERIALIZE + RETURN
         # ============================================================
+
         serializer = AccountsReportRowSerializer(
             rows,
             many=True,
@@ -5409,6 +5635,7 @@ class AccountsReportAPIView(APIView):
     # ================================================================
     # GRN RECEIVED STATUS CALCULATION
     # ================================================================
+
     @staticmethod
     def get_received_status(ordered_qty, received_qty):
 
@@ -5425,6 +5652,10 @@ class AccountsReportAPIView(APIView):
             return "Fully Received"
 
         return "Pending"
+
+
+
+
 
 # Map short codes to models — keep this in sync with the
 # DOCUMENT_TYPES list on the frontend.

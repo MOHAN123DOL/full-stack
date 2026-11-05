@@ -421,9 +421,11 @@ export default function PurchaseOrderForm() {
   // null   → not decided yet (banner shows)
   // "existing" → user chose to keep the existing number
   // "new"      → user chose a fresh number from the sequence
+  // Reports always open the existing PO for editing. No number-choice prompt.
   const [numberChoice, setNumberChoice] = useState(
-    reportMode === "view" && reportNumber ? null : "auto",
+    reportMode === "view" && reportNumber ? "existing" : "auto",
   );
+  const isReportEdit = reportMode === "view" && !!reportNumber;
 
   // ==========================================================
   // MAIN FORM STATE
@@ -480,6 +482,9 @@ export default function PurchaseOrderForm() {
   // ==========================================================
 
   useEffect(() => {
+    // Reports must load the selected PO, not a stale local draft.
+    if (isReportEdit) return;
+
     const raw = localStorage.getItem(DRAFT_KEY);
 
     if (!raw) return;
@@ -513,27 +518,70 @@ export default function PurchaseOrderForm() {
     } catch {
       // Corrupt draft — ignore
     }
-  }, []);
+  }, [isReportEdit]);
 
   // ==========================================================
-  // LOAD REPORT RECORD
-  // ==========================================================
+  // LOAD REPORT RECORD (existing PO)
+  // Supports both camelCase and snake_case report API payloads.
+  // Report data takes priority over local draft/next-number data.
 
   useEffect(() => {
     const reportRecord = location.state?.reportRecord;
+    if (!isReportEdit || !reportRecord) return;
+    if (reportRecord.type && reportRecord.type !== "Purchase Order" && reportRecord.short !== "PO") return;
 
-    if (!reportRecord?.documentData) return;
-    if (reportRecord.type !== "Purchase Order") return;
+    const raw = reportRecord.document_data || reportRecord.documentData || {};
+    const pick = (camel, snake, fallback = undefined) =>
+      raw[camel] ?? raw[snake] ?? fallback;
+
+    const documentData = {
+      ...raw,
+      poNumber: reportNumber || pick("poNumber", "po_number", reportRecord.document_number),
+      poDate: pick("poDate", "po_date", ""),
+      refQuoteNumber: pick("refQuoteNumber", "ref_quote_number", ""),
+      refDate: pick("refDate", "ref_date", ""),
+      subject: pick("subject", "subject", ""),
+      preparedBy: pick("preparedBy", "prepared_by", ""),
+      introText: pick("introText", "intro_text", ""),
+      gstPercent: pick("gstPercent", "gst_percent", 0),
+      gstAmount: pick("gstAmount", "gst_amount", 0),
+      subtotal: pick("subtotal", "subtotal", 0),
+      grandTotal: pick("grandTotal", "grand_total", 0),
+      includeAmountDetails: pick("includeAmountDetails", "include_amount_details", true),
+      vendor: pick("vendor", "vendor", raw.supplier || raw.supplier_details || {}),
+      items: pick("items", "items", []),
+      columns: pick("columns", "columns", []),
+      delivery: pick("delivery", "delivery", {}),
+      payment: pick("payment", "payment", {}),
+      terms: pick("terms", "terms", []),
+      notes: pick("notes", "notes", ""),
+      signatures: pick("signatures", "signatures", {}),
+    };
 
     setData((prev) => ({
       ...prev,
-      ...reportRecord.documentData,
-      items: normalizePOItems(reportRecord.documentData.items || []),
-      vendor: normalizeVendor(reportRecord.documentData.vendor),
+      ...documentData,
+      // Preserve all nested fields while filling missing keys from fresh defaults.
+      vendor: normalizeVendor(documentData.vendor || documentData.supplier || prev.vendor),
+      items: normalizePOItems(Array.isArray(documentData.items) ? documentData.items : []),
+      delivery: { ...prev.delivery, ...(documentData.delivery || {}) },
+      payment: { ...prev.payment, ...(documentData.payment || {}) },
+      signatures: { ...prev.signatures, ...(documentData.signatures || {}) },
+      poNumber: reportNumber || documentData.poNumber || prev.poNumber,
     }));
+
+    if (Array.isArray(documentData.columns) && documentData.columns.length) {
+      setColumns(normalizePOColumns(documentData.columns));
+    }
+    if (typeof documentData.includeAmountDetails === "boolean") {
+      setIncludeAmountDetails(documentData.includeAmountDetails);
+    }
+
+    setNumberChoice("existing");
+    setPoNumberError("");
     setErrors({});
     setSavedAt(null);
-  }, [location.state]);
+  }, [location.state, isReportEdit, reportNumber]);
 
   // ==========================================================
   // PRELOAD PRINT ENGINE
@@ -1121,14 +1169,14 @@ export default function PurchaseOrderForm() {
     // If we came from Reports with an existing number,
     // DO NOT auto-fetch the next number. Wait for the user's choice
     // (banner "Use this number" vs "New number").
-    const cameFromReportWithNumber = reportMode === "view" && !!reportNumber;
-
-    if (cameFromReportWithNumber) {
+    if (isReportEdit) {
+      // Existing PO: keep its number and do not call next-number API.
+      setNumberChoice("existing");
       setData((prev) => ({ ...prev, poNumber: reportNumber }));
     } else {
       loadPONumber(accessToken);
     }
-  }, [accessToken, loadCustomers, loadPONumber, reportMode, reportNumber]);
+  }, [accessToken, loadCustomers, loadPONumber, isReportEdit, reportNumber]);
 
   // ==========================================================
   // BASIC SETTERS
@@ -1703,68 +1751,6 @@ export default function PurchaseOrderForm() {
               </div>
             </div>
           </section>
-
-          {/* =================================================
-              NUMBER CHOICE BANNER
-              Only shown when opened from Reports with an
-              existing PO number and the user hasn't decided yet.
-              ================================================= */}
-          {reportMode === "view" && reportNumber && numberChoice === null && (
-            <div className="po-submit-error po-number-choice">
-              <div className="po-submit-error__content">
-                <strong>
-                  This Purchase Order already exists: {reportNumber}
-                </strong>
-                <span>
-                  Do you want to edit the existing PO (same number), or create a
-                  new one with the next number in the sequence?
-                </span>
-
-                <div className="po-number-choice__actions">
-                  <button
-                    type="button"
-                    className="po-btn po-btn--primary po-btn--sm"
-                    onClick={handleUseExistingNumber}
-                  >
-                    Use this number (edit)
-                  </button>
-
-                  <button
-                    type="button"
-                    className="po-btn po-btn--secondary po-btn--sm"
-                    onClick={handleUseNewNumber}
-                  >
-                    New number
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {reportMode === "view" && numberChoice === "existing" && (
-            <div className="po-submit-error po-number-info">
-              <div className="po-submit-error__content">
-                <strong>Editing existing PO {reportNumber}</strong>
-                <span>
-                  When you click Preview, the backend will not consume a new
-                  number.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {reportMode === "view" && numberChoice === "new" && (
-            <div className="po-submit-error po-number-info">
-              <div className="po-submit-error__content">
-                <strong>
-                  Creating a new PO: {data.poNumber || "Loading..."}
-                </strong>
-                <span>
-                  A fresh number from the current sequence will be used.
-                </span>
-              </div>
-            </div>
-          )}
 
           {Object.keys(errors).length > 0 && (
             <div className="po-validation">

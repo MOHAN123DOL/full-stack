@@ -310,6 +310,61 @@ export default function QuotationForm() {
   }, [reportMode, reportNumber]);
 
   // ============================================================
+  // LOAD EXISTING QUOTATION FROM ACCOUNTS REPORT
+  // ============================================================
+  useEffect(() => {
+    const reportRecord = location.state?.reportRecord;
+    const reportData = reportRecord?.document_data || reportRecord?.documentData;
+
+    if (reportMode !== "view" || reportRecord?.type !== "Quotation" || !reportData) {
+      return;
+    }
+
+    const reportCustomer = reportData.customer || {};
+    const reportVendor = {
+      companyName:
+        reportCustomer.company_name || reportCustomer.companyName || reportCustomer.name || "",
+      contactPerson:
+        reportCustomer.contact_person || reportCustomer.contactPerson || "",
+      gst: reportCustomer.gst_number || reportCustomer.gst || "",
+      address1: reportCustomer.address || reportCustomer.address1 || "",
+      address2: reportCustomer.address2 || "",
+      city: reportCustomer.city || "",
+      state: reportCustomer.state || "",
+      pincode: reportCustomer.pincode || reportCustomer.pin_code || "",
+      phone: reportCustomer.phone || "",
+      email: reportCustomer.email || "",
+    };
+
+    setData((previous) =>
+      normalizeQuoteData({
+        ...previous,
+        ...reportData,
+        quotationNumber: reportRecord.document_number || reportData.quotationNumber || reportNumber || "",
+        quotationDate: reportData.quotationDate || reportData.quotation_date || previous.quotationDate,
+        vendor: reportVendor,
+        items: Array.isArray(reportData.items) ? reportData.items : previous.items,
+        technicalDetails:
+          Array.isArray(reportData.technicalDetails)
+            ? reportData.technicalDetails
+            : Array.isArray(reportData.technical_details)
+              ? reportData.technical_details
+              : previous.technicalDetails,
+        gstPercent: reportData.gstPercent ?? reportData.gst_percent ?? previous.gstPercent,
+        companyName: reportData.companyName ?? reportData.company_name ?? previous.companyName,
+        designation: reportData.designation ?? previous.designation,
+        signatures: reportData.signatures ?? previous.signatures,
+      }),
+    );
+
+    setNumberChoice("existing");
+    setSelectedCustomerId(String(reportCustomer.id || ""));
+    setOriginalVendor(reportVendor);
+    setErrors({});
+    setSavedAt(null);
+  }, [location.state, reportMode, reportNumber]);
+
+  // ============================================================
   // LOAD CUSTOMERS
   // ============================================================
   const loadCustomers = useCallback(async () => {

@@ -15,6 +15,7 @@ import { useAuth } from "../../context/AuthContext";
 const TI_CUSTOMERS_ENDPOINT = "/erp/tax-invoice-customers/";
 const TI_NEXT_NUMBER_ENDPOINT = "/erp/tax-invoices/next-number/";
 const TI_SAVE_ENDPOINT = "/erp/tax-invoices/";
+const TI_DETAIL_ENDPOINT = "/erp/tax-invoices/";
 const COMPANY_BANK_DETAILS_ENDPOINT = "/erp/company-bank-details/";
 
 /* Single generic error message for every failure. */
@@ -263,7 +264,7 @@ export default function TaxInvoiceForm() {
   const reportNumber = location.state?.documentNumber;
 
   const [numberChoice, setNumberChoice] = useState(
-    reportMode === "view" && reportNumber ? null : "auto",
+    reportMode === "view" && reportNumber ? "existing" : "auto",
   );
 
   const [formData, setFormData] = useState(defaultFormData);
@@ -315,6 +316,9 @@ export default function TaxInvoiceForm() {
      AUTOSAVE WORKING DRAFT
      ============================================================ */
   useEffect(() => {
+    // Report records must never overwrite the unsaved working draft.
+    if (reportMode === "view" && reportNumber) return;
+
     const handle = setTimeout(() => {
       try {
         localStorage.setItem(
@@ -326,7 +330,7 @@ export default function TaxInvoiceForm() {
       }
     }, 400);
     return () => clearTimeout(handle);
-  }, [formData, items]);
+  }, [formData, items, reportMode, reportNumber]);
 
   /* ============================================================
      LOAD COMPANY BANK DETAILS FROM BACKEND .env
@@ -488,6 +492,101 @@ export default function TaxInvoiceForm() {
   }, [accessToken]);
 
   /* ============================================================
+     LOAD EXISTING TAX INVOICE FROM ACCOUNTS REPORTS
+     ============================================================ */
+  const loadExistingTaxInvoice = useCallback(async (invoiceNumber) => {
+    if (!accessToken || !invoiceNumber) return;
+
+    try {
+      setInvoiceNumberLoading(true);
+      setInvoiceNumberError("");
+      setSubmitError("");
+
+      const response = await api.get(
+        `${TI_DETAIL_ENDPOINT}${encodeURIComponent(invoiceNumber)}/`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+
+      const invoice = response.data?.data ?? response.data;
+      if (!invoice || !invoice.invoice_number) {
+        throw new Error("Tax invoice details were not returned.");
+      }
+
+      const receiver = {
+        ...EMPTY_PARTY,
+        ...(invoice.receiver_details || {}),
+      };
+      const consignee = {
+        ...EMPTY_PARTY,
+        ...(invoice.consignee_details || {}),
+      };
+
+      setFormData((prev) => ({
+        ...prev,
+        invoiceNumber: invoice.invoice_number || invoiceNumber,
+        invoiceDate: invoice.invoice_date
+          ? String(invoice.invoice_date).slice(0, 10)
+          : "",
+        dateOfSupply: invoice.date_of_supply
+          ? String(invoice.date_of_supply).slice(0, 10)
+          : "",
+        reverseCharge: invoice.reverse_charge ?? "NO",
+        vehicleNumber: invoice.vehicle_number ?? "",
+        modeOfTransport: invoice.mode_of_transport ?? "",
+        stateNameCode: invoice.state_name_code ?? "",
+        receiverGst: invoice.receiver_gst ?? "",
+        consigneeGst: invoice.consignee_gst ?? "",
+        receiverDetails: receiver,
+        consigneeDetails: consignee,
+        receiverAddressOptionId: invoice.receiver_address_option_id ?? "",
+        consigneeAddressOptionId: invoice.consignee_address_option_id ?? "",
+        placeOfSupplyState: invoice.place_of_supply_state ?? "",
+        placeOfSupplyStateCode: invoice.place_of_supply_state_code ?? "",
+        companyAddressId: invoice.company_address_id ?? "unit1",
+        cgstPct: invoice.cgst_percent ?? 9,
+        sgstPct: invoice.sgst_percent ?? 9,
+        igstPct: invoice.igst_percent ?? 0,
+        roundedOff: invoice.rounded_off ?? 0,
+        bankName: invoice.bank_name ?? prev.bankName,
+        accountNumber: invoice.account_number ?? prev.accountNumber,
+        branch: invoice.branch ?? prev.branch,
+        ifsc: invoice.ifsc ?? prev.ifsc,
+        declaration: invoice.declaration ?? prev.declaration,
+        enclosures: invoice.enclosures ?? prev.enclosures,
+      }));
+
+      if (Array.isArray(invoice.items) && invoice.items.length > 0) {
+        setItems(
+          invoice.items.map((item, index) => ({
+            ...item,
+            id: item.id ?? `${invoice.invoice_number}-${index}`,
+            description: item.description ?? "",
+            hsn: item.hsn ?? "",
+            quantity: item.quantity ?? "",
+            unit: item.unit ?? "",
+            rate: item.rate ?? "",
+          })),
+        );
+      } else {
+        setItems([emptyItem()]);
+      }
+
+      setNumberChoice("existing");
+    } catch (error) {
+      console.error("Failed to load existing tax invoice:", error);
+      setInvoiceNumberError(
+        error.response?.status === 404
+          ? `Tax invoice ${invoiceNumber} was not found.`
+          : GENERIC_ERROR,
+      );
+    } finally {
+      setInvoiceNumberLoading(false);
+    }
+  }, [accessToken]);
+
+  /* ============================================================
      REPORT-VIEW: NUMBER CHOICE HANDLERS
      ============================================================ */
   const handleUseExistingNumber = useCallback(() => {
@@ -498,6 +597,14 @@ export default function TaxInvoiceForm() {
 
   const handleUseNewNumber = useCallback(async () => {
     setNumberChoice("new");
+    setFormData((prev) => ({
+      ...defaultFormData,
+      bankName: prev.bankName,
+      accountNumber: prev.accountNumber,
+      branch: prev.branch,
+      ifsc: prev.ifsc,
+    }));
+    setItems([emptyItem()]);
     if (accessToken) {
       await loadInvoiceNumber();
     }
@@ -514,11 +621,18 @@ export default function TaxInvoiceForm() {
       reportMode === "view" && !!reportNumber;
 
     if (cameFromReportWithNumber) {
-      setFormData((prev) => ({ ...prev, invoiceNumber: reportNumber }));
+      loadExistingTaxInvoice(reportNumber);
     } else {
       loadInvoiceNumber();
     }
-  }, [accessToken, loadCustomers, loadInvoiceNumber, reportMode, reportNumber]);
+  }, [
+    accessToken,
+    loadCustomers,
+    loadInvoiceNumber,
+    loadExistingTaxInvoice,
+    reportMode,
+    reportNumber,
+  ]);
 
   /* ============================================================
      BASIC SETTERS
@@ -1037,7 +1151,9 @@ export default function TaxInvoiceForm() {
 
       document_data: previewData,
 
-      status: "DRAFT",
+      // Preserve status on an existing invoice. The backend uses invoice_number
+      // to update an existing record; sending DRAFT here could downgrade CONFIRMED.
+      ...(numberChoice === "new" || !reportNumber ? { status: "DRAFT" } : {}),
     };
 
     try {

@@ -2,9 +2,9 @@ from django.urls import path
 
 from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminAttendanceDailyCountsAPIView,  AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
                     LoginAPIView ,InventoryAPIView, LoginVerifyOTPView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
-                      NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
+                      NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceDetailAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
-                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView, SendPasswordChangeOTPView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceNextNumberAPIView, TwoStepSendOTPView, TwoStepVerifyOTPView, UserProfileDetailAPIView, 
+                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView, SendPasswordChangeOTPView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceDetailAPIView, TaxInvoiceNextNumberAPIView, TwoStepSendOTPView, TwoStepVerifyOTPView, UserProfileDetailAPIView, 
                           UserProfileListCreateAPIView, AttendanceEmployeeView,
     AttendanceViewSet,
     WageConfigViewSet,
@@ -33,7 +33,8 @@ from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsRepo
     ScrapDetailAPIView,
     ScrapDashboardAPIView,
     AdminAssemblyStageDetailAPIView,
-    AdminStatisticsAPIView
+    AdminStatisticsAPIView,
+    DeliveryChallanDetailAPIView
     
     )
 
@@ -147,6 +148,11 @@ urlpatterns = [
         DeliveryChallanCreateAPIView.as_view(),
     ),
     path(
+    "delivery-challans/<str:dc_number>/",
+    DeliveryChallanDetailAPIView.as_view(),
+    name="delivery-challan-detail",
+),
+    path(
     "delivery-challans/<str:dc_number>/confirm/",
     DeliveryChallanConfirmAPIView.as_view(),
     name="delivery-challan-confirm",
@@ -163,6 +169,7 @@ urlpatterns = [
             TaxInvoiceNextNumberAPIView.as_view(),
             name="tax-invoice-next-number",
         ),
+        
         path(
             "tax-invoice-customers/",
             TaxInvoiceCustomerAPIView.as_view(),
@@ -179,6 +186,11 @@ urlpatterns = [
             name="tax-invoice-create",
         ),
         path(
+                "tax-invoices/<str:invoice_number>/",
+                TaxInvoiceDetailAPIView.as_view(),
+                name="tax-invoice-detail",
+            ),
+        path(
             "tax-invoices/<str:invoice_number>/confirm/",
             TaxInvoiceConfirmAPIView.as_view(),
             name="tax-invoice-confirm",
@@ -188,6 +200,11 @@ urlpatterns = [
             ProformaInvoiceNextNumberAPIView.as_view(),
             name="proforma-invoice-next-number",
         ),
+        path(
+                "proforma-invoices/<str:proforma_no>/",
+                ProformaInvoiceDetailAPIView.as_view(),
+                name="proforma-invoice-detail",
+            ),
         path(
             "proforma-invoice-customers/",
             ProformaInvoiceCustomerAPIView.as_view(),

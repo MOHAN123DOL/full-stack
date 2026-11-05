@@ -13,6 +13,7 @@ const DRAFT_KEY = "mei-erp-delivery-challan-draft";
 const DC_CUSTOMERS_ENDPOINT = "/erp/delivery-challan-customers/";
 const DC_NEXT_NUMBER_ENDPOINT = "/erp/delivery-challans/next-number/";
 const DC_SAVE_ENDPOINT = "/erp/delivery-challans/";
+const DC_DETAIL_ENDPOINT = "/erp/delivery-challans/";
 
 /* Single generic error message for every failure. */
 const GENERIC_ERROR = "Something went wrong. Please try again.";
@@ -281,7 +282,7 @@ export default function DeliveryChallanForm() {
   const reportNumber = location.state?.documentNumber;
 
   const [numberChoice, setNumberChoice] = useState(
-    reportMode === "view" && reportNumber ? null : "auto",
+    reportMode === "view" && reportNumber ? "existing" : "auto",
   );
 
   const [data, setData] = useState(() =>
@@ -444,16 +445,94 @@ export default function DeliveryChallanForm() {
   }, [accessToken]);
 
   /* ============================================================
+     LOAD SAVED DC DETAILS (ACCOUNTS REPORTS)
+     ============================================================ */
+  const loadExistingDc = useCallback(async (dcNumber) => {
+    if (!accessToken || !dcNumber) return;
+
+    try {
+      setDcNumberLoading(true);
+      setDcNumberError("");
+
+      const response = await api.get(
+        `${DC_DETAIL_ENDPOINT}${encodeURIComponent(dcNumber)}/`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+
+      const responseData = response.data;
+      const dc = responseData?.data ?? responseData;
+
+      if (responseData?.success === false || !dc?.dc_number) {
+        throw new Error(responseData?.message || "Delivery challan not found.");
+      }
+
+      const customer = dc.customer || {};
+      const customerFromServer = backendToCustomer(customer);
+
+      const loadedItems = Array.isArray(dc.items) && dc.items.length
+        ? dc.items.map((item) => ({
+            ...createEmptyItem(),
+            ...item,
+            id: item.id || generateItemId(),
+            description: item.description ?? "",
+            quantity: item.quantity ?? "",
+            rate: item.rate ?? "",
+            remarks: item.remarks ?? "",
+          }))
+        : [createEmptyItem()];
+
+      setData((previous) =>
+        normalizeFormData({
+          ...previous,
+          dcNumber: dc.dc_number || dcNumber,
+          dcDate: dc.dc_date || "",
+          poNumber: dc.po_number ?? "",
+          poDate: dc.po_date || "",
+          billNumber: dc.bill_number ?? "",
+          billDate: dc.bill_date || "",
+          deliveryAt: dc.delivery_at ?? "",
+          companyAddressId: dc.company_address_id ?? "unit1",
+          customer: {
+            ...customerFromServer,
+            returnable: dc.returnable ?? false,
+          },
+          items: loadedItems,
+          amountInWords: dc.amount_in_words ?? "",
+          preparedBy: dc.prepared_by ?? "",
+          status: dc.status,
+        }),
+      );
+
+      setSelectedCustomerId(String(customer.id ?? ""));
+      setOriginalCustomer(customerFromServer);
+      setAmountInWordsManual(!!dc.amount_in_words);
+      setNumberChoice("existing");
+    } catch (error) {
+      console.error("Failed to load existing delivery challan:", error);
+      setDcNumberError(
+        error?.response?.data?.message || GENERIC_ERROR,
+      );
+    } finally {
+      setDcNumberLoading(false);
+    }
+  }, [accessToken]);
+
+  /* ============================================================
      REPORT-VIEW: NUMBER CHOICE HANDLERS
      ============================================================ */
-  const handleUseExistingNumber = useCallback(() => {
+  const handleUseExistingNumber = useCallback(async () => {
     setNumberChoice("existing");
-    setData((prev) => normalizeFormData({ ...prev, dcNumber: reportNumber }));
-    setDcNumberError("");
-  }, [reportNumber]);
+    await loadExistingDc(reportNumber);
+  }, [loadExistingDc, reportNumber]);
 
   const handleUseNewNumber = useCallback(async () => {
     setNumberChoice("new");
+    setSelectedCustomerId("");
+    setOriginalCustomer(null);
+    setAmountInWordsManual(false);
+    setData(normalizeFormData(createEmptyFormData()));
     if (accessToken) {
       await loadDcNumber();
     }
@@ -469,11 +548,11 @@ export default function DeliveryChallanForm() {
     const cameFromReportWithNumber = reportMode === "view" && !!reportNumber;
 
     if (cameFromReportWithNumber) {
-      setData((prev) => normalizeFormData({ ...prev, dcNumber: reportNumber }));
+      loadExistingDc(reportNumber);
     } else {
       loadDcNumber();
     }
-  }, [accessToken, loadCustomers, loadDcNumber, reportMode, reportNumber]);
+  }, [accessToken, loadCustomers, loadDcNumber, loadExistingDc, reportMode, reportNumber]);
 
   /* ============================================================
      SYNC DROPDOWN AFTER CUSTOMERS LOAD
@@ -972,7 +1051,9 @@ export default function DeliveryChallanForm() {
       amount_in_words: data.amountInWords || "",
       prepared_by: data.preparedBy || "",
 
-      status: data.status || "DRAFT",
+      ...(numberChoice === "existing" && data.status
+        ? { status: data.status }
+        : { status: "DRAFT" }),
     };
 
     try {

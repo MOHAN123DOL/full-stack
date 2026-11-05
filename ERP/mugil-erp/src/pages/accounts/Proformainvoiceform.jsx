@@ -15,6 +15,7 @@ import { useAuth } from "../../context/AuthContext";
 const PI_CUSTOMERS_ENDPOINT = "/erp/proforma-invoice-customers/";
 const PI_NEXT_NUMBER_ENDPOINT = "/erp/proforma-invoices/next-number/";
 const PI_SAVE_ENDPOINT = "/erp/proforma-invoices/";
+const PI_DETAIL_ENDPOINT = "/erp/proforma-invoices/";
 const COMPANY_BANK_DETAILS_ENDPOINT = "/erp/company-bank-details/";
 
 /* Single generic error message for every failure. */
@@ -262,7 +263,7 @@ export default function ProformaInvoiceForm() {
   const reportNumber = location.state?.documentNumber;
 
   const [numberChoice, setNumberChoice] = useState(
-    reportMode === "view" && reportNumber ? null : "auto",
+    reportMode === "view" && reportNumber ? "existing" : "auto",
   );
 
   const [formData, setFormData] = useState(defaultFormData);
@@ -313,6 +314,9 @@ export default function ProformaInvoiceForm() {
      AUTOSAVE WORKING DRAFT
      ============================================================ */
   useEffect(() => {
+    // Do not overwrite the working draft when viewing/editing a report record.
+    if (reportMode === "view" && reportNumber) return;
+
     const handle = setTimeout(() => {
       try {
         localStorage.setItem(
@@ -324,7 +328,7 @@ export default function ProformaInvoiceForm() {
       }
     }, 400);
     return () => clearTimeout(handle);
-  }, [formData, items]);
+  }, [formData, items, reportMode, reportNumber]);
 
   /* ============================================================
      LOAD COMPANY BANK DETAILS (READ-ONLY)
@@ -485,6 +489,103 @@ export default function ProformaInvoiceForm() {
   }, [accessToken]);
 
   /* ============================================================
+     LOAD EXISTING PROFORMA FROM ACCOUNTS REPORTS
+     ============================================================ */
+  const loadExistingProforma = useCallback(
+    async (proformaNo, customerList = []) => {
+      if (!accessToken || !proformaNo) return;
+
+      try {
+        setProformaNumberLoading(true);
+        setProformaNumberError("");
+
+        const response = await api.get(
+          `${PI_DETAIL_ENDPOINT}${encodeURIComponent(proformaNo)}/`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+
+        const responseData = response.data?.data ?? response.data;
+        if (!responseData || response.data?.success === false) {
+          throw new Error("Proforma invoice not found");
+        }
+
+        const receiver = {
+          ...EMPTY_PARTY,
+          ...(responseData.receiver_details || {}),
+        };
+        const consignee = {
+          ...EMPTY_PARTY,
+          ...(responseData.consignee_details || {}),
+        };
+
+        // Match saved receiver/consignee against the customer master so the
+        // dropdowns and customer actions show the correct selection.
+        const receiverCustomer = customerList.find(
+          (customer) =>
+            String(customer.company_name || "").trim().toLowerCase() ===
+            String(receiver.companyName || "").trim().toLowerCase(),
+        );
+        const consigneeCustomer = customerList.find(
+          (customer) =>
+            String(customer.company_name || "").trim().toLowerCase() ===
+            String(consignee.companyName || "").trim().toLowerCase(),
+        );
+
+        setSelectedReceiverId(receiverCustomer ? String(receiverCustomer.id) : "");
+        setSelectedConsigneeId(consigneeCustomer ? String(consigneeCustomer.id) : "");
+        setOriginalReceiver(receiverCustomer ? backendToParty(receiverCustomer) : null);
+        setOriginalConsignee(consigneeCustomer ? backendToParty(consigneeCustomer) : null);
+
+        setFormData((prev) => ({
+          ...prev,
+          proformaNo: responseData.proforma_no || proformaNo,
+          date: responseData.date || "",
+          validUntil: responseData.valid_until || "",
+          paymentTerms: responseData.payment_terms ?? "",
+          referenceNo: responseData.reference_no ?? "",
+          customerPoNo: responseData.customer_po_no ?? "",
+          poDate: responseData.po_date || "",
+          placeOfSupply: responseData.place_of_supply ?? "",
+          receiverGst: responseData.receiver_gst ?? receiver.gst ?? "",
+          consigneeGst: responseData.consignee_gst ?? consignee.gst ?? "",
+          receiverDetails: receiver,
+          consigneeDetails: consignee,
+          receiverAddressOptionId: responseData.receiver_address_option_id ?? "",
+          consigneeAddressOptionId: responseData.consignee_address_option_id ?? "",
+          companyAddressId: responseData.company_address_id ?? "unit1",
+          cgstPct: responseData.cgst_percent ?? 0,
+          sgstPct: responseData.sgst_percent ?? 0,
+          igstPct: responseData.igst_percent ?? 0,
+          roundedOff: responseData.rounded_off ?? 0,
+          // Bank details are loaded from the dedicated company-bank endpoint.
+          declaration: responseData.declaration ?? "",
+          enclosureText: responseData.enclosure_text ?? "",
+        }));
+
+        setItems(
+          Array.isArray(responseData.items) && responseData.items.length
+            ? responseData.items.map((item, index) => ({
+                ...item,
+                id: item.id ?? `${Date.now()}-${index}`,
+              }))
+            : [emptyItem()],
+        );
+        setNumberChoice("existing");
+      } catch (error) {
+        console.error("Failed to load existing proforma invoice:", error);
+        setProformaNumberError(
+          error.response?.status === 404
+            ? "Proforma invoice not found."
+            : GENERIC_ERROR,
+        );
+      } finally {
+        setProformaNumberLoading(false);
+      }
+    },
+    [accessToken],
+  );
+
+  /* ============================================================
      REPORT-VIEW: NUMBER CHOICE HANDLERS
      ============================================================ */
   const handleUseExistingNumber = useCallback(() => {
@@ -495,6 +596,12 @@ export default function ProformaInvoiceForm() {
 
   const handleUseNewNumber = useCallback(async () => {
     setNumberChoice("new");
+    setFormData(defaultFormData);
+    setItems([emptyItem()]);
+    setSelectedReceiverId("");
+    setSelectedConsigneeId("");
+    setOriginalReceiver(null);
+    setOriginalConsignee(null);
     if (accessToken) {
       await loadProformaNumber();
     }
@@ -505,20 +612,30 @@ export default function ProformaInvoiceForm() {
      ============================================================ */
   useEffect(() => {
     if (!accessToken) return;
-    loadCustomers();
+    let cancelled = false;
 
-    const cameFromReportWithNumber =
-      reportMode === "view" && !!reportNumber;
+    (async () => {
+      const customerList = await loadCustomers();
+      if (cancelled) return;
 
-    if (cameFromReportWithNumber) {
-      setFormData((prev) => ({ ...prev, proformaNo: reportNumber }));
-    } else {
-      loadProformaNumber();
-    }
+      const cameFromReportWithNumber =
+        reportMode === "view" && !!reportNumber;
+
+      if (cameFromReportWithNumber) {
+        await loadExistingProforma(reportNumber, customerList || []);
+      } else {
+        await loadProformaNumber();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     accessToken,
     loadCustomers,
     loadProformaNumber,
+    loadExistingProforma,
     reportMode,
     reportNumber,
   ]);
@@ -1025,7 +1142,7 @@ export default function ProformaInvoiceForm() {
 
       document_data: previewData,
 
-      status: "DRAFT",
+      ...(numberChoice === "existing" ? {} : { status: "DRAFT" }),
     };
 
     try {
