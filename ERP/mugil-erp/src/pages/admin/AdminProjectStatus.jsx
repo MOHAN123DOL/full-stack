@@ -333,7 +333,7 @@ function AssemblyDetailModal({ assemblyId, accessToken, onClose }) {
   );
 }
 
-function AssemblyRows({ project, onViewAssembly }) {
+function AssemblyRows({ project, onViewAssembly, onStatusChange, statusUpdating }) {
   const [expanded, setExpanded] = useState(false);
   const assemblies = Array.isArray(project.assemblies) ? project.assemblies : [];
 
@@ -359,12 +359,20 @@ function AssemblyRows({ project, onViewAssembly }) {
             </div>
           </div>
         </td>
-        <td><span className={`aps-project-status aps-project-status--${String(project.status || "").toLowerCase().replace(/\s+/g, "-")}`}>{text(project.status)}</span></td>
-        <td>
-          <div className="aps-assembly-counts">
-            <span>{project.totalAssemblies ?? assemblies.length} total</span>
-            <span className="aps-count-done">{project.completedAssemblies ?? 0} completed</span>
-          </div>
+        <td className="aps-project-status-cell">
+          <select
+  className={`aps-status-select aps-status-${(project.status || project.projectStatus?.status || project.project_status?.status || "Active")
+    .toLowerCase()
+    .replace(/\s+/g, "-")}`}
+  value={project.status || project.projectStatus?.status || project.project_status?.status || "Active"}
+  onChange={(e) => onStatusChange(project, e.target.value)}
+  disabled={statusUpdating}
+>
+  <option value="Active">Active</option>
+  <option value="On Hold">On Hold</option>
+  <option value="Completed">Completed</option>
+</select>
+          {statusUpdating && <span className="aps-status-saving">Saving…</span>}
         </td>
         <td>{formatDate(project.startDate)}</td>
         <td>{formatDate(project.endDate)}</td>
@@ -380,7 +388,6 @@ function AssemblyRows({ project, onViewAssembly }) {
             </div>
           </td>
           <td><span className="aps-muted">{text(assembly.status)}</span></td>
-          <td><span className="aps-muted">—</span></td>
           <td><span className="aps-muted">—</span></td>
           <td className="aps-action-cell">
             <button
@@ -399,7 +406,7 @@ function AssemblyRows({ project, onViewAssembly }) {
       ))}
       {expanded && assemblies.length === 0 && (
         <tr className="aps-assembly-row">
-          <td colSpan={5}><div className="aps-empty-inline">No assemblies linked to this project.</div></td>
+          <td colSpan={4}><div className="aps-empty-inline">No assemblies linked to this project.</div></td>
         </tr>
       )}
     </>
@@ -414,6 +421,7 @@ export default function AdminProjectStatus() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeAssemblyId, setActiveAssemblyId] = useState(null);
+  const [statusUpdatingProjectId, setStatusUpdatingProjectId] = useState(null);
 
   const loadProjects = useCallback(async () => {
     if (!accessToken) {
@@ -447,6 +455,54 @@ export default function AdminProjectStatus() {
     }
   }, [accessToken]);
 
+  const updateProjectStatus = useCallback(async (project, newStatus) => {
+    const projectId = project.id;
+    if (!projectId) {
+      setError("Unable to update status: project ID is missing.");
+      return;
+    }
+
+    const previousStatus = project.status || project.projectStatus?.status || project.project_status?.status || "Active";
+    if (previousStatus === newStatus) return;
+
+    setStatusUpdatingProjectId(projectId);
+    setError("");
+
+    // Update the UI immediately, then roll back if the API request fails.
+    setProjects((current) => current.map((item) =>
+      item.id === projectId ? { ...item, status: newStatus } : item
+    ));
+
+    try {
+      const response = await api.patch(
+        `${PROJECT_STATUS_ENDPOINT}${encodeURIComponent(projectId)}/`,
+        { status: newStatus },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || "Unable to update project status.");
+      }
+
+      setProjects((current) => current.map((item) =>
+        item.id === projectId
+          ? { ...item, status: response.data?.data?.status || newStatus }
+          : item
+      ));
+    } catch (err) {
+      setProjects((current) => current.map((item) =>
+        item.id === projectId ? { ...item, status: previousStatus } : item
+      ));
+      setError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Unable to update project status. Please try again."
+      );
+    } finally {
+      setStatusUpdatingProjectId(null);
+    }
+  }, [accessToken]);
+
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
@@ -454,7 +510,8 @@ export default function AdminProjectStatus() {
   const filteredProjects = useMemo(() => {
     const query = search.trim().toLowerCase();
     return projects.filter((project) => {
-      const matchesStatus = status === "all" || project.status === status;
+      const projectStatus = project.status || project.projectStatus?.status || project.project_status?.status || "Active";
+      const matchesStatus = status === "all" || projectStatus === status;
       const matchesSearch =
         !query ||
         String(project.name || "").toLowerCase().includes(query) ||
@@ -471,7 +528,6 @@ export default function AdminProjectStatus() {
     (sum, project) => sum + Number(project.totalAssemblies ?? project.assemblies?.length ?? 0),
     0,
   );
-  const completedProjects = projects.filter((project) => project.status === "Completed").length;
 
   return (
     <main className="admin-project-status-page">
@@ -490,7 +546,6 @@ export default function AdminProjectStatus() {
       <section className="aps-stats">
         <div className="aps-stat-card"><span>Total projects</span><strong>{projects.length}</strong></div>
         <div className="aps-stat-card"><span>Total assemblies</span><strong>{totalAssemblies}</strong></div>
-        <div className="aps-stat-card"><span>Completed projects</span><strong>{completedProjects}</strong></div>
       </section>
 
       <section className="aps-table-card">
@@ -539,7 +594,6 @@ export default function AdminProjectStatus() {
                 <tr>
                   <th>Project / Assembly</th>
                   <th>Status</th>
-                  <th>Assembly count</th>
                   <th>Start date / Assembly status</th>
                   <th>End date / Actions</th>
                 </tr>
@@ -550,6 +604,8 @@ export default function AdminProjectStatus() {
                     key={project.id ?? project.code}
                     project={project}
                     onViewAssembly={setActiveAssemblyId}
+                    onStatusChange={updateProjectStatus}
+                    statusUpdating={statusUpdatingProjectId === project.id}
                   />
                 ))}
               </tbody>

@@ -24416,3 +24416,81 @@ class AdminAttendanceDailyCountsAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from .models import Project, ProjectStatus
+
+
+class AdminProjectStatusDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    STATUS_CHOICES = ["Active", "On Hold", "Completed"]
+
+    def patch(self, request, project_id):
+
+        # ==================================================
+        # 1. Validate project
+        # ==================================================
+        project = get_object_or_404(
+            Project,
+            id=project_id
+        )
+
+        # ==================================================
+        # 2. Validate status
+        # ==================================================
+        new_status = request.data.get("status")
+
+        if new_status not in self.STATUS_CHOICES:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid project status.",
+                    "allowed_statuses": self.STATUS_CHOICES,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ==================================================
+        # 3. Create or update project status
+        # ==================================================
+        with transaction.atomic():
+
+            project_status, created = (
+                ProjectStatus.objects.update_or_create(
+                    project=project,
+                    defaults={
+                        "status": new_status
+                    }
+                )
+            )
+
+        # ==================================================
+        # 4. Return response
+        # ==================================================
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Project status created successfully."
+                    if created
+                    else "Project status updated successfully."
+                ),
+                "data": {
+                    "project_id": project.id,
+                    "project_name": str(project),
+                    "status": project_status.status,
+                    "updated_at": project_status.updated_at,
+                }
+            },
+            status=status.HTTP_200_OK
+        )

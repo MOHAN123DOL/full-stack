@@ -2964,6 +2964,44 @@ class Project(models.Model):
     def __str__(self):
         return f"{self.name} ({self.code})"
 
+from django.db import models
+
+
+class ProjectStatus(models.Model):
+
+    STATUS_CHOICES = [
+        ("Active", "Active"),
+        ("On Hold", "On Hold"),
+        ("Completed", "Completed"),
+    ]
+
+    project = models.OneToOneField(
+        "Project",
+        on_delete=models.CASCADE,
+        related_name="project_status"
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="Active"
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        db_table = "erp_project_status"
+
+    def __str__(self):
+        return f"{self.project} - {self.status}"
+
+
 
 class Drawing(models.Model):
     project = models.ForeignKey(
