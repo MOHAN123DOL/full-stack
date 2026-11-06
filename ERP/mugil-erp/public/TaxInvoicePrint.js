@@ -1528,7 +1528,7 @@
       pdfBusy = true;
       status.textContent = originalStatusText + " — Generating PDF…";
 
-      var filename = invoiceNumber + ".pdf";
+      var filename = "MEI-" + invoiceNumber + ".pdf";
 
       buildPdfBlob(pagesHost, filename)
         .then(function (blob) {

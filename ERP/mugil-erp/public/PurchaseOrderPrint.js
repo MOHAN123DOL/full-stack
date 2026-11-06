@@ -3288,7 +3288,7 @@
       status.textContent =
         originalStatusText + " — Generating PDF…";
 
-      var filename = data.poNumber + ".pdf";
+      var filename = "MEI-" + data.poNumber + ".pdf";
 
       buildPdfBlob(pagesHost, filename)
         .then(function (blob) {

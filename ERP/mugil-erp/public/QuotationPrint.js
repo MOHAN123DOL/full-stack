@@ -1418,7 +1418,7 @@
       pdfBusy = true;
       status.textContent = originalStatusText + " — Generating PDF…";
 
-      var filename = data.quotationNumber + ".pdf";
+      var filename = "MEI-" + data.quotationNumber + ".pdf";
 
       buildPdfBlob(pagesHost, filename)
         .then(function (blob) {

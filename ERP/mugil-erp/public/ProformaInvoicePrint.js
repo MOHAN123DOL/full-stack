@@ -1530,7 +1530,7 @@
       pdfBusy = true;
       status.textContent = originalStatusText + " — Generating PDF…";
 
-      var filename = proformaNo + ".pdf";
+      var filename = "MEI-" + proformaNo + ".pdf";
 
       buildPdfBlob(pagesHost, filename)
         .then(function (blob) {
