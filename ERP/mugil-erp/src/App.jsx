@@ -59,7 +59,7 @@ import AdminProjectStatus from "./pages/admin/AdminProjectStatus.jsx";
 import AdminDocumentNumber from "./pages/admin/AdminDocumentNumber.jsx";
 import AdminBufferStock from "./pages/admin/AdminBufferStock.jsx";
 import AdminStatistics from "./pages/admin/AdminStatistics.jsx";
-import PrivacyPolicy from "./pages/PrivacyPolicy";
+import PrivacyPolicy from "./components/PrivacyPolicy";
 
 /* =====================================================================
    HR LAYOUT
