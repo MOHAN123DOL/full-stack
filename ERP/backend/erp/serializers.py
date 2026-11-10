@@ -1618,6 +1618,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
     employmentHistory = serializers.JSONField(
         source="employment_history", required=False
     )
+    dob = serializers.DateField(
+    input_formats=["%Y-%m-%d"],
+    required=False,
+    allow_null=True
+)
     
 
     class Meta:

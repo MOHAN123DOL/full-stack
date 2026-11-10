@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+
 import {
   useEmployees,
   createBlankEmployee,
@@ -15,30 +16,38 @@ import {
   STATES,
   DOCUMENT_TYPES,
 } from "./Employees.jsx";
-import Loading from "../../components/loading";
-import Error from "../../components/error";
 
-/* =========================================================================
-   EmployeeForm — used for both CREATE and EDIT.
-   ========================================================================== */
+import Loading from "../../components/loading";
+
+import Error from "../../components/error";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 const TABS = [
   { key: "personal", label: "Personal" },
+
   { key: "employment", label: "Employment" },
+
   { key: "address", label: "Address" },
+
   { key: "identification", label: "Identification" },
+
   { key: "skills", label: "Skills" },
+
   { key: "education", label: "Education" },
+
   { key: "experience", label: "Experience" },
+
   { key: "bank", label: "Bank Details" },
+
   { key: "documents", label: "Documents" },
 ];
 
 let uidCounter = 0;
+
 function uid(prefix) {
   uidCounter += 1;
+
   return `${prefix}${Date.now().toString(36)}${uidCounter}`;
 }
 
@@ -47,10 +56,14 @@ function Field({ label, required, error, children, hint }) {
     <label className="ef-field">
       <span className="ef-field-label">
         {label}
+
         {required && <span className="ef-required">*</span>}
       </span>
+
       {children}
+
       {hint && !error && <span className="ef-hint">{hint}</span>}
+
       {error && <span className="ef-error">{error}</span>}
     </label>
   );
@@ -60,8 +73,10 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
   const { employees, addEmployee, updateEmployee } = useEmployees();
 
   const isEdit = Boolean(employeeId);
+
   const existing = useMemo(
     () => employees.find((e) => String(e.id) === String(employeeId)),
+
     [employees, employeeId],
   );
 
@@ -72,9 +87,13 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
   );
 
   const [activeTab, setActiveTab] = useState("personal");
+
   const [errors, setErrors] = useState({});
+
   const [skillInput, setSkillInput] = useState("");
+
   const [saving, setSaving] = useState(false);
+
   const [saveError, setSaveError] = useState("");
 
   function set(field, value) {
@@ -84,6 +103,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
   function setBank(field, value) {
     setData((prev) => ({
       ...prev,
+
       bankDetails: { ...prev.bankDetails, [field]: value },
     }));
   }
@@ -91,17 +111,26 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
   function validate() {
     const required = {
       personal: ["employeeId", "firstName", "gender", "mobile"],
+
       employment: [
         "joiningDate",
+
         "department",
+
         "designation",
+
         "branch",
+
         "employmentType",
+
         "employmentStatus",
       ],
+
       address: ["country", "state", "city"],
     };
+
     const nextErrors = {};
+
     Object.entries(required).forEach(([, fields]) => {
       fields.forEach((f) => {
         if (!String(data[f] || "").trim())
@@ -112,6 +141,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
     if (data.mobile && !/^[+\d][\d\s-]{6,}$/.test(data.mobile.trim())) {
       nextErrors.mobile = "Enter a valid mobile number.";
     }
+
     if (data.email && !/^\S+@\S+\.\S+$/.test(data.email.trim())) {
       nextErrors.email = "Enter a valid email address.";
     }
@@ -122,57 +152,82 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
       const firstTab = Object.entries(required).find(([, fields]) =>
         fields.some((f) => nextErrors[f]),
       );
+
       if (firstTab) setActiveTab(firstTab[0]);
       else if (nextErrors.email) setActiveTab("personal");
+
       return false;
     }
+
     return true;
   }
 
   async function handleSubmit(e) {
     if (e?.preventDefault) e.preventDefault();
+
     if (!validate()) return;
 
     setSaving(true);
+
     setSaveError("");
 
     try {
+      const payload = {
+        ...data,
+        dob: data.dob || null,
+        joiningDate: data.joiningDate || null,
+      };
+
       if (isEdit) {
         const historyEntries = [];
+
         [
           "department",
+
           "designation",
+
           "branch",
+
           "city",
+
           "employmentStatus",
         ].forEach((field) => {
           if (existing && existing[field] !== data[field]) {
             historyEntries.push({
               id: uid("h"),
+
               date: new Date().toISOString().slice(0, 10),
+
               changeType:
                 field === "employmentStatus"
                   ? "Employment Status"
                   : field.charAt(0).toUpperCase() + field.slice(1),
+
               previousValue: existing[field] || "—",
+
               newValue: data[field] || "—",
             });
           }
         });
 
-        await updateEmployee(existing.id, data, historyEntries);
+        await updateEmployee(existing.id, payload, historyEntries);
+
         onSaved("edit");
       } else {
-        await addEmployee(data);
+        await addEmployee(payload);
+
         onSaved("create");
       }
     } catch (err) {
       const drfErrors = err.response?.data?.errors;
+
       if (drfErrors && typeof drfErrors === "object") {
         const flat = {};
+
         Object.entries(drfErrors).forEach(([k, v]) => {
           flat[k] = Array.isArray(v) ? v[0] : String(v);
         });
+
         setErrors(flat);
 
         if (flat.employeeId || flat.firstName || flat.mobile || flat.email) {
@@ -203,40 +258,57 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
 
   function addSkill(skill) {
     const value = skill.trim();
+
     if (!value || data.skills.includes(value)) return;
+
     set("skills", [...data.skills, value]);
+
     setSkillInput("");
   }
 
   function removeSkill(skill) {
-    set("skills", data.skills.filter((s) => s !== skill));
+    set(
+      "skills",
+      data.skills.filter((s) => s !== skill),
+    );
   }
 
   function addEducation() {
     set("education", [
       ...data.education,
+
       {
         id: uid("ed"),
+
         degree: "",
+
         institution: "",
+
         specialization: "",
+
         startYear: "",
+
         endYear: "",
+
         grade: "",
       },
     ]);
   }
+
   function updateEducation(id, field, value) {
     set(
       "education",
+
       data.education.map((row) =>
         row.id === id ? { ...row, [field]: value } : row,
       ),
     );
   }
+
   function removeEducation(id) {
     set(
       "education",
+
       data.education.filter((row) => row.id !== id),
     );
   }
@@ -244,28 +316,39 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
   function addExperience() {
     set("experience", [
       ...data.experience,
+
       {
         id: uid("ex"),
+
         company: "",
+
         designation: "",
+
         startDate: "",
+
         endDate: "",
+
         years: "",
+
         responsibilities: "",
       },
     ]);
   }
+
   function updateExperience(id, field, value) {
     set(
       "experience",
+
       data.experience.map((row) =>
         row.id === id ? { ...row, [field]: value } : row,
       ),
     );
   }
+
   function removeExperience(id) {
     set(
       "experience",
+
       data.experience.filter((row) => row.id !== id),
     );
   }
@@ -273,40 +356,57 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
   function addDocument() {
     set("documents", [
       ...data.documents,
+
       {
         id: uid("doc"),
+
         type: DOCUMENT_TYPES[0],
+
         number: "",
+
         issueDate: "",
+
         expiryDate: "",
+
         fileName: "",
       },
     ]);
   }
+
   function updateDocument(id, field, value) {
     set(
       "documents",
+
       data.documents.map((row) =>
         row.id === id ? { ...row, [field]: value } : row,
       ),
     );
   }
+
   function removeDocument(id) {
     set(
       "documents",
+
       data.documents.filter((row) => row.id !== id),
     );
   }
+
   function simulateUpload(id) {
     const fakeNames = [
       "scan_001.pdf",
+
       "certificate.pdf",
+
       "document_signed.pdf",
+
       "upload.jpg",
     ];
+
     updateDocument(
       id,
+
       "fileName",
+
       fakeNames[Math.floor(Math.random() * fakeNames.length)],
     );
   }
@@ -321,6 +421,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
       >
         <div className="emp-modal-form-head">
           <h2>{isEdit ? "Edit Employee" : "New Employee"}</h2>
+
           <button
             className="emp-icon-btn"
             type="button"
@@ -349,11 +450,15 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
         </div>
 
         {/* ============================================================
+
             INLINE ERROR — same as ExpenseProfit's loadError block
+
             ============================================================ */}
+
         {saveError && !saving && (
           <div className="qt-customer-error" style={{ margin: "0 24px" }}>
             <Error onRetry={retrySubmit} />
+
             <div style={{ marginTop: 8, fontSize: 13 }}>{saveError}</div>
           </div>
         )}
@@ -376,6 +481,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     placeholder="EMP014"
                   />
                 </Field>
+
                 <Field label="First Name" required error={errors.firstName}>
                   <input
                     type="text"
@@ -384,6 +490,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Last Name">
                   <input
                     type="text"
@@ -392,6 +499,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Gender" required error={errors.gender}>
                   <select
                     value={data.gender}
@@ -399,6 +507,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   >
                     <option value="">Select gender</option>
+
                     {GENDERS.map((g) => (
                       <option key={g} value={g}>
                         {g}
@@ -406,6 +515,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     ))}
                   </select>
                 </Field>
+
                 <Field label="Date of Birth">
                   <input
                     type="date"
@@ -414,6 +524,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Blood Group">
                   <select
                     value={data.bloodGroup}
@@ -421,6 +532,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   >
                     <option value="">Select</option>
+
                     {BLOOD_GROUPS.map((g) => (
                       <option key={g} value={g}>
                         {g}
@@ -428,6 +540,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     ))}
                   </select>
                 </Field>
+
                 <Field label="Marital Status">
                   <select
                     value={data.maritalStatus}
@@ -435,6 +548,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   >
                     <option value="">Select</option>
+
                     {MARITAL_STATUSES.map((g) => (
                       <option key={g} value={g}>
                         {g}
@@ -442,6 +556,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     ))}
                   </select>
                 </Field>
+
                 <Field label="Mobile Number" required error={errors.mobile}>
                   <input
                     type="tel"
@@ -451,6 +566,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Email" error={errors.email}>
                   <input
                     type="email"
@@ -459,6 +575,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Emergency Contact Name">
                   <input
                     type="text"
@@ -469,6 +586,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Emergency Contact Number">
                   <input
                     type="tel"
@@ -496,6 +614,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Department" required error={errors.department}>
                   <input
                     type="text"
@@ -505,12 +624,14 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                     placeholder="Select or type department"
                   />
+
                   <datalist id="departments-list">
                     {DEPARTMENTS.map((d) => (
                       <option key={d} value={d} />
                     ))}
                   </datalist>
                 </Field>
+
                 <Field label="Designation" required error={errors.designation}>
                   <input
                     type="text"
@@ -520,12 +641,14 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                     placeholder="Select or type designation"
                   />
+
                   <datalist id="designations-list">
                     {DESIGNATIONS.map((d) => (
                       <option key={d} value={d} />
                     ))}
                   </datalist>
                 </Field>
+
                 <Field label="Branch / Location" required error={errors.branch}>
                   <input
                     type="text"
@@ -535,6 +658,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field
                   label="Employment Type"
                   required
@@ -546,6 +670,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   >
                     <option value="">Select type</option>
+
                     {EMPLOYMENT_TYPES.map((d) => (
                       <option key={d} value={d}>
                         {d}
@@ -553,6 +678,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     ))}
                   </select>
                 </Field>
+
                 <Field
                   label="Employment Status"
                   required
@@ -570,6 +696,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     ))}
                   </select>
                 </Field>
+
                 <Field label="Reporting Manager">
                   <input
                     type="text"
@@ -578,6 +705,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Work Location">
                   <input
                     type="text"
@@ -599,6 +727,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Address Line 2">
                   <input
                     type="text"
@@ -607,6 +736,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Country" required error={errors.country}>
                   <input
                     type="text"
@@ -616,12 +746,14 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                     placeholder="Select or type country"
                   />
+
                   <datalist id="countries-list">
                     {COUNTRIES.map((c) => (
                       <option key={c} value={c} />
                     ))}
                   </datalist>
                 </Field>
+
                 <Field label="State" required error={errors.state}>
                   <input
                     type="text"
@@ -631,12 +763,14 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                     placeholder="Select or type state"
                   />
+
                   <datalist id="states-list">
                     {STATES.map((c) => (
                       <option key={c} value={c} />
                     ))}
                   </datalist>
                 </Field>
+
                 <Field label="City" required error={errors.city}>
                   <input
                     type="text"
@@ -646,12 +780,14 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                     placeholder="Select or type city"
                   />
+
                   <datalist id="cities-list">
                     {CITIES.map((c) => (
                       <option key={c} value={c} />
                     ))}
                   </datalist>
                 </Field>
+
                 <Field label="District">
                   <input
                     type="text"
@@ -660,6 +796,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Pincode">
                   <input
                     type="text"
@@ -677,6 +814,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                   All identification fields are optional and never appear on
                   employee cards.
                 </p>
+
                 <Field label="Aadhaar Number">
                   <input
                     type="text"
@@ -685,6 +823,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="PAN Number">
                   <input
                     type="text"
@@ -693,6 +832,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="UAN Number">
                   <input
                     type="text"
@@ -701,6 +841,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="PF Number">
                   <input
                     type="text"
@@ -709,6 +850,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="ESI Number">
                   <input
                     type="text"
@@ -717,6 +859,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Passport Number">
                   <input
                     type="text"
@@ -725,6 +868,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Driving License">
                   <input
                     type="text"
@@ -742,6 +886,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                   {data.skills.map((s) => (
                     <span className="emp-tag emp-tag-removable" key={s}>
                       {s}
+
                       <button
                         type="button"
                         aria-label={`Remove ${s}`}
@@ -752,6 +897,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                       </button>
                     </span>
                   ))}
+
                   <input
                     type="text"
                     value={skillInput}
@@ -760,12 +906,14 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
+
                         addSkill(skillInput);
                       }
                     }}
                     disabled={saving}
                   />
                 </div>
+
                 <div className="ef-skill-suggestions">
                   {SKILLS_LIST.filter((s) => !data.skills.includes(s)).map(
                     (s) => (
@@ -789,6 +937,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                 {data.education.length === 0 && (
                   <p className="ef-section-note">No education records yet.</p>
                 )}
+
                 {data.education.map((row) => (
                   <div className="ef-repeat-card" key={row.id}>
                     <div className="ef-grid">
@@ -802,6 +951,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Institution">
                         <input
                           type="text"
@@ -809,13 +959,16 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           onChange={(e) =>
                             updateEducation(
                               row.id,
+
                               "institution",
+
                               e.target.value,
                             )
                           }
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Specialization">
                         <input
                           type="text"
@@ -823,13 +976,16 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           onChange={(e) =>
                             updateEducation(
                               row.id,
+
                               "specialization",
+
                               e.target.value,
                             )
                           }
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Start Year">
                         <input
                           type="text"
@@ -837,13 +993,16 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           onChange={(e) =>
                             updateEducation(
                               row.id,
+
                               "startYear",
+
                               e.target.value,
                             )
                           }
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="End Year">
                         <input
                           type="text"
@@ -854,6 +1013,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Grade / CGPA">
                         <input
                           type="text"
@@ -865,6 +1025,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                         />
                       </Field>
                     </div>
+
                     <button
                       type="button"
                       className="emp-link-btn ef-remove-row"
@@ -875,6 +1036,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     </button>
                   </div>
                 ))}
+
                 <button
                   type="button"
                   className="emp-btn-outline"
@@ -893,6 +1055,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     No previous experience records yet.
                   </p>
                 )}
+
                 {data.experience.map((row) => (
                   <div className="ef-repeat-card" key={row.id}>
                     <div className="ef-grid">
@@ -906,6 +1069,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Designation">
                         <input
                           type="text"
@@ -913,13 +1077,16 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           onChange={(e) =>
                             updateExperience(
                               row.id,
+
                               "designation",
+
                               e.target.value,
                             )
                           }
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Start Date">
                         <input
                           type="date"
@@ -927,13 +1094,16 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           onChange={(e) =>
                             updateExperience(
                               row.id,
+
                               "startDate",
+
                               e.target.value,
                             )
                           }
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="End Date">
                         <input
                           type="date"
@@ -944,6 +1114,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Years of Experience">
                         <input
                           type="text"
@@ -954,6 +1125,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Responsibilities">
                         <textarea
                           rows={2}
@@ -961,7 +1133,9 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           onChange={(e) =>
                             updateExperience(
                               row.id,
+
                               "responsibilities",
+
                               e.target.value,
                             )
                           }
@@ -969,6 +1143,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                         />
                       </Field>
                     </div>
+
                     <button
                       type="button"
                       className="emp-link-btn ef-remove-row"
@@ -979,6 +1154,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     </button>
                   </div>
                 ))}
+
                 <button
                   type="button"
                   className="emp-btn-outline"
@@ -996,6 +1172,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                   Optional at creation — payroll will rely on these once
                   completed.
                 </p>
+
                 <Field label="Account Holder Name">
                   <input
                     type="text"
@@ -1006,6 +1183,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Bank Name">
                   <input
                     type="text"
@@ -1014,6 +1192,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Account Number">
                   <input
                     type="text"
@@ -1022,6 +1201,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="IFSC Code">
                   <input
                     type="text"
@@ -1030,6 +1210,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     disabled={saving}
                   />
                 </Field>
+
                 <Field label="Branch">
                   <input
                     type="text"
@@ -1046,6 +1227,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                 {data.documents.length === 0 && (
                   <p className="ef-section-note">No documents added yet.</p>
                 )}
+
                 {data.documents.map((row) => (
                   <div className="ef-repeat-card" key={row.id}>
                     <div className="ef-grid">
@@ -1064,6 +1246,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           ))}
                         </select>
                       </Field>
+
                       <Field label="Document Number">
                         <input
                           type="text"
@@ -1074,6 +1257,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Issue Date">
                         <input
                           type="date"
@@ -1084,6 +1268,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Expiry Date">
                         <input
                           type="date"
@@ -1094,6 +1279,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           disabled={saving}
                         />
                       </Field>
+
                       <Field label="Attachment">
                         <div className="ef-file-row">
                           <button
@@ -1104,12 +1290,14 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                           >
                             {row.fileName ? "Replace file" : "Simulate upload"}
                           </button>
+
                           {row.fileName && (
                             <span className="ef-file-name">{row.fileName}</span>
                           )}
                         </div>
                       </Field>
                     </div>
+
                     <button
                       type="button"
                       className="emp-link-btn ef-remove-row"
@@ -1120,6 +1308,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
                     </button>
                   </div>
                 ))}
+
                 <button
                   type="button"
                   className="emp-btn-outline"
@@ -1141,16 +1330,9 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="emp-btn-primary"
-              disabled={saving}
-            >
-              {saving
-                ? "Saving…"
-                : isEdit
-                  ? "Save Changes"
-                  : "Save Employee"}
+
+            <button type="submit" className="emp-btn-primary" disabled={saving}>
+              {saving ? "Saving…" : isEdit ? "Save Changes" : "Save Employee"}
             </button>
           </div>
         </form>
