@@ -59,6 +59,7 @@ import AdminProjectStatus from "./pages/admin/AdminProjectStatus.jsx";
 import AdminDocumentNumber from "./pages/admin/AdminDocumentNumber.jsx";
 import AdminBufferStock from "./pages/admin/AdminBufferStock.jsx";
 import AdminStatistics from "./pages/admin/AdminStatistics.jsx";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 
 /* =====================================================================
    HR LAYOUT
@@ -102,6 +103,7 @@ export default function App() {
         />
         <Route path="/supervisor/login" element={<SupervisorLoginPage />} />
         <Route path="/accounts/login" element={<AccountsLoginPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
         {/* ================= SHARED ================= */}
         <Route
