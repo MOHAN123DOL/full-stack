@@ -1198,11 +1198,32 @@ export default function Profile() {
         const payload = response.data;
 
         if (!payload?.success) {
+          // No employee record: show an empty attendance calendar
+          if (
+            payload?.message === "No employee record is linked to this account."
+          ) {
+            setAttendanceRecords([]);
+            setAttendanceError("");
+            setAttendanceErrorStatus(null);
+
+            if (isCurrentMonth) {
+              setTodayAttendance(null);
+              setTodayAttendanceState("ready");
+            }
+
+            return;
+          }
+
+          // Other API errors should still be displayed
           setAttendanceRecords([]);
           setAttendanceError(
             payload?.message || "Attendance could not be retrieved.",
           );
-          if (isCurrentMonth) setTodayAttendanceState("error");
+
+          if (isCurrentMonth) {
+            setTodayAttendanceState("error");
+          }
+
           return;
         }
 
