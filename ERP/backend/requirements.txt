@@ -17,7 +17,7 @@ python-decouple==3.8
 # --- Image / File Processing ---
 # (Required for ImageField and validate_image_upload in views.py)
 Pillow==10.3.0
-
+packaging
 celery
 redis
 django-celery-beat
