@@ -129,7 +129,7 @@ function useRefreshableQuery(fetcher, refreshKey, fallbackError) {
     setState((prev) =>
       silent
         ? { ...prev, refreshing: true, error: "" }
-        : { data: null, loading: true, refreshing: false, error: "" }
+        : { data: null, loading: true, refreshing: false, error: "" },
     );
 
     fetcher()
@@ -231,7 +231,7 @@ function useAttendanceApi() {
 
   const authHeaders = useCallback(
     () => ({ Authorization: `Bearer ${accessToken}` }),
-    [accessToken]
+    [accessToken],
   );
 
   const buildQuery = (params) => {
@@ -258,7 +258,7 @@ function useAttendanceApi() {
       });
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const getAttendance = useCallback(
@@ -280,7 +280,7 @@ function useAttendanceApi() {
       });
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const createAttendance = useCallback(
@@ -290,7 +290,7 @@ function useAttendanceApi() {
       });
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const updateAttendance = useCallback(
@@ -300,7 +300,7 @@ function useAttendanceApi() {
       });
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const deleteAttendance = useCallback(
@@ -310,7 +310,7 @@ function useAttendanceApi() {
       });
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const getWeeklySummary = useCallback(
@@ -323,13 +323,12 @@ function useAttendanceApi() {
         employment_type: params.employment_type || "",
         work_location: params.work_location || "",
       });
-      const res = await api.get(
-        `/erp/attendance/weekly-summary/?${query}`,
-        { headers: authHeaders() }
-      );
+      const res = await api.get(`/erp/attendance/weekly-summary/?${query}`, {
+        headers: authHeaders(),
+      });
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const getMonthlySummary = useCallback(
@@ -342,38 +341,36 @@ function useAttendanceApi() {
         employment_type: params.employment_type || "",
         work_location: params.work_location || "",
       });
-      const res = await api.get(
-        `/erp/attendance/monthly-summary/?${query}`,
-        { headers: authHeaders() }
-      );
+      const res = await api.get(`/erp/attendance/monthly-summary/?${query}`, {
+        headers: authHeaders(),
+      });
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const getEmployeeSummary = useCallback(
     async (employeeId) => {
       const res = await api.get(
         `/erp/attendance/employee-summary/?employee=${employeeId}`,
-        { headers: authHeaders() }
+        { headers: authHeaders() },
       );
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const getWageConfigByEmployee = useCallback(
     async (employeeId) => {
-      const res = await api.get(
-        `/erp/wage-config/?employee_id=${employeeId}`,
-        { headers: authHeaders() }
-      );
+      const res = await api.get(`/erp/wage-config/?employee_id=${employeeId}`, {
+        headers: authHeaders(),
+      });
       const list = Array.isArray(res.data)
         ? res.data
         : res.data?.results || res.data?.data || [];
       return list[0] || null;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   const upsertWageConfig = useCallback(
@@ -381,11 +378,11 @@ function useAttendanceApi() {
       const res = await api.post(
         "/erp/wage-config/",
         { employee: employeeId, ...data },
-        { headers: authHeaders() }
+        { headers: authHeaders() },
       );
       return res.data;
     },
-    [authHeaders]
+    [authHeaders],
   );
 
   return useMemo(
@@ -412,7 +409,7 @@ function useAttendanceApi() {
       getEmployeeSummary,
       getWageConfigByEmployee,
       upsertWageConfig,
-    ]
+    ],
   );
 }
 
@@ -424,7 +421,8 @@ const AttendanceContext = createContext(null);
 
 export function useAttendance() {
   const ctx = useContext(AttendanceContext);
-  if (!ctx) throw new Error("useAttendance must be used within AttendanceProvider");
+  if (!ctx)
+    throw new Error("useAttendance must be used within AttendanceProvider");
   return ctx;
 }
 
@@ -638,12 +636,11 @@ function EmployeeSearchSelect({ value, onChange, filters }) {
           const list = data.results || data.data || [];
           setResults(list);
           const total = data.count || list.length;
-          setTotalPages(
-            data.total_pages || Math.max(1, Math.ceil(total / 25))
-          );
+          setTotalPages(data.total_pages || Math.max(1, Math.ceil(total / 25)));
         }
       } catch (err) {
-        if (!cancelled) setError(extractError(err, "Failed to load employees."));
+        if (!cancelled)
+          setError(extractError(err, "Failed to load employees."));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -716,7 +713,10 @@ function EmployeeSearchSelect({ value, onChange, filters }) {
     : "";
 
   return (
-    <div ref={wrapRef} style={{ position: "relative", minWidth: 280, zIndex: 50 }}>
+    <div
+      ref={wrapRef}
+      style={{ position: "relative", minWidth: 280, zIndex: 50 }}
+    >
       <span className="aw-field-label">Employee</span>
       <input
         className="aw-input"
@@ -886,11 +886,8 @@ function AttendanceFormModal({
   onClose,
   onSaved,
 }) {
-  const {
-    createAttendance,
-    updateAttendance,
-    getWageConfigByEmployee,
-  } = useAttendance();
+  const { createAttendance, updateAttendance, getWageConfigByEmployee } =
+    useAttendance();
 
   const [form, setForm] = useState(() =>
     editRecord
@@ -904,7 +901,7 @@ function AttendanceFormModal({
           hourlyRate: String(editRecord.hourly_rate ?? ""),
           remarks: editRecord.remarks || "",
         }
-      : blankForm(presetEmployeeId, presetDate)
+      : blankForm(presetEmployeeId, presetDate),
   );
 
   const [errors, setErrors] = useState({});
@@ -999,7 +996,7 @@ function AttendanceFormModal({
     } catch (err) {
       if (err?.response?.status === 409) {
         setDuplicateMsg(
-          "Attendance already exists for this employee and date."
+          "Attendance already exists for this employee and date.",
         );
       } else {
         setSaveError(extractError(err, "Failed to save attendance."));
@@ -1217,16 +1214,12 @@ function AttendanceFormModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="aw-btn-primary"
-              disabled={saving}
-            >
+            <button type="submit" className="aw-btn-primary" disabled={saving}>
               {saving
                 ? "Saving…"
                 : editRecord
-                ? "Save Changes"
-                : "Save Attendance"}
+                  ? "Save Changes"
+                  : "Save Attendance"}
             </button>
           </div>
         </form>
@@ -1276,9 +1269,13 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
         const response = await fetchPage(page, pageSize);
         const items = response.results || response.data || [];
         all.push(...items);
-        totalPages = response.total_pages ||
-          (response.count != null ? Math.ceil(response.count / pageSize) :
-            (response.next ? page + 1 : page));
+        totalPages =
+          response.total_pages ||
+          (response.count != null
+            ? Math.ceil(response.count / pageSize)
+            : response.next
+              ? page + 1
+              : page);
         page += 1;
       } while (page <= totalPages && page <= 100);
       return all;
@@ -1286,15 +1283,15 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
 
     const [employees, attendanceRecords] = await Promise.all([
       fetchAllPages((page, page_size) =>
-        getEmployees({ ...commonFilters, page, page_size })
+        getEmployees({ ...commonFilters, page, page_size }),
       ),
       fetchAllPages((page, page_size) =>
-        getAttendance({ date, page, page_size })
+        getAttendance({ date, page, page_size }),
       ),
     ]);
 
     const attendanceByEmployee = new Map(
-      attendanceRecords.map((record) => [String(record.employee), record])
+      attendanceRecords.map((record) => [String(record.employee), record]),
     );
 
     let merged = employees.map((employee) => ({
@@ -1305,7 +1302,9 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
     // Status filtering is applied after merging so employees with no record
     // are never incorrectly treated as absent records.
     if (filters.status) {
-      merged = merged.filter((row) => row.attendance?.status === filters.status);
+      merged = merged.filter(
+        (row) => row.attendance?.status === filters.status,
+      );
     }
     return merged;
   }, [
@@ -1323,13 +1322,13 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
   const { data, loading, refreshing, error, retry } = useRefreshableQuery(
     fetcher,
     refreshKey,
-    "Failed to load employees and attendance."
+    "Failed to load employees and attendance.",
   );
 
   const rows = useMemo(() => data || [], [data]);
   const recordedRows = useMemo(
     () => rows.map((row) => row.attendance).filter(Boolean),
-    [rows]
+    [rows],
   );
 
   const summary = useMemo(
@@ -1337,12 +1336,12 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
       employees: rows.length,
       recorded: recordedRows.length,
       present: recordedRows.filter((r) =>
-        ["PRESENT", "HALF_DAY", "WFH"].includes(r.status)
+        ["PRESENT", "HALF_DAY", "WFH"].includes(r.status),
       ).length,
       absent: recordedRows.filter((r) => r.status === "ABSENT").length,
       notMarked: rows.length - recordedRows.length,
     }),
-    [rows, recordedRows]
+    [rows, recordedRows],
   );
 
   async function handleDelete() {
@@ -1396,20 +1395,24 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
         filters={filters}
         onChange={setFilters}
         showStatus
-        onClear={() => setFilters({
-          search: "",
-          department: "",
-          branch: "",
-          employment_type: "",
-          work_location: "",
-          status: "",
-        })}
+        onClear={() =>
+          setFilters({
+            search: "",
+            department: "",
+            branch: "",
+            employment_type: "",
+            work_location: "",
+            status: "",
+          })
+        }
       />
 
       <RefreshIndicator show={refreshing} />
 
       {loading ? (
-        <div style={{ padding: 40, textAlign: "center" }}><Loading /></div>
+        <div style={{ padding: 40, textAlign: "center" }}>
+          <Loading />
+        </div>
       ) : (
         <>
           {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
@@ -1425,7 +1428,7 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
                     <th>Attendance Status</th>
                     <th>Login</th>
                     <th>Logout</th>
-                    <th className="aw-num">Hours</th>
+                    <th className="aw-center">Hours</th>
                     <th className="aw-num">Rate</th>
                     <th className="aw-num">Daily Wage</th>
                     <th>Remarks</th>
@@ -1434,32 +1437,65 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
                 </thead>
                 <tbody>
                   {rows.length === 0 && (
-                    <tr><td colSpan={12} className="aw-empty-row">No employees found for this filter.</td></tr>
+                    <tr>
+                      <td colSpan={12} className="aw-empty-row">
+                        No employees found for this filter.
+                      </td>
+                    </tr>
                   )}
                   {rows.map((employee) => {
                     const record = employee.attendance;
                     return (
                       <tr key={employee.id}>
-                        <td>{employee.employee_id || employee.employee_code || employee.id}</td>
+                        <td>
+                          {employee.employee_id ||
+                            employee.employee_code ||
+                            employee.id}
+                        </td>
                         <td>{employeeName(employee)}</td>
                         <td>{employee.department || "—"}</td>
                         <td>{employee.designation || "—"}</td>
-                        <td>{record ? <StatusPill status={record.status} /> : <span className="aw-hint">Not Marked</span>}</td>
+                        <td>
+                          {record ? (
+                            <StatusPill status={record.status} />
+                          ) : (
+                            <span className="aw-hint">Not Marked</span>
+                          )}
+                        </td>
                         <td>{record?.login_time || "—"}</td>
                         <td>{record?.logout_time || "—"}</td>
-                        <td className="aw-num">{record ? Number(record.working_hours || 0).toFixed(2) : "—"}</td>
-                        <td className="aw-num">{record ? formatINR(record.hourly_rate) : "—"}</td>
-                        <td className="aw-num">{record ? formatINR(record.daily_wage) : "—"}</td>
+                        <td className="aw-center">
+                          {record
+                            ? Number(record.working_hours || 0).toFixed(2)
+                            : "—"}
+                        </td>
+                        <td className="aw-num">
+                          {record ? formatINR(record.hourly_rate) : "—"}
+                        </td>
+                        <td className="aw-num">
+                          {record ? formatINR(record.daily_wage) : "—"}
+                        </td>
                         <td className="aw-remarks">{record?.remarks || "—"}</td>
                         <td className="aw-row-actions">
                           {record ? (
                             <>
-                              <button type="button" className="aw-link-btn" onClick={() => onEdit(record)}>Edit</button>
+                              <button
+                                type="button"
+                                className="aw-link-btn"
+                                onClick={() => onEdit(record)}
+                              >
+                                Edit
+                              </button>
                               <button
                                 type="button"
                                 className="aw-link-btn aw-link-danger"
-                                onClick={() => { setDeleteError(""); setDeleteTarget(record); }}
-                              >Delete</button>
+                                onClick={() => {
+                                  setDeleteError("");
+                                  setDeleteTarget(record);
+                                }}
+                              >
+                                Delete
+                              </button>
                             </>
                           ) : (
                             <button
@@ -1482,14 +1518,43 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
       )}
 
       {deleteTarget && (
-        <div className="aw-modal-overlay" onClick={() => !deleting && setDeleteTarget(null)}>
-          <div className="aw-modal aw-modal-confirm" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div
+          className="aw-modal-overlay"
+          onClick={() => !deleting && setDeleteTarget(null)}
+        >
+          <div
+            className="aw-modal aw-modal-confirm"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
             <h3>Delete attendance record?</h3>
-            <p>This removes the record for {employeeName(deleteTarget)} on {formatDisplayDate(deleteTarget.date)}.</p>
-            {deleteError && <div style={{ fontSize: 13, color: "#a52626", marginBottom: 8 }}>{deleteError}</div>}
+            <p>
+              This removes the record for {employeeName(deleteTarget)} on{" "}
+              {formatDisplayDate(deleteTarget.date)}.
+            </p>
+            {deleteError && (
+              <div style={{ fontSize: 13, color: "#a52626", marginBottom: 8 }}>
+                {deleteError}
+              </div>
+            )}
             <div className="aw-modal-actions">
-              <button type="button" className="aw-btn-outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</button>
-              <button type="button" className="aw-btn-danger" onClick={handleDelete} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
+              <button
+                type="button"
+                className="aw-btn-outline"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="aw-btn-danger"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
             </div>
           </div>
         </div>
@@ -1548,7 +1613,7 @@ function WeeklyTab({ refreshKey }) {
   const { data, loading, refreshing, error, retry } = useRefreshableQuery(
     fetcher,
     refreshKey,
-    "Failed to load weekly summary."
+    "Failed to load weekly summary.",
   );
 
   const view = data || EMPTY_WEEKLY;
@@ -1569,7 +1634,7 @@ function WeeklyTab({ refreshKey }) {
         <span className="aw-hint">
           {view.start_date
             ? `${formatDisplayDate(view.start_date)} – ${formatDisplayDate(
-                view.end_date
+                view.end_date,
               )}`
             : ""}
         </span>
@@ -1652,7 +1717,7 @@ function WeeklyTab({ refreshKey }) {
                             <span key={s} className="aw-mini-pill">
                               {statusLabel(s)}: {count}
                             </span>
-                          )
+                          ),
                         )}
                       </td>
                     </tr>
@@ -1717,7 +1782,7 @@ function MonthlyTab({ onFixMissing, refreshKey }) {
   const { data, loading, refreshing, error, retry } = useRefreshableQuery(
     fetcher,
     refreshKey,
-    "Failed to load monthly summary."
+    "Failed to load monthly summary.",
   );
 
   const view = data || EMPTY_MONTHLY;
@@ -1827,7 +1892,7 @@ function MonthlyTab({ onFixMissing, refreshKey }) {
                             <span key={s} className="aw-mini-pill">
                               {statusLabel(s)}: {count}
                             </span>
-                          )
+                          ),
                         )}
                         {!r.status_counts && "—"}
                       </td>
@@ -1842,7 +1907,7 @@ function MonthlyTab({ onFixMissing, refreshKey }) {
                               onFixMissing &&
                               onFixMissing(
                                 r.employee_id,
-                                view.start_date || todayISO()
+                                view.start_date || todayISO(),
                               )
                             }
                           >
@@ -1923,20 +1988,23 @@ function EmployeeSummaryTab({ refreshKey }) {
     refreshKey,
     employeeId
       ? "Failed to load employee summary."
-      : "Failed to load employee list."
+      : "Failed to load employee list.",
   );
 
   const summary = data?.mode === "summary" ? data.summary : null;
-  const monthAttendance = data?.mode === "summary" ? data.monthAttendance || [] : [];
+  const monthAttendance =
+    data?.mode === "summary" ? data.monthAttendance || [] : [];
   const list = data?.mode === "list" ? data.list : [];
   const currentMonthLabel = new Date().toLocaleDateString("en-IN", {
     month: "long",
     year: "numeric",
   });
   const presentCount = monthAttendance.filter((r) =>
-    ["PRESENT", "HALF_DAY", "WFH"].includes(r.status)
+    ["PRESENT", "HALF_DAY", "WFH"].includes(r.status),
   ).length;
-  const absentCount = monthAttendance.filter((r) => r.status === "ABSENT").length;
+  const absentCount = monthAttendance.filter(
+    (r) => r.status === "ABSENT",
+  ).length;
 
   const week = summary?.week?.summary;
   const month = summary?.month?.summary;
@@ -2020,7 +2088,7 @@ function EmployeeSummaryTab({ refreshKey }) {
                     value={formatINR(
                       month?.outstanding_advance ||
                         week?.outstanding_advance ||
-                        0
+                        0,
                     )}
                   />
                 </div>
@@ -2052,9 +2120,9 @@ function EmployeeSummaryTab({ refreshKey }) {
                         <th>Status</th>
                         <th>Login Time</th>
                         <th>Logout Time</th>
-                        <th className="aw-num">Working Hours</th>
-                        <th className="aw-num">Hourly Rate</th>
-                        <th className="aw-num">Daily Wage</th>
+                        <th className="aw-center">Working Hours</th>
+                        <th className="aw-center">Hourly Rate</th>
+                        <th className="aw-center">Daily Wage</th>
                         <th>Remarks</th>
                       </tr>
                     </thead>
@@ -2069,19 +2137,27 @@ function EmployeeSummaryTab({ refreshKey }) {
                         monthAttendance.map((record) => (
                           <tr key={record.id}>
                             <td>{formatDisplayDate(record.date)}</td>
-                            <td><StatusPill status={record.status} /></td>
+                            <td>
+                              <StatusPill status={record.status} />
+                            </td>
                             <td>{record.login_time || "—"}</td>
                             <td>{record.logout_time || "—"}</td>
-                            <td className="aw-num">
+                            <td className="aw-center">
                               {Number(record.working_hours || 0).toFixed(2)}
                             </td>
-                            <td className="aw-num">
-                              {record.hourly_rate == null ? "—" : formatINR(record.hourly_rate)}
+                            <td className="aw-center">
+                              {record.hourly_rate == null
+                                ? "—"
+                                : formatINR(record.hourly_rate)}
                             </td>
-                            <td className="aw-num">
-                              {record.daily_wage == null ? "—" : formatINR(record.daily_wage)}
+                            <td className="aw-center">
+                              {record.daily_wage == null
+                                ? "—"
+                                : formatINR(record.daily_wage)}
                             </td>
-                            <td className="aw-remarks">{record.remarks || "—"}</td>
+                            <td className="aw-remarks">
+                              {record.remarks || "—"}
+                            </td>
                           </tr>
                         ))
                       )}
@@ -2168,10 +2244,7 @@ function EmployeeSummaryTab({ refreshKey }) {
    ========================================================================== */
 
 function WageRatesPanel() {
-  const {
-    getWageConfigByEmployee,
-    upsertWageConfig,
-  } = useAttendance();
+  const { getWageConfigByEmployee, upsertWageConfig } = useAttendance();
 
   const [filters, setFilters] = useState({
     search: "",
@@ -2216,7 +2289,8 @@ function WageRatesPanel() {
           });
         }
       } catch (err) {
-        if (!cancelled) setError(extractError(err, "Failed to load wage config."));
+        if (!cancelled)
+          setError(extractError(err, "Failed to load wage config."));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2367,9 +2441,7 @@ function WageRatesPanel() {
                   }
                 >
                   <option value="UNPAID">Unpaid (₹0)</option>
-                  <option value="FULL_DAY">
-                    Paid (standard hours × rate)
-                  </option>
+                  <option value="FULL_DAY">Paid (standard hours × rate)</option>
                 </select>
               </label>
             ))}
@@ -2416,12 +2488,26 @@ const TABS = [
   { key: "rates", label: "Wage Rates" },
 ];
 
+// Restore the last selected tab after a browser refresh. Keep this helper
+// guarded because localStorage may be unavailable in restricted browser modes.
+const ATTENDANCE_ACTIVE_TAB_KEY = "hrAttendanceWages.activeTab";
+
+function getSavedAttendanceTab() {
+  try {
+    const savedTab = window.localStorage.getItem(ATTENDANCE_ACTIVE_TAB_KEY);
+    return TABS.some((tab) => tab.key === savedTab) ? savedTab : "daily";
+  } catch {
+    return "daily";
+  }
+}
+
 export default function AttendanceWages() {
-  const [activeTab, setActiveTab] = useState("daily");
-  // Tabs are mounted lazily on first visit and then KEPT mounted (hidden), so
-  // each tab keeps its own selected date / month / week / filters and every
-  // visited tab can be refreshed by the central trigger below.
-  const [visited, setVisited] = useState({ daily: true });
+  const [activeTab, setActiveTab] = useState(getSavedAttendanceTab);
+  // The restored tab must also be marked as visited so its content mounts.
+  // Tabs remain mounted after first visit, preserving their filters and dates.
+  const [visited, setVisited] = useState(() => ({
+    [getSavedAttendanceTab()]: true,
+  }));
   const [modal, setModal] = useState(null);
 
   // ── Central refresh trigger ───────────────────────────────────────────
@@ -2432,8 +2518,14 @@ export default function AttendanceWages() {
   const handleBack = () => window.history.back();
 
   function selectTab(key) {
+    if (!TABS.some((tab) => tab.key === key)) return;
     setActiveTab(key);
     setVisited((v) => (v[key] ? v : { ...v, [key]: true }));
+    try {
+      window.localStorage.setItem(ATTENDANCE_ACTIVE_TAB_KEY, key);
+    } catch {
+      // The tab still works for this session if storage is blocked.
+    }
   }
 
   function openAdd(presetEmployeeId, presetDate) {
