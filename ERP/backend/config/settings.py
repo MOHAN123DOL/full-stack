@@ -476,3 +476,11 @@ CELERY_RESULT_SERIALIZER = "json"
 
 CELERY_TIMEZONE = "Asia/Kolkata"
 CELERY_ENABLE_UTC = True
+
+
+
+CONSUMABLE_ALERT_EMAILS = [
+    email.strip()
+    for email in os.getenv("CONSUMABLE_ALERT_EMAILS", "").split(",")
+    if email.strip()
+]

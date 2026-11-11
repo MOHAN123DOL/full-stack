@@ -16,8 +16,6 @@ from .models import (
 
 def get_consumable_available_stock(grn):
     """
-    Calculate the latest available stock for one GRN.
-
     Available = Received - Issued + Returned
     """
 
@@ -44,33 +42,43 @@ def get_consumable_available_stock(grn):
 def check_consumable_buffer_stock(self, grn_id, reference_issue_id=None):
 
     try:
-        # Always fetch fresh data from the database.
         grn = ConsumableGRN.objects.get(id=grn_id)
 
         if grn.buffer_stock_limit is None:
             return "Skipped: Buffer stock limit is not configured."
 
-        # Calculate latest stock, including all returns.
         available_stock = get_consumable_available_stock(grn)
-
         buffer_limit = grn.buffer_stock_limit
 
-        # IMPORTANT: Check latest quantity before sending.
         if available_stock > buffer_limit:
             return (
                 f"Skipped: Available stock {available_stock} "
                 f"is above buffer limit {buffer_limit}."
             )
 
-        admin_email = (
-            getattr(settings, "CONTACT_ADMIN_EMAIL", None)
-            or getattr(settings, "EMAIL_HOST_USER", None)
-        )
+        # Get all configured recipients
+        recipients = getattr(settings, "CONSUMABLE_ALERT_EMAILS", [])
+
+        # Fallback to admin email
+        if not recipients:
+            admin_email = (
+                getattr(settings, "CONTACT_ADMIN_EMAIL", None)
+                or getattr(settings, "EMAIL_HOST_USER", None)
+            )
+
+            recipients = [admin_email] if admin_email else []
+
+        # Remove empty values and duplicates
+        recipients = list(dict.fromkeys(
+            email.strip()
+            for email in recipients
+            if email and email.strip()
+        ))
+
+        if not recipients:
+            raise ValueError("No recipient email is configured.")
 
         from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
-
-        if not admin_email:
-            raise ValueError("Admin email is not configured.")
 
         if not from_email:
             raise ValueError("DEFAULT_FROM_EMAIL is not configured.")
@@ -130,13 +138,13 @@ def check_consumable_buffer_stock(self, grn_id, reference_issue_id=None):
             subject=subject,
             body=text_body,
             from_email=from_email,
-            to=[admin_email],
+            to=recipients,
         )
 
         email.attach_alternative(html_body, "text/html")
         email.send(fail_silently=False)
 
-        # Save successful email log.
+        # Save successful email log
         ConsumableEmailLog.objects.create(
             alert_type="LOW_STOCK",
             consumable_name=material_name,
@@ -144,20 +152,34 @@ def check_consumable_buffer_stock(self, grn_id, reference_issue_id=None):
             warehouse=grn.warehouse,
             available_stock=available_stock,
             buffer_stock_limit=buffer_limit,
-            recipient_email=admin_email,
+            recipient_email=", ".join(recipients),
             subject=subject,
             email_body=text_body,
             email_status="SENT",
             sent_at=timezone.now(),
         )
 
-        return f"Alert sent successfully for {material_name}."
+        return (
+            f"Alert sent successfully for {material_name} "
+            f"to {len(recipients)} recipient(s)."
+        )
 
     except Exception as exc:
 
-        # Log the failed attempt.
+        # Log failed attempt
         try:
             grn = ConsumableGRN.objects.get(id=grn_id)
+
+            failed_recipients = getattr(
+                settings, "CONSUMABLE_ALERT_EMAILS", []
+            )
+
+            if not failed_recipients:
+                fallback_email = (
+                    getattr(settings, "CONTACT_ADMIN_EMAIL", None)
+                    or getattr(settings, "EMAIL_HOST_USER", "")
+                )
+                failed_recipients = [fallback_email] if fallback_email else []
 
             ConsumableEmailLog.objects.create(
                 alert_type="LOW_STOCK",
@@ -170,10 +192,7 @@ def check_consumable_buffer_stock(self, grn_id, reference_issue_id=None):
                 warehouse=grn.warehouse,
                 available_stock=get_consumable_available_stock(grn),
                 buffer_stock_limit=grn.buffer_stock_limit,
-                recipient_email=(
-                    getattr(settings, "CONTACT_ADMIN_EMAIL", None)
-                    or getattr(settings, "EMAIL_HOST_USER", "")
-                ),
+                recipient_email=", ".join(failed_recipients),
                 subject="Consumable Buffer Stock Alert",
                 email_body="",
                 email_status="FAILED",
