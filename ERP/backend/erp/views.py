@@ -7973,6 +7973,10 @@ class WageConfigViewSet(ModelViewSet):
 # ATTENDANCE VIEWSET
 # ============================================================
 
+# ============================================================
+# ATTENDANCE VIEWSET
+# ============================================================
+
 class AttendanceViewSet(ModelViewSet):
 
     serializer_class = AttendanceSerializer
@@ -8992,6 +8996,26 @@ class AttendanceViewSet(ModelViewSet):
             employee.id,
         )
 
+        # Individual attendance records for the selected employee
+        # within the current month. The summary above contains only
+        # aggregated totals, so the UI needs these serialized records
+        # separately to display each date, status, and time.
+        month_records = (
+            Attendance.objects
+            .filter(
+                employee=employee,
+                date__gte=month_start,
+                date__lte=min(month_end, today),
+            )
+            .select_related("employee")
+            .order_by("-date", "-id")
+        )
+
+        month_records_data = self.get_serializer(
+            month_records,
+            many=True,
+        ).data
+
         # ----------------------------------------------------
         # WAGE CONFIG
         # ----------------------------------------------------
@@ -9091,6 +9115,9 @@ class AttendanceViewSet(ModelViewSet):
                         if month_data
                         else None
                     ),
+
+                "records":
+                    month_records_data,
             },
 
             "wage_config":

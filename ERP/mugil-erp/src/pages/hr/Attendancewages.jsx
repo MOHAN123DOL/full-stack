@@ -1240,7 +1240,7 @@ function AttendanceFormModal({
    ========================================================================== */
 
 function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
-  const { getAttendance, deleteAttendance } = useAttendance();
+  const { getEmployees, getAttendance, deleteAttendance } = useAttendance();
 
   const [date, setDate] = useState(todayISO());
   const [filters, setFilters] = useState({
@@ -1257,22 +1257,59 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
 
   const debounced = useDebounce(filters.search, 400);
 
-  // Memoised over the selected date + filters. The central refreshKey re-runs
-  // this exact fetcher, so the chosen date and filters are preserved.
+  // Load the employee directory and the selected day's attendance separately.
+  // Merging them ensures employees without a record still appear in the table.
   const fetcher = useCallback(async () => {
-    const data = await getAttendance({
-      date,
+    const commonFilters = {
       search: debounced,
       department: filters.department,
       branch: filters.branch,
       employment_type: filters.employment_type,
       work_location: filters.work_location,
-      status: filters.status,
-      page: 1,
-      page_size: 200,
-    });
-    return data.results || data.data || [];
+    };
+
+    async function fetchAllPages(fetchPage, pageSize = 200) {
+      const all = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const response = await fetchPage(page, pageSize);
+        const items = response.results || response.data || [];
+        all.push(...items);
+        totalPages = response.total_pages ||
+          (response.count != null ? Math.ceil(response.count / pageSize) :
+            (response.next ? page + 1 : page));
+        page += 1;
+      } while (page <= totalPages && page <= 100);
+      return all;
+    }
+
+    const [employees, attendanceRecords] = await Promise.all([
+      fetchAllPages((page, page_size) =>
+        getEmployees({ ...commonFilters, page, page_size })
+      ),
+      fetchAllPages((page, page_size) =>
+        getAttendance({ date, page, page_size })
+      ),
+    ]);
+
+    const attendanceByEmployee = new Map(
+      attendanceRecords.map((record) => [String(record.employee), record])
+    );
+
+    let merged = employees.map((employee) => ({
+      ...employee,
+      attendance: attendanceByEmployee.get(String(employee.id)) || null,
+    }));
+
+    // Status filtering is applied after merging so employees with no record
+    // are never incorrectly treated as absent records.
+    if (filters.status) {
+      merged = merged.filter((row) => row.attendance?.status === filters.status);
+    }
+    return merged;
   }, [
+    getEmployees,
     getAttendance,
     date,
     debounced,
@@ -1286,20 +1323,26 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
   const { data, loading, refreshing, error, retry } = useRefreshableQuery(
     fetcher,
     refreshKey,
-    "Failed to load attendance."
+    "Failed to load employees and attendance."
   );
 
   const rows = useMemo(() => data || [], [data]);
+  const recordedRows = useMemo(
+    () => rows.map((row) => row.attendance).filter(Boolean),
+    [rows]
+  );
 
   const summary = useMemo(
     () => ({
-      recorded: rows.length,
-      present: rows.filter((r) =>
+      employees: rows.length,
+      recorded: recordedRows.length,
+      present: recordedRows.filter((r) =>
         ["PRESENT", "HALF_DAY", "WFH"].includes(r.status)
       ).length,
-      absent: rows.filter((r) => r.status === "ABSENT").length,
+      absent: recordedRows.filter((r) => r.status === "ABSENT").length,
+      notMarked: rows.length - recordedRows.length,
     }),
-    [rows]
+    [rows, recordedRows]
   );
 
   async function handleDelete() {
@@ -1309,7 +1352,7 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
     try {
       await deleteAttendance(deleteTarget.id);
       setDeleteTarget(null);
-      onChanged?.(); // backend confirmed → central refresh (one refetch per tab)
+      onChanged?.();
     } catch (err) {
       setDeleteError(extractError(err, "Failed to delete attendance."));
     } finally {
@@ -1317,11 +1360,12 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
     }
   }
 
-  function employeeName(r) {
+  function employeeName(row) {
     return (
-      r.employee_name ||
-      `${r.first_name || ""} ${r.last_name || ""}`.trim() ||
-      r.employee_code ||
+      row.full_name ||
+      row.employee_name ||
+      `${row.first_name || ""} ${row.last_name || ""}`.trim() ||
+      row.employee_code ||
       "—"
     );
   }
@@ -1329,12 +1373,11 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
   return (
     <div className="aw-tab">
       <div className="aw-summary-grid">
-        <SummaryCard
-          label="Present Today"
-          value={summary.present}
-          sub={`${summary.absent} absent`}
-        />
-        <SummaryCard label="Records" value={summary.recorded} />
+        <SummaryCard label="Employees" value={summary.employees} />
+        <SummaryCard label="Present" value={summary.present} />
+        <SummaryCard label="Absent" value={summary.absent} />
+        <SummaryCard label="Not Marked" value={summary.notMarked} />
+        <SummaryCard label="Attendance Records" value={summary.recorded} />
       </div>
 
       <div className="aw-toolbar">
@@ -1347,37 +1390,26 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
             onChange={(e) => setDate(e.target.value)}
           />
         </label>
-        <button
-          type="button"
-          className="aw-btn-primary aw-toolbar-add"
-          onClick={() => onAdd(null, date)}
-        >
-          + Add Attendance
-        </button>
       </div>
 
       <FilterControls
         filters={filters}
         onChange={setFilters}
         showStatus
-        onClear={() =>
-          setFilters({
-            search: "",
-            department: "",
-            branch: "",
-            employment_type: "",
-            work_location: "",
-            status: "",
-          })
-        }
+        onClear={() => setFilters({
+          search: "",
+          department: "",
+          branch: "",
+          employment_type: "",
+          work_location: "",
+          status: "",
+        })}
       />
 
       <RefreshIndicator show={refreshing} />
 
       {loading ? (
-        <div style={{ padding: 40, textAlign: "center" }}>
-          <Loading />
-        </div>
+        <div style={{ padding: 40, textAlign: "center" }}><Loading /></div>
       ) : (
         <>
           {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
@@ -1386,62 +1418,62 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
               <table className="aw-table">
                 <thead>
                   <tr>
-                    <th>Date</th>
+                    <th>Employee ID</th>
                     <th>Employee</th>
-                    <th>Status</th>
+                    <th>Department</th>
+                    <th>Designation</th>
+                    <th>Attendance Status</th>
                     <th>Login</th>
                     <th>Logout</th>
                     <th className="aw-num">Hours</th>
                     <th className="aw-num">Rate</th>
                     <th className="aw-num">Daily Wage</th>
                     <th>Remarks</th>
-                    <th></th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 && (
-                    <tr>
-                      <td colSpan={10} className="aw-empty-row">
-                        No attendance records for this filter.
-                      </td>
-                    </tr>
+                    <tr><td colSpan={12} className="aw-empty-row">No employees found for this filter.</td></tr>
                   )}
-                  {rows.map((r) => (
-                    <tr key={r.id}>
-                      <td>{formatDisplayDate(r.date)}</td>
-                      <td>{employeeName(r)}</td>
-                      <td>
-                        <StatusPill status={r.status} />
-                      </td>
-                      <td>{r.login_time || "—"}</td>
-                      <td>{r.logout_time || "—"}</td>
-                      <td className="aw-num">
-                        {Number(r.working_hours || 0).toFixed(2)}
-                      </td>
-                      <td className="aw-num">₹{r.hourly_rate}</td>
-                      <td className="aw-num">{formatINR(r.daily_wage)}</td>
-                      <td className="aw-remarks">{r.remarks || "—"}</td>
-                      <td className="aw-row-actions">
-                        <button
-                          type="button"
-                          className="aw-link-btn"
-                          onClick={() => onEdit(r)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="aw-link-btn aw-link-danger"
-                          onClick={() => {
-                            setDeleteError("");
-                            setDeleteTarget(r);
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {rows.map((employee) => {
+                    const record = employee.attendance;
+                    return (
+                      <tr key={employee.id}>
+                        <td>{employee.employee_id || employee.employee_code || employee.id}</td>
+                        <td>{employeeName(employee)}</td>
+                        <td>{employee.department || "—"}</td>
+                        <td>{employee.designation || "—"}</td>
+                        <td>{record ? <StatusPill status={record.status} /> : <span className="aw-hint">Not Marked</span>}</td>
+                        <td>{record?.login_time || "—"}</td>
+                        <td>{record?.logout_time || "—"}</td>
+                        <td className="aw-num">{record ? Number(record.working_hours || 0).toFixed(2) : "—"}</td>
+                        <td className="aw-num">{record ? formatINR(record.hourly_rate) : "—"}</td>
+                        <td className="aw-num">{record ? formatINR(record.daily_wage) : "—"}</td>
+                        <td className="aw-remarks">{record?.remarks || "—"}</td>
+                        <td className="aw-row-actions">
+                          {record ? (
+                            <>
+                              <button type="button" className="aw-link-btn" onClick={() => onEdit(record)}>Edit</button>
+                              <button
+                                type="button"
+                                className="aw-link-btn aw-link-danger"
+                                onClick={() => { setDeleteError(""); setDeleteTarget(record); }}
+                              >Delete</button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="aw-btn-primary aw-btn-sm"
+                              onClick={() => onAdd(String(employee.id), date)}
+                            >
+                              + Add Attendance
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1450,43 +1482,14 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
       )}
 
       {deleteTarget && (
-        <div
-          className="aw-modal-overlay"
-          onClick={() => !deleting && setDeleteTarget(null)}
-        >
-          <div
-            className="aw-modal aw-modal-confirm"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
+        <div className="aw-modal-overlay" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="aw-modal aw-modal-confirm" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <h3>Delete attendance record?</h3>
-            <p>
-              This removes the record for {employeeName(deleteTarget)} on{" "}
-              {formatDisplayDate(deleteTarget.date)}.
-            </p>
-            {deleteError && (
-              <div style={{ fontSize: 13, color: "#a52626", marginBottom: 8 }}>
-                {deleteError}
-              </div>
-            )}
+            <p>This removes the record for {employeeName(deleteTarget)} on {formatDisplayDate(deleteTarget.date)}.</p>
+            {deleteError && <div style={{ fontSize: 13, color: "#a52626", marginBottom: 8 }}>{deleteError}</div>}
             <div className="aw-modal-actions">
-              <button
-                type="button"
-                className="aw-btn-outline"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="aw-btn-danger"
-                onClick={handleDelete}
-                disabled={deleting}
-              >
-                {deleting ? "Deleting…" : "Delete"}
-              </button>
+              <button type="button" className="aw-btn-outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</button>
+              <button type="button" className="aw-btn-danger" onClick={handleDelete} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
             </div>
           </div>
         </div>
@@ -1880,8 +1883,19 @@ function EmployeeSummaryTab({ refreshKey }) {
   // Summary if an employee is chosen, else the filtered employee list.
   const fetcher = useCallback(async () => {
     if (employeeId) {
-      const res = await getEmployeeSummary(employeeId);
-      return { mode: "summary", summary: res || null, list: [] };
+      // employee-summary returns both aggregate month totals and the
+      // individual attendance records for that month.
+      const summaryResponse = await getEmployeeSummary(employeeId);
+      const monthAttendance = Array.isArray(summaryResponse?.month?.records)
+        ? summaryResponse.month.records
+        : [];
+
+      return {
+        mode: "summary",
+        summary: summaryResponse || null,
+        monthAttendance,
+        list: [],
+      };
     }
     const res = await getEmployees({
       search: debounced,
@@ -1913,7 +1927,16 @@ function EmployeeSummaryTab({ refreshKey }) {
   );
 
   const summary = data?.mode === "summary" ? data.summary : null;
+  const monthAttendance = data?.mode === "summary" ? data.monthAttendance || [] : [];
   const list = data?.mode === "list" ? data.list : [];
+  const currentMonthLabel = new Date().toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+  const presentCount = monthAttendance.filter((r) =>
+    ["PRESENT", "HALF_DAY", "WFH"].includes(r.status)
+  ).length;
+  const absentCount = monthAttendance.filter((r) => r.status === "ABSENT").length;
 
   const week = summary?.week?.summary;
   const month = summary?.month?.summary;
@@ -1983,13 +2006,14 @@ function EmployeeSummaryTab({ refreshKey }) {
                     sub={formatINR(week?.total_wage || 0)}
                   />
                   <SummaryCard
-                    label="This Month"
-                    value={formatHours(month?.total_hours || 0)}
-                    sub={formatINR(month?.total_wage || 0)}
+                    label="Present Days (Month)"
+                    value={presentCount}
+                    sub={`${absentCount} absent`}
                   />
                   <SummaryCard
-                    label="Days Worked (Month)"
-                    value={month?.days_worked || 0}
+                    label="Total Hours (Month)"
+                    value={formatHours(month?.total_hours || 0)}
+                    sub={formatINR(month?.total_wage || 0)}
                   />
                   <SummaryCard
                     label="Outstanding Advance"
@@ -2016,6 +2040,54 @@ function EmployeeSummaryTab({ refreshKey }) {
                   <dt>Work Location</dt>
                   <dd>{emp?.work_location || "—"}</dd>
                 </dl>
+              </div>
+
+              <div className="pll-section">
+                <h4>Current Month Attendance — {currentMonthLabel}</h4>
+                <div className="aw-table-wrap">
+                  <table className="aw-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Login Time</th>
+                        <th>Logout Time</th>
+                        <th className="aw-num">Working Hours</th>
+                        <th className="aw-num">Hourly Rate</th>
+                        <th className="aw-num">Daily Wage</th>
+                        <th>Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthAttendance.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="aw-empty-row">
+                            No attendance records found for {currentMonthLabel}.
+                          </td>
+                        </tr>
+                      ) : (
+                        monthAttendance.map((record) => (
+                          <tr key={record.id}>
+                            <td>{formatDisplayDate(record.date)}</td>
+                            <td><StatusPill status={record.status} /></td>
+                            <td>{record.login_time || "—"}</td>
+                            <td>{record.logout_time || "—"}</td>
+                            <td className="aw-num">
+                              {Number(record.working_hours || 0).toFixed(2)}
+                            </td>
+                            <td className="aw-num">
+                              {record.hourly_rate == null ? "—" : formatINR(record.hourly_rate)}
+                            </td>
+                            <td className="aw-num">
+                              {record.daily_wage == null ? "—" : formatINR(record.daily_wage)}
+                            </td>
+                            <td className="aw-remarks">{record.remarks || "—"}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               {month?.status_counts && (
@@ -2364,8 +2436,8 @@ export default function AttendanceWages() {
     setVisited((v) => (v[key] ? v : { ...v, [key]: true }));
   }
 
-  function openAdd(_unused, presetDate) {
-    setModal({ editRecord: null, presetDate });
+  function openAdd(presetEmployeeId, presetDate) {
+    setModal({ editRecord: null, presetEmployeeId, presetDate });
   }
   function openEdit(record) {
     setModal({ editRecord: record });
