@@ -8,6 +8,28 @@ import "./Employee.css";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
+// Keep profile fallback avatars visually identical to the employee directory cards.
+function avatarUrl(name, seed = 0) {
+  const colors = [
+    "0F766E",
+    "1D4ED8",
+    "7C3AED",
+    "B45309",
+    "0369A1",
+    "15803D",
+    "BE185D",
+  ];
+  const numericSeed = Number(seed) || 0;
+  const background = colors[Math.abs(numericSeed) % colors.length];
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    name || "Employee",
+  )}&background=${background}&color=fff&size=128&font-size=0.38&bold=true`;
+}
+
+function getEmploymentStatusClass(status = "") {
+  return String(status).toLowerCase().trim().replace(/\s+/g, "-");
+}
+
 const TABS = [
   "Overview",
   "Work Information",
@@ -250,14 +272,33 @@ export default function EmployeeProfile() {
 
       <div className="ep-header">
         <div className="ep-avatar-wrap">
-          {employee.photo ? (
-            <img className="ep-avatar" src={employee.photo} alt="" />
-          ) : (
-            <div className="ep-avatar ep-avatar-placeholder">
-              {employee.firstName?.[0] || "?"}
-              {employee.lastName?.[0] || ""}
-            </div>
-          )}
+          <img
+            className="ep-avatar"
+            src={
+              employee.photo ||
+              avatarUrl(
+                `${employee.firstName || ""} ${employee.lastName || ""}`.trim(),
+                employee.id || 0,
+              )
+            }
+            alt={`${employee.firstName || ""} ${employee.lastName || ""}`.trim()}
+            onError={(event) => {
+              const fallback = avatarUrl(
+                `${employee.firstName || ""} ${employee.lastName || ""}`.trim(),
+                employee.id || 0,
+              );
+              if (event.currentTarget.src !== fallback) {
+                event.currentTarget.src = fallback;
+              }
+            }}
+          />
+          <span
+            className={`ep-avatar-status-dot ep-avatar-status-${getEmploymentStatusClass(
+              employee.employmentStatus,
+            )}`}
+            aria-label={`Employment status: ${employee.employmentStatus || "Unknown"}`}
+            title={employee.employmentStatus || "Unknown status"}
+          />
 
           {/* Pencil (upload) */}
           <button

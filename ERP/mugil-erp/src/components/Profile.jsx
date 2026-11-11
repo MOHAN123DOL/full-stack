@@ -1396,6 +1396,18 @@ export default function Profile() {
     return username.slice(0, 2).toUpperCase();
   }, [data.username]);
 
+
+  // Stable fallback colour shared by the employee profile avatar.
+  const avatarColor = useMemo(() => {
+    const colors = ["#0F766E", "#1D4ED8", "#7C3AED", "#B45309", "#0369A1", "#15803D", "#BE185D"];
+    const name = String(data.username || "User").trim().toLowerCase();
+    let hash = 0;
+    for (let i = 0; i < name.length; i += 1) {
+      hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    }
+    return colors[hash % colors.length];
+  }, [data.username]);
+
   const stats = [
     { icon: <IconBriefcase />, label: "ROLE", value: data.role, tone: "blue" },
     {
@@ -2061,11 +2073,14 @@ export default function Profile() {
 
           <div className="profile-top-actions">
             <div className="profile-top-user">
-              <span className="profile-top-avatar">
+              <span
+                className="profile-top-avatar"
+                style={!data.profilePhoto ? { backgroundColor: avatarColor } : undefined}
+              >
                 {data.profilePhoto ? (
                   <img src={data.profilePhoto} alt="" />
                 ) : (
-                  initials
+                  <span className="profile-avatar-initials">{initials}</span>
                 )}
               </span>
             </div>
@@ -2086,11 +2101,14 @@ export default function Profile() {
             <div className="profile-hero">
               <div className="profile-hero-content">
                 <div className="profile-avatar-wrapper">
-                  <div className="profile-avatar">
+                  <div
+                    className="profile-avatar"
+                    style={!data.profilePhoto ? { background: avatarColor } : undefined}
+                  >
                     {data.profilePhoto ? (
                       <img src={data.profilePhoto} alt="Profile" />
                     ) : (
-                      <span>{initials}</span>
+                      <span className="profile-avatar-initials">{initials}</span>
                     )}
 
                     <button

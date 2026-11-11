@@ -1,6 +1,9 @@
 import { useNavigate, useLocation } from "react-router-dom";
+
 import { useAuth } from "../context/AuthContext";
+
 import { LayoutDashboard } from "lucide-react";
+
 import { useEffect, useState } from "react";
 
 import api from "../api/axios";
@@ -9,26 +12,35 @@ import "./Header.css";
 
 export default function Header({ navLinks = [] }) {
   const navigate = useNavigate();
+
   const location = useLocation();
 
   const { logout, user, accessToken, isAuthenticated } = useAuth();
 
   // Show the Admin Dashboard shortcut only to Admin users.
+
   const userType = String(user?.user_type ?? user?.userType ?? user?.role ?? "")
     .trim()
+
     .toLowerCase();
 
   const isAdmin = userType === "admin" || userType === "administrator";
 
   const [supportOpen, setSupportOpen] = useState(false);
+
   const [profileData, setProfileData] = useState(null);
+
   const [profileLoading, setProfileLoading] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const username = profileData?.username || user?.username || "User";
 
   /*
+
    * LOAD PROFILE DATA
+
    */
+
   useEffect(() => {
     if (!isAuthenticated || !accessToken) {
       return;
@@ -66,28 +78,48 @@ export default function Header({ navLinks = [] }) {
   }, [isAuthenticated, accessToken]);
 
   /*
-   * INITIALS
+
+   * GENERATED AVATAR
+
    */
-  const getInitials = () => {
-    const name = profileData?.username || user?.username;
 
-    if (!name) {
-      return "U";
-    }
+  // Match the employee-directory avatar colours and initials.
+  const getAvatarUrl = () => {
+    const colors = [
+      "0F766E",
+      "1D4ED8",
+      "7C3AED",
+      "B45309",
+      "0369A1",
+      "15803D",
+      "BE185D",
+    ];
+    const name =
+      profileData?.firstName && profileData?.lastName
+        ? `${profileData.firstName} ${profileData.lastName}`
+        : profileData?.first_name && profileData?.last_name
+          ? `${profileData.first_name} ${profileData.last_name}`
+          : profileData?.username || user?.username || "User";
+    const rawSeed = Number(
+      profileData?.id ?? profileData?.employee_id ?? user?.id ?? 0,
+    );
+    const seed = Number.isFinite(rawSeed) ? Math.abs(rawSeed) : 0;
+    const background = colors[seed % colors.length];
 
-    return name
-      .split(" ")
-      .map((part) => part.charAt(0))
-      .join("")
-      .substring(0, 2)
-      .toUpperCase();
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+      name,
+    )}&background=${background}&color=fff&size=128&font-size=0.38&bold=true`;
   };
 
   /*
+
    * SIGN OUT
+
    */
+
   const getDepartmentLoginPath = () => {
     // Prefer the authenticated user role, then profile API data.
+
     const rawDepartment =
       user?.user_type ??
       user?.userType ??
@@ -103,42 +135,65 @@ export default function Header({ navLinks = [] }) {
 
     const department = String(rawDepartment)
       .trim()
+
       .toLowerCase()
-      .replace(/[_\\s]+/g, "-");
+
+      .replace(/[_**\\\**&#x73;]+/g, "-");
 
     // Match role/department names to their own login pages.
+
     if (department.includes("admin")) return "/admin/login";
+
     if (department.includes("hr") || department.includes("human-resource")) {
       return "/hr/login";
     }
+
     if (department.includes("material")) return "/material-planning/login";
+
     if (department.includes("account") || department.includes("finance")) {
       return "/accounts/login";
     }
+
     if (department.includes("production")) return "/production/login";
+
     if (department.includes("supervisor")) return "/supervisor/login";
 
     // Fallback: infer department from the current URL if user/profile data
+
     // does not contain a recognizable department.
+
     const path = location.pathname.toLowerCase();
+
     if (path.startsWith("/admin")) return "/admin/login";
+
     if (path.startsWith("/hr")) return "/hr/login";
+
     if (
       path.startsWith("/material-planning") ||
       path.startsWith("/inventory")
     ) {
       return "/material-planning/login";
     }
+
     if (path.startsWith("/accounts")) return "/accounts/login";
+
     if (path.startsWith("/production")) return "/production/login";
+
     if (path.startsWith("/supervisor")) return "/supervisor/login";
 
     // Unknown department: return to the department selection/login page.
+
     return "/welcome";
   };
 
   const handleSignOut = async () => {
+    if (isSigningOut) return;
+
     const loginPath = getDepartmentLoginPath();
+    setIsSigningOut(true);
+
+    // Keep the thank-you state visible briefly before ending the session.
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
 
     try {
       await logout();
@@ -150,13 +205,18 @@ export default function Header({ navLinks = [] }) {
   };
 
   /*
+
    * PROFILE
+
    */
+
   const handleProfile = () => {
     setSupportOpen(false);
 
     // Prefer the authenticated user's role. Fall back to profile API data
+
     // in case the auth object does not include a user type.
+
     const userType = String(
       user?.user_type ??
         user?.userType ??
@@ -169,6 +229,7 @@ export default function Header({ navLinks = [] }) {
         "",
     )
       .trim()
+
       .toLowerCase();
 
     if (userType === "admin" || userType === "administrator") {
@@ -179,31 +240,43 @@ export default function Header({ navLinks = [] }) {
   };
 
   /*
+
    * SUPPORT
+
    */
+
   const handleSupportToggle = () => {
     setSupportOpen((previous) => !previous);
   };
 
   /*
+
    * HELP
+
    */
+
   const handleHelp = () => {
     setSupportOpen(false);
+
     navigate("/help");
   };
 
   /*
+
    * CONTACT
+
    */
+
   const handleContactUs = () => {
     setSupportOpen(false);
+
     navigate("/contact");
   };
 
   return (
     <header className="erp-header">
       {/* BRAND */}
+
       <div className="erp-brand">
         <span className="erp-brand-line" />
 
@@ -211,8 +284,10 @@ export default function Header({ navLinks = [] }) {
       </div>
 
       {/* RIGHT SIDE */}
+
       <div className="erp-user-area">
         {/* CUSTOM NAVIGATION */}
+
         {navLinks.length > 0 && (
           <nav className="erp-custom-nav">
             {navLinks.map((link) => (
@@ -235,6 +310,7 @@ export default function Header({ navLinks = [] }) {
         {navLinks.length > 0 && <span className="erp-action-divider" />}
 
         {/* ADMIN DASHBOARD SHORTCUT — Admin only, hidden on Admin pages */}
+
         {isAuthenticated &&
           isAdmin &&
           !location.pathname.startsWith("/admin") && (
@@ -245,13 +321,17 @@ export default function Header({ navLinks = [] }) {
               title="Return to Admin Dashboard"
             >
               <LayoutDashboard size={18} />
+
               <span>Admin Dashboard</span>
             </button>
           )}
 
         {/* =========================
+
             PROFILE
+
         ========================== */}
+
         <div className="erp-profile-wrapper">
           <button
             type="button"
@@ -275,33 +355,43 @@ export default function Header({ navLinks = [] }) {
           </button>
 
           {/* =========================
+
               PROFILE HOVER CARD
+
           ========================== */}
+
           <div className="erp-profile-hover-card">
             {profileLoading ? (
               <div className="erp-profile-loading">Loading profile...</div>
             ) : (
               <>
                 {/* PROFILE PHOTO */}
+
                 <div className="erp-profile-card-avatar">
-                  {profileData?.profilePhoto ? (
-                    <img src={profileData.profilePhoto} alt="Profile" />
-                  ) : (
-                    <span>{getInitials()}</span>
-                  )}
+                  <img
+                    src={profileData?.profilePhoto || getAvatarUrl()}
+                    alt="Profile"
+                    onError={(event) => {
+                      event.currentTarget.onerror = null;
+                      event.currentTarget.src = getAvatarUrl();
+                    }}
+                  />
                 </div>
 
                 {/* USERNAME */}
+
                 <div className="erp-profile-card-title">
                   {profileData?.username || username}
                 </div>
 
                 {/* ROLE */}
+
                 <div className="erp-profile-card-role">
                   {profileData?.role || "ERP User"}
                 </div>
 
                 {/* DETAILS */}
+
                 <div className="erp-profile-card-details">
                   {profileData?.employeeId && (
                     <div className="erp-profile-card-row">
@@ -341,8 +431,11 @@ export default function Header({ navLinks = [] }) {
         </div>
 
         {/* =========================
+
             SUPPORT
+
         ========================== */}
+
         <div className="erp-support-wrapper">
           <button
             type="button"
@@ -370,6 +463,7 @@ export default function Header({ navLinks = [] }) {
           </button>
 
           {/* SUPPORT DROPDOWN */}
+
           {supportOpen && (
             <div className="erp-support-dropdown">
               <button
@@ -420,12 +514,14 @@ export default function Header({ navLinks = [] }) {
         </div>
 
         {/* DIVIDER */}
+
         <span className="erp-action-divider" />
 
         {/* SIGN OUT */}
+
         <button
           type="button"
-          className="erp-header-action erp-signout-action"
+          className={`erp-header-action erp-signout-action${isSigningOut ? " is-signing-out" : ""}`}
           onClick={handleSignOut}
         >
           <svg
@@ -443,9 +539,11 @@ export default function Header({ navLinks = [] }) {
             <path d="M21 3v18" />
           </svg>
 
-          <span className="erp-signout-text">Sign Out</span>
+          <span className="erp-signout-text">
+            {isSigningOut ? "Thank you!" : "Sign Out"}
+          </span>
 
-          <span className="erp-signout-hover-text">Thanks!</span>
+          <span className="erp-signout-hover-text">Thank you!</span>
         </button>
       </div>
     </header>
