@@ -3,6 +3,7 @@ from datetime import timedelta
 import os
 
 from dotenv import load_dotenv
+import redis
 
 # ============================================================
 # BASE
@@ -459,9 +460,10 @@ COMPANY_BANK_DETAILS = {
 
 
 # Celery Configuration
-CELERY_BROKER_URL = "redis://127.0.0.1:6379/0"
-CELERY_RESULT_BACKEND = "redis://127.0.0.1:6379/1"
-
+# CELERY_BROKER_URL = "redis://127.0.0.1:6379/0"
+# CELERY_RESULT_BACKEND = "redis://127.0.0.1:6379/1"
+CELERY_BROKER_URL = "redis://erp-redis:6379/0"
+CELERY_RESULT_BACKEND = "redis://erp-redis:6379/1"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
