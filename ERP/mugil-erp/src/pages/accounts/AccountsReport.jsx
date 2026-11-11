@@ -17,11 +17,38 @@ const numericIdFromRowId = (rowId) => {
 };
 
 const PRINT_ENGINES = {
-  PO: { scriptSrc: "/PurchaseOrderPrint.js", globalFn: "generatePurchaseOrderPrint", datasetKey: "purchaseOrderPrintEngine", label: "Purchase Order" },
-  QO: { scriptSrc: "/QuotationPrint.js", globalFn: "generateQuotationPrint", datasetKey: "quotationPrintEngine", label: "Quotation" },
-  TI: { scriptSrc: "/TaxInvoicePrint.js", globalFn: "generateTaxInvoicePrint", datasetKey: "taxInvoicePrintEngine", label: "Tax Invoice" },
-  DC: { scriptSrc: "/DeliveryChallanPrint.js", styleSrc: "/DeliveryChallanPrint.css", globalFn: "generateDeliveryChallanPrint", datasetKey: "deliveryChallanPrintEngine", label: "Delivery Challan", usesContainer: true },
-  PI: { scriptSrc: "/ProformaInvoicePrint.js", globalFn: "generateProformaInvoicePrint", datasetKey: "proformaInvoicePrintEngine", label: "Proforma Invoice" },
+  PO: {
+    scriptSrc: "/PurchaseOrderPrint.js",
+    globalFn: "generatePurchaseOrderPrint",
+    datasetKey: "purchaseOrderPrintEngine",
+    label: "Purchase Order",
+  },
+  QO: {
+    scriptSrc: "/QuotationPrint.js",
+    globalFn: "generateQuotationPrint",
+    datasetKey: "quotationPrintEngine",
+    label: "Quotation",
+  },
+  TI: {
+    scriptSrc: "/TaxInvoicePrint.js",
+    globalFn: "generateTaxInvoicePrint",
+    datasetKey: "taxInvoicePrintEngine",
+    label: "Tax Invoice",
+  },
+  DC: {
+    scriptSrc: "/DeliveryChallanPrint.js",
+    styleSrc: "/DeliveryChallanPrint.css",
+    globalFn: "generateDeliveryChallanPrint",
+    datasetKey: "deliveryChallanPrintEngine",
+    label: "Delivery Challan",
+    usesContainer: true,
+  },
+  PI: {
+    scriptSrc: "/ProformaInvoicePrint.js",
+    globalFn: "generateProformaInvoicePrint",
+    datasetKey: "proformaInvoicePrintEngine",
+    label: "Proforma Invoice",
+  },
 };
 
 const printEnginePromises = {};
@@ -30,7 +57,11 @@ const PRINT_OPEN_BODY_CLASS = "accounts-print-open";
 
 function onPrintOverlayClick(event) {
   const target = event.target;
-  if (target && typeof target.closest === "function" && target.closest(".dc-back-button, [data-print-close]")) {
+  if (
+    target &&
+    typeof target.closest === "function" &&
+    target.closest(".dc-back-button, [data-print-close]")
+  ) {
     event.preventDefault();
     event.stopImmediatePropagation();
     closePrintOverlay();
@@ -61,7 +92,9 @@ function openPrintOverlay() {
 }
 
 function removeEngineStylesheets() {
-  document.querySelectorAll("link[data-print-engine-style]").forEach((link) => link.remove());
+  document
+    .querySelectorAll("link[data-print-engine-style]")
+    .forEach((link) => link.remove());
 }
 
 function closePrintOverlay() {
@@ -85,14 +118,18 @@ function loadEngineStylesheet(cfg) {
     link.href = cfg.styleSrc;
     link.dataset.printEngineStyle = cfg.datasetKey;
     link.onload = () => resolve();
-    link.onerror = () => { console.warn(`${cfg.styleSrc} failed to load`); resolve(); };
+    link.onerror = () => {
+      console.warn(`${cfg.styleSrc} failed to load`);
+      resolve();
+    };
     document.head.appendChild(link);
   });
 }
 
 function loadPrintEngine(short) {
   const cfg = PRINT_ENGINES[short];
-  if (!cfg) return Promise.reject(new Error(`No print engine configured for ${short}`));
+  if (!cfg)
+    return Promise.reject(new Error(`No print engine configured for ${short}`));
   if (typeof window[cfg.globalFn] === "function") return Promise.resolve();
   if (printEnginePromises[short]) return printEnginePromises[short];
 
@@ -101,7 +138,14 @@ function loadPrintEngine(short) {
     const existing = document.querySelector(selector);
     if (existing) {
       existing.addEventListener("load", resolve, { once: true });
-      existing.addEventListener("error", () => { printEnginePromises[short] = null; reject(new Error(`${cfg.scriptSrc} failed to load`)); }, { once: true });
+      existing.addEventListener(
+        "error",
+        () => {
+          printEnginePromises[short] = null;
+          reject(new Error(`${cfg.scriptSrc} failed to load`));
+        },
+        { once: true },
+      );
       return;
     }
     const script = document.createElement("script");
@@ -110,21 +154,49 @@ function loadPrintEngine(short) {
     script.dataset.printEngine = cfg.datasetKey;
     script.onload = () => {
       if (typeof window[cfg.globalFn] === "function") resolve();
-      else { printEnginePromises[short] = null; reject(new Error(`${cfg.scriptSrc} loaded but did not register ${cfg.globalFn}`)); }
+      else {
+        printEnginePromises[short] = null;
+        reject(
+          new Error(
+            `${cfg.scriptSrc} loaded but did not register ${cfg.globalFn}`,
+          ),
+        );
+      }
     };
-    script.onerror = () => { printEnginePromises[short] = null; reject(new Error(`${cfg.scriptSrc} failed to load`)); };
+    script.onerror = () => {
+      printEnginePromises[short] = null;
+      reject(new Error(`${cfg.scriptSrc} failed to load`));
+    };
     document.head.appendChild(script);
   });
   return printEnginePromises[short];
 }
 
-const isPaymentFinal = (record) => String(record?.payment_status || "").toUpperCase() === "PAID";
-const isDeliveryFinal = (record) => String(record?.delivery_status || "").toUpperCase() === "DELIVERED";
+const isPaymentFinal = (record) =>
+  String(record?.payment_status || "").toUpperCase() === "PAID";
+const isDeliveryFinal = (record) =>
+  String(record?.delivery_status || "").toUpperCase() === "DELIVERED";
 
-const pickItems = (data) => Array.isArray(data?.items) ? data.items : Array.isArray(data?.line_items) ? data.line_items : Array.isArray(data?.lineItems) ? data.lineItems : [];
-const pickGstPercent = (data) => Number(data?.gstPercent ?? data?.gst_percent ?? data?.gstPercentage ?? data?.gst ?? 0) || 0;
-const pickInterState = (data) => Boolean(data?.interState ?? data?.inter_state ?? false);
-const pickColumns = (data) => Array.isArray(data?.columns) ? data.columns : [];
+const pickItems = (data) =>
+  Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.line_items)
+      ? data.line_items
+      : Array.isArray(data?.lineItems)
+        ? data.lineItems
+        : [];
+const pickGstPercent = (data) =>
+  Number(
+    data?.gstPercent ??
+      data?.gst_percent ??
+      data?.gstPercentage ??
+      data?.gst ??
+      0,
+  ) || 0;
+const pickInterState = (data) =>
+  Boolean(data?.interState ?? data?.inter_state ?? false);
+const pickColumns = (data) =>
+  Array.isArray(data?.columns) ? data.columns : [];
 
 const itemAmount = (item) => {
   if (item == null) return 0;
@@ -171,8 +243,8 @@ const getPoGrnInfo = (record) => {
     new Set(
       (Array.isArray(record?.grn_details) ? record.grn_details : [])
         .flatMap((d) => (Array.isArray(d?.grn_numbers) ? d.grn_numbers : []))
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
 
   if (ordered !== null && received !== null) {
@@ -226,7 +298,9 @@ export default function AccountsReport() {
     try {
       setLoading(true);
       setLoadError("");
-      const response = await api.get(REPORT_ENDPOINT, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const response = await api.get(REPORT_ENDPOINT, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
       const responseData = response.data;
       if (!responseData?.success) throw new Error("bad response");
       setRecords(Array.isArray(responseData.data) ? responseData.data : []);
@@ -239,8 +313,14 @@ export default function AccountsReport() {
     }
   }, [accessToken]);
 
-  useEffect(() => { loadRecords(); }, [loadRecords]);
-  useEffect(() => { return () => { closePrintOverlay(); }; }, []);
+  useEffect(() => {
+    loadRecords();
+  }, [loadRecords]);
+  useEffect(() => {
+    return () => {
+      closePrintOverlay();
+    };
+  }, []);
 
   // Hide the tooltip when the page scrolls or resizes (it is position: fixed)
   useEffect(() => {
@@ -257,8 +337,12 @@ export default function AccountsReport() {
   const showGrnTooltip = (event, record, info) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const half = TOOLTIP_WIDTH / 2 + 8;
-    const x = Math.min(Math.max(rect.left + rect.width / 2, half), window.innerWidth - half);
-    const above = rect.bottom + 8 + TOOLTIP_HEIGHT_ESTIMATE > window.innerHeight;
+    const x = Math.min(
+      Math.max(rect.left + rect.width / 2, half),
+      window.innerWidth - half,
+    );
+    const above =
+      rect.bottom + 8 + TOOLTIP_HEIGHT_ESTIMATE > window.innerHeight;
     setGrnTooltip({
       id: record.id,
       x,
@@ -272,7 +356,13 @@ export default function AccountsReport() {
   const hideGrnTooltip = () => setGrnTooltip(null);
 
   const handleView = (record) => {
-    navigate(record.path, { state: { documentNumber: record.document_number, reportRecord: record, mode: "view" } });
+    navigate(record.path, {
+      state: {
+        documentNumber: record.document_number,
+        reportRecord: record,
+        mode: "view",
+      },
+    });
   };
 
   const handleStatusChange = async (record, field, newValue) => {
@@ -284,15 +374,21 @@ export default function AccountsReport() {
     if (previousValue === newValue) return;
 
     if (field === "payment_status" && isPaymentFinal(record)) {
-      setStatusError("Payment is already marked as Paid and can no longer be changed.");
+      setStatusError(
+        "Payment is already marked as Paid and can no longer be changed.",
+      );
       return;
     }
     if (field === "delivery_status" && isDeliveryFinal(record)) {
-      setStatusError("Delivery is already marked as Delivered and can no longer be changed.");
+      setStatusError(
+        "Delivery is already marked as Delivered and can no longer be changed.",
+      );
       return;
     }
 
-    setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, [field]: newValue } : r)));
+    setRecords((prev) =>
+      prev.map((r) => (r.id === record.id ? { ...r, [field]: newValue } : r)),
+    );
     setStatusUpdatingId(record.id);
     setStatusError("");
 
@@ -301,7 +397,7 @@ export default function AccountsReport() {
       const response = await api.patch(
         `/erp/accounts-report/${record.short}/${numericId}/status/`,
         { [field]: newValue },
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
       if (!response.data?.success) throw new Error("bad response");
       const serverData = response.data.data;
@@ -309,14 +405,23 @@ export default function AccountsReport() {
         setRecords((prev) =>
           prev.map((r) =>
             r.id === record.id
-              ? { ...r, payment_status: serverData.payment_status ?? r.payment_status, delivery_status: serverData.delivery_status ?? r.delivery_status }
-              : r
-          )
+              ? {
+                  ...r,
+                  payment_status: serverData.payment_status ?? r.payment_status,
+                  delivery_status:
+                    serverData.delivery_status ?? r.delivery_status,
+                }
+              : r,
+          ),
         );
       }
     } catch (error) {
       console.error("Status update failed:", error);
-      setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, [field]: previousValue } : r)));
+      setRecords((prev) =>
+        prev.map((r) =>
+          r.id === record.id ? { ...r, [field]: previousValue } : r,
+        ),
+      );
       const serverMessage = error?.response?.data?.message;
       setStatusError(serverMessage || GENERIC_ERROR);
     } finally {
@@ -327,22 +432,72 @@ export default function AccountsReport() {
   const handlePrint = async (record) => {
     const short = String(record?.short || "").toUpperCase();
     const cfg = PRINT_ENGINES[short];
-    if (!cfg) { alert(`Print is not available for "${short || "this document"}".`); return; }
+    if (!cfg) {
+      alert(`Print is not available for "${short || "this document"}".`);
+      return;
+    }
 
     try {
       const container = ensurePrintContainer();
       if (cfg.usesContainer) await loadEngineStylesheet(cfg);
       await loadPrintEngine(short);
       const generateFn = window[cfg.globalFn];
-      if (typeof generateFn !== "function") { alert(`${cfg.label} print system is not available.`); return; }
+      if (typeof generateFn !== "function") {
+        alert(`${cfg.label} print system is not available.`);
+        return;
+      }
 
-      const data = { ...(record.document_data || {}), includeAmountDetails: true };
+      const data = {
+        ...(record.document_data || {}),
+        includeAmountDetails: true,
+      };
+
+      // Fix quotation customer details for printing
+      if (short === "QO") {
+        const customer = data.vendor || data.customer || {};
+
+        data.vendor = {
+          companyName:
+            customer.companyName ||
+            customer.company_name ||
+            customer.name ||
+            "",
+
+          contactPerson:
+            customer.contactPerson || customer.contact_person || "",
+
+          gst: customer.gst || customer.gst_number || customer.gstNumber || "",
+
+          address1:
+            customer.address1 ||
+            customer.addressLine1 ||
+            customer.address ||
+            "",
+
+          address2: customer.address2 || customer.addressLine2 || "",
+
+          city: customer.city || "",
+          state: customer.state || "",
+
+          pincode:
+            customer.pincode || customer.pin_code || customer.pinCode || "",
+
+          phone: customer.phone || "",
+          email: customer.email || "",
+        };
+      }
       const items = pickItems(data);
       const subtotal = items.reduce((sum, item) => sum + itemAmount(item), 0);
       const gstPercent = pickGstPercent(data);
       const gstAmount = (subtotal * gstPercent) / 100;
       const grandTotal = subtotal + gstAmount;
-      const summary = { subtotal, totalGst: gstAmount, grandTotal, gstPercent, interState: pickInterState(data) };
+      const summary = {
+        subtotal,
+        totalGst: gstAmount,
+        grandTotal,
+        gstPercent,
+        interState: pickInterState(data),
+      };
       const columns = pickColumns(data);
       if (short === "DC") data.includeAmountDetails = false;
 
@@ -351,7 +506,8 @@ export default function AccountsReport() {
         openPrintOverlay();
       }
       generateFn(data, summary, columns);
-      if (!cfg.usesContainer && container.childElementCount > 0) openPrintOverlay();
+      if (!cfg.usesContainer && container.childElementCount > 0)
+        openPrintOverlay();
     } catch (error) {
       console.error(`${short} print failed:`, error);
       closePrintOverlay();
@@ -359,20 +515,35 @@ export default function AccountsReport() {
     }
   };
 
-  const filteredRecords = documentTypeFilter === "all" ? records : records.filter((r) => String(r.short).toUpperCase() === String(documentTypeFilter).toUpperCase());
+  const filteredRecords =
+    documentTypeFilter === "all"
+      ? records
+      : records.filter(
+          (r) =>
+            String(r.short).toUpperCase() ===
+            String(documentTypeFilter).toUpperCase(),
+        );
 
-  const showPaymentCol = ["PO", "TI", "PI"].includes(documentTypeFilter) || documentTypeFilter === "all";
-  const showDeliveryCol = ["PO", "DC", "TI", "PI"].includes(documentTypeFilter) || documentTypeFilter === "all";
+  const showPaymentCol =
+    ["PO", "TI", "PI"].includes(documentTypeFilter) ||
+    documentTypeFilter === "all";
+  const showDeliveryCol =
+    ["PO", "DC", "TI", "PI"].includes(documentTypeFilter) ||
+    documentTypeFilter === "all";
 
   // Tooltip Text based on filter
-  let paymentHelpText = "For PO: Have WE paid the supplier? \nFor TI/PI: Has the CUSTOMER paid us?";
+  let paymentHelpText =
+    "For PO: Have WE paid the supplier? \nFor TI/PI: Has the CUSTOMER paid us?";
   if (documentTypeFilter === "TI" || documentTypeFilter === "PI") {
-    paymentHelpText = "Has the customer paid us for this invoice? Mark as Paid when we receive the money.";
+    paymentHelpText =
+      "Has the customer paid us for this invoice? Mark as Paid when we receive the money.";
   } else if (documentTypeFilter === "PO") {
-    paymentHelpText = "Have we paid the supplier/vendor for this Purchase Order? Mark as Paid when we send the money.";
+    paymentHelpText =
+      "Have we paid the supplier/vendor for this Purchase Order? Mark as Paid when we send the money.";
   }
 
-  const deliveryHeading = documentTypeFilter === "PO" ? "Received Status (GRN)" : "Delivery Status";
+  const deliveryHeading =
+    documentTypeFilter === "PO" ? "Received Status (GRN)" : "Delivery Status";
 
   return (
     <>
@@ -409,7 +580,11 @@ export default function AccountsReport() {
             </select>
           </div>
 
-          {loading && <div className="qt-customer-loading"><Loading /></div>}
+          {loading && (
+            <div className="qt-customer-loading">
+              <Loading />
+            </div>
+          )}
 
           {!loading && loadError && (
             <div className="qt-customer-error">
@@ -425,7 +600,13 @@ export default function AccountsReport() {
                 <strong>Status update failed</strong>
                 <span>{statusError}</span>
               </div>
-              <button type="button" className="btn btn-secondary" onClick={() => setStatusError("")}>Dismiss</button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setStatusError("")}
+              >
+                Dismiss
+              </button>
             </div>
           )}
 
@@ -440,47 +621,67 @@ export default function AccountsReport() {
                     {/* PAYMENT HEADER WITH INTERACTIVE TOOLTIP */}
                     {showPaymentCol && (
                       <th>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
                           Payment Status
                           <div
-                            style={{ position: "relative", display: "inline-flex" }}
+                            style={{
+                              position: "relative",
+                              display: "inline-flex",
+                            }}
                             onMouseEnter={() => setShowHelp(true)}
                             onMouseLeave={() => setShowHelp(false)}
                           >
-                            <span style={{ cursor: "help", display: "inline-flex", color: "#64748b" }}>
+                            <span
+                              style={{
+                                cursor: "help",
+                                display: "inline-flex",
+                                color: "#64748b",
+                              }}
+                            >
                               <HelpCircle size={15} />
                             </span>
 
                             {/* TOOLTIP BOX */}
                             {showHelp && (
-                              <div style={{
-                                position: "absolute",
-                                top: "100%",
-                                left: "50%",
-                                transform: "translateX(-50%)",
-                                marginTop: "8px",
-                                background: "#1e293b",
-                                color: "#ffffff",
-                                padding: "10px 14px",
-                                borderRadius: "8px",
-                                fontSize: "12px",
-                                lineHeight: "1.5",
-                                width: "260px",
-                                zIndex: 10,
-                                boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
-                                fontWeight: "500",
-                                whiteSpace: "pre-line"
-                              }}>
-                                {paymentHelpText}
-                                <div style={{
+                              <div
+                                style={{
                                   position: "absolute",
-                                  top: "-4px",
+                                  top: "100%",
                                   left: "50%",
-                                  transform: "translateX(-50%) rotate(45deg)",
-                                  width: "8px",
-                                  height: "8px",
-                                  background: "#1e293b"
-                                }} />
+                                  transform: "translateX(-50%)",
+                                  marginTop: "8px",
+                                  background: "#1e293b",
+                                  color: "#ffffff",
+                                  padding: "10px 14px",
+                                  borderRadius: "8px",
+                                  fontSize: "12px",
+                                  lineHeight: "1.5",
+                                  width: "260px",
+                                  zIndex: 10,
+                                  boxShadow:
+                                    "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+                                  fontWeight: "500",
+                                  whiteSpace: "pre-line",
+                                }}
+                              >
+                                {paymentHelpText}
+                                <div
+                                  style={{
+                                    position: "absolute",
+                                    top: "-4px",
+                                    left: "50%",
+                                    transform: "translateX(-50%) rotate(45deg)",
+                                    width: "8px",
+                                    height: "8px",
+                                    background: "#1e293b",
+                                  }}
+                                />
                               </div>
                             )}
                           </div>
@@ -502,7 +703,9 @@ export default function AccountsReport() {
                       const isUpdating = statusUpdatingId === record.id;
                       const paymentLocked = isPaymentFinal(record);
                       const deliveryLocked = isDeliveryFinal(record);
-                      const printAvailable = Boolean(PRINT_ENGINES[String(record.short || "").toUpperCase()]);
+                      const printAvailable = Boolean(
+                        PRINT_ENGINES[String(record.short || "").toUpperCase()],
+                      );
 
                       const isDC = record.short === "DC";
                       const isQO = record.short === "QO";
@@ -515,8 +718,12 @@ export default function AccountsReport() {
 
                           <td>
                             <div className="report-document-info">
-                              <span className="report-document-short">{record.short}</span>
-                              <span className="report-document-number">{record.document_number}</span>
+                              <span className="report-document-short">
+                                {record.short}
+                              </span>
+                              <span className="report-document-number">
+                                {record.document_number}
+                              </span>
                             </div>
                           </td>
 
@@ -524,13 +731,23 @@ export default function AccountsReport() {
                           {showPaymentCol && (
                             <td>
                               {isDC || isQO ? (
-                                <span style={{ color: "#94a3b8", fontSize: "12px" }}>—</span>
+                                <span
+                                  style={{ color: "#94a3b8", fontSize: "12px" }}
+                                >
+                                  —
+                                </span>
                               ) : (
                                 <select
                                   className={`report-status-select payment-status-${String(record.payment_status).toLowerCase().replace("/", "")}`}
                                   value={record.payment_status}
                                   disabled={isUpdating || paymentLocked}
-                                  onChange={(e) => handleStatusChange(record, "payment_status", e.target.value)}
+                                  onChange={(e) =>
+                                    handleStatusChange(
+                                      record,
+                                      "payment_status",
+                                      e.target.value,
+                                    )
+                                  }
                                 >
                                   <option value="Paid">Paid</option>
                                   <option value="Pending">Pending</option>
@@ -544,22 +761,36 @@ export default function AccountsReport() {
                           {showDeliveryCol && (
                             <td>
                               {isQO ? (
-                                <span style={{ color: "#94a3b8", fontSize: "12px" }}>—</span>
+                                <span
+                                  style={{ color: "#94a3b8", fontSize: "12px" }}
+                                >
+                                  —
+                                </span>
                               ) : isPORecord ? (
                                 grnInfo ? (
                                   <span
                                     className={`report-grn-badge ${GRN_STATUS_CLASS[grnInfo.status] || ""}`}
                                     tabIndex={0}
                                     aria-label={`${record.document_number}: ${grnInfo.status}. Ordered ${qtyOrDash(grnInfo.ordered)}, received ${qtyOrDash(grnInfo.received)}, remaining ${qtyOrDash(grnInfo.remaining)}.`}
-                                    onMouseEnter={(e) => showGrnTooltip(e, record, grnInfo)}
+                                    onMouseEnter={(e) =>
+                                      showGrnTooltip(e, record, grnInfo)
+                                    }
                                     onMouseLeave={hideGrnTooltip}
-                                    onFocus={(e) => showGrnTooltip(e, record, grnInfo)}
+                                    onFocus={(e) =>
+                                      showGrnTooltip(e, record, grnInfo)
+                                    }
                                     onBlur={hideGrnTooltip}
                                   >
                                     {grnInfo.status}
                                   </span>
                                 ) : (
-                                  <span style={{ color: "#94a3b8", fontSize: "12px" }} title="GRN details are not available for this PO">
+                                  <span
+                                    style={{
+                                      color: "#94a3b8",
+                                      fontSize: "12px",
+                                    }}
+                                    title="GRN details are not available for this PO"
+                                  >
                                     —
                                   </span>
                                 )
@@ -568,7 +799,13 @@ export default function AccountsReport() {
                                   className={`report-status-select delivery-status-${String(record.delivery_status).toLowerCase().replace("/", "")}`}
                                   value={record.delivery_status}
                                   disabled={isUpdating || deliveryLocked}
-                                  onChange={(e) => handleStatusChange(record, "delivery_status", e.target.value)}
+                                  onChange={(e) =>
+                                    handleStatusChange(
+                                      record,
+                                      "delivery_status",
+                                      e.target.value,
+                                    )
+                                  }
                                 >
                                   <option value="Delivered">Delivered</option>
                                   <option value="Pending">Pending</option>
@@ -580,20 +817,32 @@ export default function AccountsReport() {
 
                           {!showPaymentCol && !showDeliveryCol && (
                             <td>
-                              <span style={{ color: "#94a3b8", fontSize: "12px" }}>
+                              <span
+                                style={{ color: "#94a3b8", fontSize: "12px" }}
+                              >
                                 {isQO ? "Quotation" : "—"}
                               </span>
                             </td>
                           )}
 
                           <td>
-                            <button type="button" className="report-action-button report-view-button" onClick={() => handleView(record)} disabled={isUpdating}>
+                            <button
+                              type="button"
+                              className="report-action-button report-view-button"
+                              onClick={() => handleView(record)}
+                              disabled={isUpdating}
+                            >
                               View
                             </button>
                           </td>
 
                           <td>
-                            <button type="button" className="report-action-button report-print-button" onClick={() => handlePrint(record)} disabled={isUpdating || !printAvailable}>
+                            <button
+                              type="button"
+                              className="report-action-button report-print-button"
+                              onClick={() => handlePrint(record)}
+                              disabled={isUpdating || !printAvailable}
+                            >
                               Print
                             </button>
                           </td>
@@ -603,7 +852,9 @@ export default function AccountsReport() {
                   ) : (
                     <tr>
                       <td colSpan="7" className="report-empty">
-                        {documentTypeFilter === "all" ? "No documents found." : `No ${documentTypeFilter} documents found.`}
+                        {documentTypeFilter === "all"
+                          ? "No documents found."
+                          : `No ${documentTypeFilter} documents found.`}
                       </td>
                     </tr>
                   )}
@@ -622,7 +873,9 @@ export default function AccountsReport() {
               left: grnTooltip.x,
               top: grnTooltip.y,
               width: TOOLTIP_WIDTH,
-              transform: grnTooltip.above ? "translate(-50%, -100%)" : "translateX(-50%)",
+              transform: grnTooltip.above
+                ? "translate(-50%, -100%)"
+                : "translateX(-50%)",
             }}
           >
             <div className="report-grn-tooltip-row">
