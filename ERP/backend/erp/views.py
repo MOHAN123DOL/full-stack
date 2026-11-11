@@ -10019,7 +10019,8 @@ from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
 from django.utils import timezone
 from decimal import Decimal, InvalidOperation
-
+from django.db import transaction
+from .tasks import check_consumable_buffer_stock
 from .models import EmailLog   # ⬅️ import the log model
 
 from django.template.loader import render_to_string
@@ -10061,20 +10062,38 @@ class ConsumableIssueCreateAPIView(APIView):
 
         # ---------------- VALIDATION ----------------
         if not department:
-            return Response({"success": False, "detail": "Department is required."}, status=400)
+            return Response(
+                {"success": False, "detail": "Department is required."},
+                status=400,
+            )
+
         if not employee_name:
-            return Response({"success": False, "detail": "Employee name is required."}, status=400)
+            return Response(
+                {"success": False, "detail": "Employee name is required."},
+                status=400,
+            )
+
         if quantity <= 0:
-            return Response({"success": False, "detail": "Quantity must be greater than zero."}, status=400)
+            return Response(
+                {"success": False, "detail": "Quantity must be greater than zero."},
+                status=400,
+            )
 
         # ---------------- STOCK CHECK ----------------
         available = _available_qty_for_grn(grn)
 
         if available <= 0:
-            return Response({"success": False, "detail": "This stock line is fully issued."}, status=400)
+            return Response(
+                {"success": False, "detail": "This stock line is fully issued."},
+                status=400,
+            )
+
         if quantity > available:
             return Response(
-                {"success": False, "detail": f"Only {available} {grn.unit or ''} available to issue."},
+                {
+                    "success": False,
+                    "detail": f"Only {available} {grn.unit or ''} available to issue.",
+                },
                 status=400,
             )
 
@@ -10095,113 +10114,21 @@ class ConsumableIssueCreateAPIView(APIView):
             job_card=job_card,
             remarks=remarks,
         )
-
-        # =================================================================
-        # BUFFER STOCK EMAIL TRIGGER
-        # =================================================================
-        new_available = available - quantity
-        buffer_limit = grn.buffer_stock_limit
-        email_status = "SKIPPED"
-        email_error = None
-
-        if buffer_limit is not None and str(buffer_limit).strip() != "":
-            try:
-                buffer_limit_dec = Decimal(str(buffer_limit))
-
-                if new_available <= buffer_limit_dec:
-                    # Prepare email context
-                    context = {
-                        "company_name": getattr(settings, "COMPANY_NAME", "ERP System"),
-                        "year": timezone.now().year,
-                        "material_name": issue.consumable_name,
-                        "grn_number": grn.grn_number,
-                        "warehouse": grn.warehouse or "Main Warehouse",
-                        "issue_number": issue.issue_number,
-                        "previous_available": available,
-                        "issued_quantity": quantity,
-                        "available_qty": new_available,
-                        "buffer_limit": buffer_limit_dec,
-                        "unit": grn.unit or "Nos",
-                        # ⬇️ NEW: PO Number and Received Date
-                        "po_number": grn.po_number or "N/A",
-                        "received_date": grn.created_at.strftime("%d %b %Y, %I:%M %p"),
-                    }
-
-                    html_body = render_to_string("emails/buffer_stock_alert.html", context)
-                    text_body = (
-                        f"Buffer Stock Alert!\n\n"
-                        f"{issue.consumable_name} has dropped to {new_available} {grn.unit}.\n"
-                        f"PO Number: {grn.po_number or 'N/A'}\n"
-                        f"Please restock this item immediately."
+        transaction.on_commit(
+                    lambda: check_consumable_buffer_stock.delay(
+                        grn.id,
+                        issue.id
                     )
-
-                    admin_email = (
-                        getattr(settings, "CONTACT_ADMIN_EMAIL", None)
-                        or getattr(settings, "EMAIL_HOST_USER", None)
-                    )
-                    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
-
-                    if not admin_email:
-                        email_status = "FAILED"
-                        email_error = "No admin email configured (CONTACT_ADMIN_EMAIL / EMAIL_HOST_USER both empty)."
-                    elif not from_email:
-                        email_status = "FAILED"
-                        email_error = "DEFAULT_FROM_EMAIL not configured."
-                    else:
-                        try:
-                            subject = f"⚠️ LOW BUFFER STOCK: {issue.consumable_name}"
-
-                            email = EmailMultiAlternatives(
-                                subject=subject,
-                                body=text_body,
-                                from_email=from_email,
-                                to=[admin_email],
-                            )
-                            email.attach_alternative(html_body, "text/html")
-                            email.send(fail_silently=False)
-
-                            email_status = "SENT"
-
-                            # Log success
-                            EmailLog.objects.create(
-                                email_type="BUFFER_STOCK_ALERT",
-                                recipient=admin_email,
-                                subject=subject,
-                                status="SENT",
-                                sent_at=timezone.now(),
-                            )
-
-                        except Exception as e:
-                            email_status = "FAILED"
-                            email_error = f"{type(e).__name__}: {e}"
-                            
-                            # Log failure
-                            try:
-                                EmailLog.objects.create(
-                                    email_type="BUFFER_STOCK_ALERT",
-                                    recipient=admin_email,
-                                    subject=f"⚠️ LOW BUFFER STOCK: {issue.consumable_name}",
-                                    status="FAILED",
-                                    error_message=email_error,
-                                )
-                            except Exception as log_err:
-                                pass # Fail silently if logging itself fails
-            except (InvalidOperation, ValueError, TypeError):
-                pass # Skip if buffer_limit is corrupted
-
-        # =================================================================
+                )
 
         return Response(
             {
                 "success": True,
                 "message": "Consumable issued successfully.",
                 "data": ConsumableIssueSerializer(issue).data,
-                "email_status": email_status,
-                "email_error": email_error,
             },
             status=status.HTTP_201_CREATED,
         )
-
 
 
 # for returning consumables after issue
@@ -10354,6 +10281,11 @@ class ConsumableReturnCreateAPIView(APIView):
             quantity_returned=qty,
             returned_by=returned_by or issue.employee_name,
             remarks=remarks,
+        )
+        grn_id = issue.grn_id
+
+        transaction.on_commit(
+            lambda: check_consumable_buffer_stock.delay(grn_id)
         )
 
         # ---------------- REFRESH ISSUE STATUS ----------------

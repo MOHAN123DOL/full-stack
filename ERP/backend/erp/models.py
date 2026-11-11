@@ -2703,11 +2703,13 @@ class ConsumableGRN(models.Model):
 
     )
     buffer_stock_limit = models.DecimalField(
-        max_digits=15,
-        decimal_places=3,
-        default=10,
-        help_text="Trigger an email alert when available stock drops to or below this level."
-    )
+    max_digits=15,
+    decimal_places=3,
+    null=True,
+    blank=True,
+    default=None,
+    help_text="Trigger an email alert when available stock drops to or below this level."
+)
 
     po_number = models.CharField(
         max_length=100,
@@ -2804,6 +2806,119 @@ class ConsumableGRN(models.Model):
 
     def __str__(self):
         return f"{self.grn_number} - {self.po_number}"
+    
+
+    
+#for buffer stock alert email log
+class ConsumableEmailLog(models.Model):
+
+    class AlertType(models.TextChoices):
+        LOW_STOCK = "LOW_STOCK", "Low Stock Alert"
+        MISSING_LIMIT = "MISSING_LIMIT", "Missing Buffer Limit"
+
+    class EmailStatus(models.TextChoices):
+        SENT = "SENT", "Sent"
+        FAILED = "FAILED", "Failed"
+
+    alert_type = models.CharField(
+        max_length=30,
+        choices=AlertType.choices,
+        db_index=True,
+    )
+
+    consumable_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    category = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    warehouse = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+    )
+
+    available_stock = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        null=True,
+        blank=True,
+    )
+
+    buffer_stock_limit = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        null=True,
+        blank=True,
+    )
+
+    recipient_email = models.TextField(
+        blank=True,
+        default="",
+        help_text="Email addresses to which the notification was sent.",
+    )
+
+    subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    email_body = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    email_status = models.CharField(
+        max_length=20,
+        choices=EmailStatus.choices,
+        default=EmailStatus.SENT,
+        db_index=True,
+    )
+
+    error_message = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["alert_type", "email_status"],
+                name="cemail_type_status_idx",
+            ),
+            models.Index(
+                fields=["consumable_name", "warehouse"],
+                name="cemail_consumable_wh_idx",
+            ),
+            models.Index(
+                fields=["-created_at"],
+                name="cemail_created_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.consumable_name} - "
+            f"{self.get_alert_type_display()} - "
+            f"{self.email_status}"
+        )
 
 
 class ConsumableIssue(models.Model):
