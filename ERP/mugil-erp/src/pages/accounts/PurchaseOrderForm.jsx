@@ -256,18 +256,32 @@ const vendorToPayload = (vendor) => ({
   email: vendor?.email?.trim() || "",
 });
 
-const customerToVendor = (customer) => ({
-  companyName: customer?.company_name || "",
-  contactPerson: customer?.contact_person || "",
-  gst: customer?.gst_number || "",
-  address1: customer?.address || "",
-  address2: "",
-  city: "",
-  state: "",
-  pincode: "",
-  phone: customer?.phone || "",
-  email: customer?.email || "",
-});
+const customerToVendor = (customer) => {
+  const addressParts = (customer?.address || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const hasFullAddress = addressParts.length >= 4;
+
+  return {
+    companyName: customer?.company_name || "",
+    contactPerson: customer?.contact_person || "",
+    gst: customer?.gst_number || "",
+
+    address1: hasFullAddress
+      ? addressParts.slice(0, -3).join(", ")
+      : customer?.address || "",
+
+    address2: "",
+    city: hasFullAddress ? addressParts[addressParts.length - 3] : "",
+    state: hasFullAddress ? addressParts[addressParts.length - 2] : "",
+    pincode: hasFullAddress ? addressParts[addressParts.length - 1] : "",
+
+    phone: customer?.phone || "",
+    email: customer?.email || "",
+  };
+};
 
 const vendorsAreEqual = (a, b) => {
   if (!a || !b) return false;
