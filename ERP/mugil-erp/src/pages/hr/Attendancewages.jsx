@@ -1677,41 +1677,41 @@ function WeeklyTab({ refreshKey }) {
           {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
           {(!error || data) && (
             <div className="aw-table-wrap">
-              <table className="aw-table">
+              <table className="aw-table aw-summary-centered">
                 <thead>
                   <tr>
-                    <th>Employee</th>
-                    <th className="aw-num">Days Worked</th>
-                    <th className="aw-num">Total Hours</th>
-                    <th className="aw-num">Hourly Rate</th>
-                    <th className="aw-num">Total Wage</th>
-                    <th className="aw-num">Outstanding Advance</th>
-                    <th>Status Breakdown</th>
+                    <th className="aw-center">Employee</th>
+                    <th className="aw-center">Days Worked</th>
+                    <th className="aw-center">Total Hours</th>
+                    <th className="aw-center">Hourly Rate</th>
+                    <th className="aw-center">Total Wage</th>
+                    <th className="aw-center">Outstanding Advance</th>
+                    <th className="aw-center">Status Breakdown</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="aw-empty-row">
+                      <td colSpan={7} className="aw-empty-row aw-center">
                         No attendance recorded for this week.
                       </td>
                     </tr>
                   )}
                   {rows.map((r) => (
                     <tr key={r.employee_id}>
-                      <td>
+                      <td className="aw-center">
                         {r.employee_id} · {r.employee_name}
                       </td>
-                      <td className="aw-num">{r.days_worked}</td>
-                      <td className="aw-num">
+                      <td className="aw-center">{r.days_worked}</td>
+                      <td className="aw-center">
                         {Number(r.total_hours || 0).toFixed(2)}
                       </td>
-                      <td className="aw-num">₹{r.last_rate || 0}</td>
-                      <td className="aw-num">{formatINR(r.total_wage)}</td>
-                      <td className="aw-num">
+                      <td className="aw-center">₹{r.last_rate || 0}</td>
+                      <td className="aw-center">{formatINR(r.total_wage)}</td>
+                      <td className="aw-center">
                         {formatINR(r.outstanding_advance)}
                       </td>
-                      <td className="aw-status-breakdown">
+                      <td className="aw-status-breakdown aw-center">
                         {Object.entries(r.status_counts || {}).map(
                           ([s, count]) => (
                             <span key={s} className="aw-mini-pill">
@@ -1853,40 +1853,40 @@ function MonthlyTab({ onFixMissing, refreshKey }) {
           {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
           {(!error || data) && (
             <div className="aw-table-wrap">
-              <table className="aw-table">
+              <table className="aw-table aw-summary-centered">
                 <thead>
                   <tr>
-                    <th>Employee</th>
-                    <th className="aw-num">Days Worked</th>
-                    <th className="aw-num">Total Hours</th>
-                    <th className="aw-num">Total Wage</th>
-                    <th className="aw-num">Outstanding Advance</th>
-                    <th>Status Breakdown</th>
-                    <th>Missing</th>
+                    <th className="aw-center">Employee</th>
+                    <th className="aw-center">Days Worked</th>
+                    <th className="aw-center">Total Hours</th>
+                    <th className="aw-center">Total Wage</th>
+                    <th className="aw-center">Outstanding Advance</th>
+                    <th className="aw-center">Status Breakdown</th>
+                    <th className="aw-center">Missing</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="aw-empty-row">
+                      <td colSpan={7} className="aw-empty-row aw-center">
                         No attendance recorded for this month.
                       </td>
                     </tr>
                   )}
                   {rows.map((r) => (
                     <tr key={r.employee_id}>
-                      <td>
+                      <td className="aw-center">
                         {r.employee_id} · {r.employee_name}
                       </td>
-                      <td className="aw-num">{r.days_worked}</td>
-                      <td className="aw-num">
+                      <td className="aw-center">{r.days_worked}</td>
+                      <td className="aw-center">
                         {Number(r.total_hours || 0).toFixed(2)}
                       </td>
-                      <td className="aw-num">{formatINR(r.total_wage)}</td>
-                      <td className="aw-num">
+                      <td className="aw-center">{formatINR(r.total_wage)}</td>
+                      <td className="aw-center">
                         {formatINR(r.outstanding_advance)}
                       </td>
-                      <td className="aw-status-breakdown">
+                      <td className="aw-status-breakdown aw-center">
                         {Object.entries(r.status_counts || {}).map(
                           ([s, count]) => (
                             <span key={s} className="aw-mini-pill">
@@ -1896,7 +1896,7 @@ function MonthlyTab({ onFixMissing, refreshKey }) {
                         )}
                         {!r.status_counts && "—"}
                       </td>
-                      <td>
+                      <td className="aw-center">
                         {r.missing_count === 0 ? (
                           "—"
                         ) : (
@@ -2476,6 +2476,18 @@ function WageRatesPanel() {
   );
 }
 
+/* Center every header and body cell in Weekly and Monthly summary tables. */
+const SUMMARY_TABLE_CENTER_STYLE = `
+  .aw-summary-centered th,
+  .aw-summary-centered td {
+    text-align: center !important;
+    vertical-align: middle;
+  }
+  .aw-summary-centered .aw-status-breakdown {
+    justify-content: center;
+  }
+`;
+
 /* ==========================================================================
    PAGE SHELL
    ========================================================================== */
@@ -2551,6 +2563,7 @@ export default function AttendanceWages() {
 
   return (
     <>
+      <style>{SUMMARY_TABLE_CENTER_STYLE}</style>
       <Header
         navLinks={[
           { label: "Employees", path: "/hr/employees" },
