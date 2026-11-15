@@ -702,7 +702,7 @@ export default function EmployeeProfile() {
       {confirmArchive && (
         <div
           className="emp-modal-overlay"
-          onClick={() => setConfirmArchive(false)}
+
         >
           <div
             className="emp-modal emp-modal-confirm"
@@ -723,7 +723,7 @@ export default function EmployeeProfile() {
               <button
                 className="emp-btn-outline"
                 type="button"
-                onClick={() => setConfirmArchive(false)}
+      
               >
                 Cancel
               </button>
@@ -743,7 +743,7 @@ export default function EmployeeProfile() {
       {confirmDelete && (
         <div
           className="emp-modal-overlay"
-          onClick={() => !deleting && setConfirmDelete(false)}
+
         >
           <div
             className="emp-modal emp-modal-confirm"

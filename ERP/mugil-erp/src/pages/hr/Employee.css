@@ -2323,3 +2323,51 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     flex-basis: 92px;
   }
 }
+
+
+/* ========================================================================
+   EMPLOYEE ID GENERATION — Employeeform_updated.jsx
+   ======================================================================== */
+.emp-app .ef-field input[aria-readonly="true"] {
+  background: #f1f5ff;
+  border-color: #c7d2fe;
+  color: #3730a3;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 700;
+  letter-spacing: .035em;
+  cursor: not-allowed;
+}
+.emp-app .ef-field input[aria-readonly="true"]:focus {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, .12);
+}
+.emp-app .ef-body .ef-repeat-card {
+  border: 1px solid var(--emp-border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 18px;
+  box-shadow: var(--emp-shadow-sm);
+}
+.emp-app .ef-body .ef-repeat-card > .ef-grid {
+  max-width: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.emp-app .ef-body .ef-repeat-card > .ef-section-note {
+  margin: 14px 0;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.emp-app .ef-body .ef-repeat-card > .emp-btn-primary {
+  min-height: 40px;
+}
+.emp-app .ef-body button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+@media (max-width: 700px) {
+  .emp-app .ef-body .ef-repeat-card > .ef-grid {
+    grid-template-columns: 1fr;
+  }
+  .emp-app .ef-body .ef-repeat-card {
+    padding: 14px;
+  }
+}

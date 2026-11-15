@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   useEmployees,
@@ -70,7 +70,10 @@ function Field({ label, required, error, children, hint }) {
 }
 
 export default function EmployeeForm({ employeeId, onClose, onSaved }) {
-  const { employees, addEmployee, updateEmployee } = useEmployees();
+  const {
+    employees, addEmployee, updateEmployee,
+    getNextEmployeeCode, getEmployeeCodeSettings, saveEmployeeCodeSettings,
+  } = useEmployees();
 
   const isEdit = Boolean(employeeId);
 
@@ -96,6 +99,74 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
 
   const [saveError, setSaveError] = useState("");
 
+  const [codeLoading, setCodeLoading] = useState(!isEdit);
+  const [codeError, setCodeError] = useState("");
+  const [codeSettingsOpen, setCodeSettingsOpen] = useState(false);
+  const [codeSettingsSaving, setCodeSettingsSaving] = useState(false);
+  const [codeSettings, setCodeSettings] = useState({
+    prefix: "MEI", number_padding: 3, next_number: 1,
+  });
+
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    async function loadCode() {
+      setCodeLoading(true);
+      setCodeError("");
+      try {
+        const preview = await getNextEmployeeCode();
+        if (!cancelled) setData((prev) => ({ ...prev, employeeId: preview.employee_id }));
+      } catch (err) {
+        if (!cancelled) setCodeError(err.response?.data?.message || err.message || "Could not load the next employee ID.");
+      } finally {
+        if (!cancelled) setCodeLoading(false);
+      }
+    }
+    loadCode();
+    return () => { cancelled = true; };
+  }, [isEdit, getNextEmployeeCode]);
+
+  async function openCodeSettings() {
+    setCodeError("");
+    setCodeLoading(true);
+    try {
+      const settings = await getEmployeeCodeSettings();
+      setCodeSettings({
+        prefix: settings.prefix || "MEI",
+        number_padding: settings.number_padding ?? 3,
+        next_number: settings.next_number ?? 1,
+      });
+      setCodeSettingsOpen(true);
+    } catch (err) {
+      setCodeError(err.response?.data?.message || err.message || "Could not load ID settings.");
+    } finally {
+      setCodeLoading(false);
+    }
+  }
+
+  async function handleSaveCodeSettings() {
+    const prefix = String(codeSettings.prefix || "").trim().toUpperCase();
+    const padding = Number(codeSettings.number_padding);
+    const next = Number(codeSettings.next_number);
+    if (!prefix || prefix.length > 20 || !Number.isInteger(padding) || padding < 1 || padding > 12 || !Number.isInteger(next) || next < 1) {
+      setCodeError("Enter a prefix (1–20 characters), digits (1–12), and starting number (1 or more).");
+      return;
+    }
+    setCodeSettingsSaving(true);
+    setCodeError("");
+    try {
+      await saveEmployeeCodeSettings({ prefix, number_padding: padding, next_number: next });
+      const preview = await getNextEmployeeCode();
+      setData((prev) => ({ ...prev, employeeId: preview.employee_id }));
+      setCodeSettingsOpen(false);
+    } catch (err) {
+      setCodeError(err.response?.data?.message || err.message || "Could not save ID settings.");
+    } finally {
+      setCodeSettingsSaving(false);
+    }
+  }
+
+
   function set(field, value) {
     setData((prev) => ({ ...prev, [field]: value }));
   }
@@ -110,7 +181,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
 
   function validate() {
     const required = {
-      personal: ["employeeId", "firstName", "gender", "mobile"],
+      personal: ["firstName", "gender", "mobile"],
 
       employment: [
         "joiningDate",
@@ -165,6 +236,11 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
   async function handleSubmit(e) {
     if (e?.preventDefault) e.preventDefault();
 
+    if (codeSettingsSaving || (!isEdit && (codeLoading || codeError || !data.employeeId))) {
+      setActiveTab("personal");
+      setSaveError("Employee ID preview is unavailable. Refresh the ID before saving.");
+      return;
+    }
     if (!validate()) return;
 
     setSaving(true);
@@ -174,6 +250,8 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
     try {
       const payload = {
         ...data,
+        // ID is generated atomically by Django; preview is display-only.
+        employeeId: undefined,
         dob: data.dob || null,
         joiningDate: data.joiningDate || null,
       };
@@ -463,19 +541,72 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
             {activeTab === "personal" && (
               <div className="ef-grid">
                 <Field
-                  label="Employee ID"
-                  required
-                  error={errors.employeeId}
-                  hint={isEdit ? "Read-only after creation." : undefined}
+                  label="Employee ID (Auto-generated)"
+                  hint={isEdit ? "This ID cannot be changed." : "Preview only. Django assigns the final ID when saved."}
                 >
-                  <input
-                    type="text"
-                    value={data.employeeId}
-                    disabled={isEdit || saving}
-                    onChange={(e) => set("employeeId", e.target.value)}
-                    placeholder="EMP014"
-                  />
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      type="text"
+                      value={isEdit ? (data.employeeId || "") : codeLoading ? "Loading..." : (data.employeeId || "")}
+                      readOnly
+                      aria-readonly="true"
+                      style={{ flex: "1 1 150px", cursor: "not-allowed" }}
+                      placeholder="MEI001"
+                    />
+                    {!isEdit && (
+                      <button type="button" className="emp-btn-outline"
+                        disabled={saving || codeLoading || codeSettingsSaving}
+                        onClick={async () => {
+                          setCodeLoading(true); setCodeError("");
+                          try {
+                            const preview = await getNextEmployeeCode();
+                            setData((prev) => ({ ...prev, employeeId: preview.employee_id }));
+                          } catch (err) {
+                            setCodeError(err.response?.data?.message || err.message || "Could not refresh ID.");
+                          } finally { setCodeLoading(false); }
+                        }}
+                      >Refresh ID</button>
+                    )}
+                  </div>
                 </Field>
+                {!isEdit && (
+                  <div style={{ gridColumn: "1 / -1", display: "grid", gap: 10 }}>
+                    <button type="button" className="emp-link-btn"
+                      onClick={() => codeSettingsOpen ? setCodeSettingsOpen(false) : openCodeSettings()}
+                      disabled={saving || codeSettingsSaving || codeLoading}
+                      style={{ justifySelf: "start" }}
+                    >{codeSettingsOpen ? "Hide ID settings" : "Configure Employee ID prefix / digits / start"}</button>
+                    {codeSettingsOpen && (
+                      <div className="ef-repeat-card">
+                        <div className="ef-grid">
+                          <Field label="Prefix" required>
+                            <input value={codeSettings.prefix} maxLength={20}
+                              disabled={codeSettingsSaving}
+                              onChange={(e) => setCodeSettings((v) => ({ ...v, prefix: e.target.value.toUpperCase() }))} />
+                          </Field>
+                          <Field label="Number of digits" required>
+                            <input type="number" min="1" max="12" value={codeSettings.number_padding}
+                              disabled={codeSettingsSaving}
+                              onChange={(e) => setCodeSettings((v) => ({ ...v, number_padding: e.target.value }))} />
+                          </Field>
+                          <Field label="Start / Next number" required>
+                            <input type="number" min="1" value={codeSettings.next_number}
+                              disabled={codeSettingsSaving}
+                              onChange={(e) => setCodeSettings((v) => ({ ...v, next_number: e.target.value }))} />
+                          </Field>
+                        </div>
+                        <p className="ef-section-note">
+                          Example: {String(codeSettings.prefix || "MEI").toUpperCase()}{String(Math.max(1, Number(codeSettings.next_number) || 1)).padStart(Math.max(1, Math.min(12, Number(codeSettings.number_padding) || 3)), "0")}
+                        </p>
+                        <button type="button" className="emp-btn-primary"
+                          disabled={codeSettingsSaving || saving} onClick={handleSaveCodeSettings}>
+                          {codeSettingsSaving ? "Saving settings..." : "Save ID settings"}
+                        </button>
+                      </div>
+                    )}
+                    {codeError && <span className="ef-error" role="alert">{codeError}</span>}
+                  </div>
+                )}
 
                 <Field label="First Name" required error={errors.firstName}>
                   <input
@@ -1326,7 +1457,7 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
               Cancel
             </button>
 
-            <button type="submit" className="emp-btn-primary" disabled={saving}>
+            <button type="submit" className="emp-btn-primary" disabled={saving || codeSettingsSaving || (!isEdit && (codeLoading || !!codeError || !data.employeeId))}>
               {saving ? "Saving…" : isEdit ? "Save Changes" : "Save Employee"}
             </button>
           </div>

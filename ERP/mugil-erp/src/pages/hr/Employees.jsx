@@ -91,6 +91,8 @@ export const DOCUMENT_TYPES = [
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 const EMPLOYEES_ENDPOINT = "/erp/employees/";
+const EMPLOYEE_CODE_PREVIEW_ENDPOINT = `${EMPLOYEES_ENDPOINT}next-code/`;
+const EMPLOYEE_CODE_SETTINGS_ENDPOINT = `${EMPLOYEES_ENDPOINT}code-settings/`;
 
 function avatarUrl(name, seed) {
   const colors = [
@@ -231,7 +233,7 @@ export function EmployeesProvider({ children }) {
      ============================================================ */
   const addEmployee = useCallback(
     async (employee) => {
-      const { id, employeeCode, photo, ...rest } = employee;
+      const { id, employeeId, employeeCode, photo, ...rest } = employee;
 
       const body = { ...rest };
 
@@ -272,7 +274,7 @@ export function EmployeesProvider({ children }) {
         ...(existing?.employmentHistory || []),
       ];
 
-      const { id: _dropId, employeeCode: _dropCode, photo, ...rest } = updates;
+      const { id: _dropId, employeeId: _dropEmployeeId, employeeCode: _dropCode, photo, ...rest } = updates;
 
       const body = { ...rest, employmentHistory: mergedHistory };
 
@@ -426,6 +428,37 @@ export function EmployeesProvider({ children }) {
     [authHeaders],
   );
 
+  // Employee ID sequence is owned by Django. A preview does not reserve an ID.
+  const getNextEmployeeCode = useCallback(async () => {
+    const response = await api.get(EMPLOYEE_CODE_PREVIEW_ENDPOINT, {
+      headers: authHeaders(),
+    });
+    if (!response.data?.success || !response.data?.data?.employee_id) {
+      throw new Error(response.data?.message || "Unable to preview employee ID.");
+    }
+    return response.data.data;
+  }, [authHeaders]);
+
+  const getEmployeeCodeSettings = useCallback(async () => {
+    const response = await api.get(EMPLOYEE_CODE_SETTINGS_ENDPOINT, {
+      headers: authHeaders(),
+    });
+    if (!response.data?.success || !response.data?.data) {
+      throw new Error(response.data?.message || "Unable to load ID settings.");
+    }
+    return response.data.data;
+  }, [authHeaders]);
+
+  const saveEmployeeCodeSettings = useCallback(async (settings) => {
+    const response = await api.patch(EMPLOYEE_CODE_SETTINGS_ENDPOINT, settings, {
+      headers: authHeaders(),
+    });
+    if (!response.data?.success || !response.data?.data) {
+      throw new Error(response.data?.message || "Unable to save ID settings.");
+    }
+    return response.data.data;
+  }, [authHeaders]);
+
   const value = {
     employees,
     isLoading,
@@ -434,6 +467,9 @@ export function EmployeesProvider({ children }) {
     getEmployee,
     addEmployee,
     updateEmployee,
+    getNextEmployeeCode,
+    getEmployeeCodeSettings,
+    saveEmployeeCodeSettings,
     archiveEmployee,
     unarchiveEmployee,
     deleteEmployee,

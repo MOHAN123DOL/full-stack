@@ -1550,86 +1550,164 @@ from rest_framework import serializers
 
 from .models import Employee
 
+from rest_framework import serializers
+from .models import Employee
+
 
 class EmployeeSerializer(serializers.ModelSerializer):
     """
-    Maps every camelCase field the React frontend uses to the
-    snake_case model fields.
+    Employee serializer for NXT GENZ ERP.
 
-    NOTE: `id` in the response is the *DB primary key* used by
-    the API URLs. The user-entered employee ID is exposed as
-    `employeeId` so the frontend keeps its existing shape.
+    - id: Database primary key used for API URLs.
+    - employeeId: Automatically generated employee ID.
+    - employeeCode: Same value as employeeId.
+    - Both identifiers are read-only.
+    - React camelCase fields map to Django snake_case fields.
     """
 
     fullName = serializers.SerializerMethodField()
 
-    # Frontend aliases
-    employeeId = serializers.CharField(source="employee_id")
+    # -----------------------------------------------------
+    # AUTO-GENERATED EMPLOYEE IDENTIFIERS
+    # -----------------------------------------------------
+
+    employeeId = serializers.CharField(
+        source="employee_id",
+        read_only=True
+    )
+
     employeeCode = serializers.CharField(
-        source="employee_code", required=False, allow_blank=True
+        source="employee_code",
+        read_only=True
     )
-    firstName = serializers.CharField(source="first_name")
+
+    # -----------------------------------------------------
+    # PERSONAL DETAILS
+    # -----------------------------------------------------
+
+    firstName = serializers.CharField(
+        source="first_name"
+    )
+
     lastName = serializers.CharField(
-        source="last_name", required=False, allow_blank=True
+        source="last_name",
+        required=False,
+        allow_blank=True
     )
+
     bloodGroup = serializers.CharField(
-        source="blood_group", required=False, allow_blank=True
+        source="blood_group",
+        required=False,
+        allow_blank=True
     )
+
     maritalStatus = serializers.CharField(
-        source="marital_status", required=False, allow_blank=True
+        source="marital_status",
+        required=False,
+        allow_blank=True
     )
+
     emergencyContactName = serializers.CharField(
-        source="emergency_contact_name", required=False, allow_blank=True
+        source="emergency_contact_name",
+        required=False,
+        allow_blank=True
     )
+
     emergencyContactNumber = serializers.CharField(
-    source="emergency_contact_number",
-    required=False,
-    allow_blank=True,
-)
-    
-    
-    employmentType = serializers.CharField(
-        source="employment_type", required=False, allow_blank=True
+        source="emergency_contact_number",
+        required=False,
+        allow_blank=True
     )
-    employmentStatus = serializers.CharField(
-        source="employment_status", required=False
-    )
-    reportingManager = serializers.CharField(
-        source="reporting_manager", required=False, allow_blank=True
-    )
-    workLocation = serializers.CharField(
-        source="work_location", required=False, allow_blank=True
-    )
-    joiningDate = serializers.DateField(
-        source="joining_date", required=False, allow_null=True
-    )
-    addressLine1 = serializers.CharField(
-        source="address_line1", required=False, allow_blank=True
-    )
-    addressLine2 = serializers.CharField(
-        source="address_line2", required=False, allow_blank=True
-    )
-    drivingLicense = serializers.CharField(
-        source="driving_license", required=False, allow_blank=True
-    )
-    bankDetails = serializers.JSONField(
-        source="bank_details", required=False
-    )
-    employmentHistory = serializers.JSONField(
-        source="employment_history", required=False
-    )
+
     dob = serializers.DateField(
-    input_formats=["%Y-%m-%d"],
-    required=False,
-    allow_null=True
-)
-    
+        input_formats=["%Y-%m-%d"],
+        required=False,
+        allow_null=True
+    )
+
+    # -----------------------------------------------------
+    # EMPLOYMENT DETAILS
+    # -----------------------------------------------------
+
+    employmentType = serializers.CharField(
+        source="employment_type",
+        required=False,
+        allow_blank=True
+    )
+
+    employmentStatus = serializers.CharField(
+        source="employment_status",
+        required=False
+    )
+
+    reportingManager = serializers.CharField(
+        source="reporting_manager",
+        required=False,
+        allow_blank=True
+    )
+
+    workLocation = serializers.CharField(
+        source="work_location",
+        required=False,
+        allow_blank=True
+    )
+
+    joiningDate = serializers.DateField(
+        source="joining_date",
+        required=False,
+        allow_null=True
+    )
+
+    # -----------------------------------------------------
+    # ADDRESS DETAILS
+    # -----------------------------------------------------
+
+    addressLine1 = serializers.CharField(
+        source="address_line1",
+        required=False,
+        allow_blank=True
+    )
+
+    addressLine2 = serializers.CharField(
+        source="address_line2",
+        required=False,
+        allow_blank=True
+    )
+
+    # -----------------------------------------------------
+    # IDENTIFICATION DETAILS
+    # -----------------------------------------------------
+
+    drivingLicense = serializers.CharField(
+        source="driving_license",
+        required=False,
+        allow_blank=True
+    )
+
+    # -----------------------------------------------------
+    # ADDITIONAL DETAILS
+    # -----------------------------------------------------
+
+    bankDetails = serializers.JSONField(
+        source="bank_details",
+        required=False
+    )
+
+    employmentHistory = serializers.JSONField(
+        source="employment_history",
+        required=False
+    )
+
+    # -----------------------------------------------------
+    # MODEL CONFIGURATION
+    # -----------------------------------------------------
 
     class Meta:
         model = Employee
+
         fields = [
-            "id",              # DB PK (used in URLs)
-            "employeeId",      # user-entered, e.g. EMP001
+            "id",
+            "employeeId",
             "employeeCode",
             "firstName",
             "lastName",
@@ -1675,47 +1753,49 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "employee_id",
+            "employee_code",
+        ]
+
+    # -----------------------------------------------------
+    # FULL NAME
+    # -----------------------------------------------------
 
     def get_fullName(self, obj):
         return obj.full_name
 
     # -----------------------------------------------------
-    # VALIDATION
+    # VALIDATIONS
     # -----------------------------------------------------
-    def validate_employeeId(self, value):
-        value = (value or "").strip()
-        if not value:
-            raise serializers.ValidationError(
-                "Employee ID is required."
-            )
-
-        qs = Employee.objects.filter(employee_id__iexact=value)
-        instance = getattr(self, "instance", None)
-        if instance:
-            qs = qs.exclude(pk=instance.pk)
-
-        if qs.exists():
-            raise serializers.ValidationError(
-                "This Employee ID is already in use."
-            )
-        return value
 
     def validate_firstName(self, value):
         if not value or not value.strip():
-            raise serializers.ValidationError("First name is required.")
+            raise serializers.ValidationError(
+                "First name is required."
+            )
         return value.strip()
 
     def validate_email(self, value):
         if value:
-            qs = Employee.objects.filter(email__iexact=value)
+            qs = Employee.objects.filter(
+                email__iexact=value
+            )
+
             instance = getattr(self, "instance", None)
+
             if instance:
                 qs = qs.exclude(pk=instance.pk)
+
             if qs.exists():
                 raise serializers.ValidationError(
                     "An employee with this email already exists."
                 )
+
         return value
 
 
@@ -1748,7 +1828,7 @@ class SalaryEmployeeSerializer(serializers.ModelSerializer):
         model = Employee
         fields = ["id", "employee_id", "employee_name", "department"]
 
-        
+
 class AdvanceSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source="employee.full_name", read_only=True)
     employee_code = serializers.CharField(source="employee.employee_id", read_only=True)

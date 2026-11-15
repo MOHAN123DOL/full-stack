@@ -6717,7 +6717,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Employee
+from .models import Employee, EmployeeCodeSettings
 from .permissions import IsHR, IsHROrMaterialPlanning
 from .serializers import (
     EmployeeArchiveSerializer,
@@ -6727,7 +6727,7 @@ from .serializers import (
 
 # ============================================================
 # EMPLOYEE LIST + CREATE
-# ============================================================
+
 class EmployeeListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsHR]
 
@@ -6737,14 +6737,12 @@ class EmployeeListCreateAPIView(APIView):
     def get(self, request):
         qs = Employee.objects.all()
 
-        # ?archived=true|false
         archived = request.query_params.get("archived")
         if archived is not None:
             qs = qs.filter(
                 archived=archived.lower() in ("1", "true", "yes")
             )
 
-        # ?q=search
         q = request.query_params.get("q")
         if q:
             qs = qs.filter(
@@ -6759,7 +6757,6 @@ class EmployeeListCreateAPIView(APIView):
                 | Q(city__icontains=q)
             )
 
-        # Multi-select filters — comma-separated values
         def _multi(param):
             raw = request.query_params.get(param)
             if not raw:
@@ -6786,11 +6783,14 @@ class EmployeeListCreateAPIView(APIView):
         if etype:
             qs = qs.filter(employment_type__in=etype)
 
-        # Skills check in Python (JSON contains)
         skills = _multi("skills")
         qs = list(qs)
+
         if skills:
-            qs = [e for e in qs if any(s in (e.skills or []) for s in skills)]
+            qs = [
+                e for e in qs
+                if any(s in (e.skills or []) for s in skills)
+            ]
 
         serializer = EmployeeSerializer(qs, many=True)
 
@@ -6807,7 +6807,16 @@ class EmployeeListCreateAPIView(APIView):
     # POST /erp/hr/employees/
     # --------------------------------------------------------
     def post(self, request):
-        serializer = EmployeeSerializer(data=request.data)
+
+        # Never accept employee IDs from frontend.
+        payload = request.data.copy()
+
+        payload.pop("employee_id", None)
+        payload.pop("employee_code", None)
+        payload.pop("employeeId", None)
+        payload.pop("employeeCode", None)
+
+        serializer = EmployeeSerializer(data=payload)
 
         if not serializer.is_valid():
             return Response(
@@ -6820,43 +6829,56 @@ class EmployeeListCreateAPIView(APIView):
             )
 
         with transaction.atomic():
-            # ---------------------------------------------------------
-            # Auto-generate employee_code from settings
-            # ---------------------------------------------------------
-            settings_obj = (
+
+            config = (
                 EmployeeCodeSettings.objects
                 .select_for_update()
                 .filter(is_active=True)
+                .order_by("pk")
                 .first()
             )
 
-            if not settings_obj:
-                return Response(
-                    {
-                        "success": False,
-                        "message": (
-                            "Employee code settings have not been "
-                            "configured."
-                        ),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
+            if config is None:
+                config = EmployeeCodeSettings.objects.create(
+                    prefix="MEI",
+                    next_number=1,
+                    number_padding=3,
+                    is_active=True,
                 )
 
-            code = (
-                f"{settings_obj.prefix}"
-                f"{settings_obj.next_number:0{settings_obj.number_padding}d}"
-            )
+            number = config.next_number
 
-            settings_obj.next_number += 1
-            settings_obj.save(
-                update_fields=["next_number", "updated_at"]
-            )
+            # Avoid duplicate employee IDs.
+            while True:
 
+                code = (
+                    f"{config.prefix}"
+                    f"{number:0{config.number_padding}d}"
+                )
+
+                if not Employee.objects.filter(
+                    Q(employee_id__iexact=code)
+                    | Q(employee_code__iexact=code)
+                ).exists():
+                    break
+
+                number += 1
+
+            # Save SAME generated code in both columns.
             employee = serializer.save(
-                created_by=request.user,
+                employee_id=code,
                 employee_code=code,
+                created_by=request.user,
             )
 
+            config.next_number = number + 1
+
+            config.save(
+                update_fields=[
+                    "next_number",
+                    "updated_at",
+                ]
+            )
 
         return Response(
             {
@@ -6866,6 +6888,7 @@ class EmployeeListCreateAPIView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
 
 
 # ============================================================
@@ -6910,8 +6933,12 @@ class EmployeeDetailAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        payload = request.data.copy()
+        payload.pop("employee_id", None)
+        payload.pop("employee_code", None)
+        payload.pop("employeeId", None)
         serializer = EmployeeSerializer(
-            emp, data=request.data, partial=True
+            emp, data=payload, partial=True
         )
 
         if not serializer.is_valid():
@@ -7106,6 +7133,116 @@ class EmployeeArchiveAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ============================================================
+# EMPLOYEE ID PREVIEW (does not reserve the ID)
+# GET /erp/hr/employees/next-code/
+# ============================================================
+class EmployeeCodePreviewAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHR]
+
+    def get(self, request):
+        config = (EmployeeCodeSettings.objects.filter(is_active=True)
+                  .order_by("pk").first())
+        if config is None:
+            with transaction.atomic():
+                config = (EmployeeCodeSettings.objects.select_for_update()
+                          .filter(is_active=True).order_by("pk").first())
+                if config is None:
+                    config = EmployeeCodeSettings.objects.create(
+                        prefix="EMP", next_number=1,
+                        number_padding=3, is_active=True,
+                    )
+        number = config.next_number
+        while Employee.objects.filter(
+            employee_id=f"{config.prefix}{number:0{config.number_padding}d}"
+        ).exists():
+            number += 1
+        return Response({
+            "success": True,
+            "data": {
+                "employee_id": f"{config.prefix}{number:0{config.number_padding}d}",
+                "prefix": config.prefix,
+                "next_number": number,
+                "number_padding": config.number_padding,
+            },
+        })
+
+
+# ============================================================
+# EMPLOYEE ID SETTINGS
+# GET /erp/hr/employees/code-settings/
+# PATCH /erp/hr/employees/code-settings/
+# ============================================================
+class EmployeeCodeSettingsAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHR]
+
+    def get(self, request):
+        config = (EmployeeCodeSettings.objects.filter(is_active=True)
+                  .order_by("pk").first())
+        if config is None:
+            with transaction.atomic():
+                config = (EmployeeCodeSettings.objects.select_for_update()
+                          .filter(is_active=True).order_by("pk").first())
+                if config is None:
+                    config = EmployeeCodeSettings.objects.create(
+                        prefix="EMP", next_number=1,
+                        number_padding=3, is_active=True,
+                    )
+        return Response({
+            "success": True,
+            "data": {
+                "prefix": config.prefix,
+                "next_number": config.next_number,
+                "number_padding": config.number_padding,
+                "is_active": config.is_active,
+            },
+        })
+
+    def patch(self, request):
+        prefix = request.data.get("prefix", "MEI")
+        padding = request.data.get("number_padding", 3)
+        next_number = request.data.get("next_number", 1)
+        if not isinstance(prefix, str) or not prefix.strip() or len(prefix.strip()) > 20:
+            return Response({"success": False, "message": "Prefix must be 1–20 characters."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        prefix = prefix.strip().upper()
+        try:
+            padding = int(padding)
+            next_number = int(next_number)
+        except (ValueError, TypeError):
+            return Response({"success": False, "message": "Digits and start number must be integers."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not 1 <= padding <= 12 or next_number < 1:
+            return Response({"success": False,
+                             "message": "Digits must be 1–12 and start number at least 1."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # Lock the active settings row before changing its sequence.
+            config = (EmployeeCodeSettings.objects.select_for_update()
+                      .filter(is_active=True).order_by("pk").first())
+            if config is None:
+                config = EmployeeCodeSettings.objects.create(
+                    prefix=prefix, number_padding=padding,
+                    next_number=next_number, is_active=True,
+                )
+            else:
+                config.prefix = prefix
+                config.number_padding = padding
+                config.next_number = next_number
+                config.save(update_fields=["prefix", "number_padding",
+                                           "next_number", "updated_at"])
+        return Response({
+            "success": True,
+            "message": "Employee ID settings saved.",
+            "data": {
+                "prefix": config.prefix,
+                "next_number": config.next_number,
+                "number_padding": config.number_padding,
+            },
+        })
 
 
 
