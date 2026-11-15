@@ -272,12 +272,7 @@ export function EmployeesProvider({ children }) {
         ...(existing?.employmentHistory || []),
       ];
 
-      const {
-        id: _dropId,
-        employeeCode: _dropCode,
-        photo,
-        ...rest
-      } = updates;
+      const { id: _dropId, employeeCode: _dropCode, photo, ...rest } = updates;
 
       const body = { ...rest, employmentHistory: mergedHistory };
 
@@ -364,9 +359,7 @@ export function EmployeesProvider({ children }) {
         throw new Error("bad response");
       }
 
-      setEmployees((prev) =>
-        prev.filter((e) => String(e.id) !== String(id)),
-      );
+      setEmployees((prev) => prev.filter((e) => String(e.id) !== String(id)));
 
       return true;
     },
@@ -416,10 +409,9 @@ export function EmployeesProvider({ children }) {
      ============================================================ */
   const deleteEmployeePhoto = useCallback(
     async (id) => {
-      const response = await api.delete(
-        `${EMPLOYEES_ENDPOINT}${id}/photo/`,
-        { headers: authHeaders() },
-      );
+      const response = await api.delete(`${EMPLOYEES_ENDPOINT}${id}/photo/`, {
+        headers: authHeaders(),
+      });
 
       if (!response.data?.success || !response.data?.data) {
         throw new Error("bad response");
@@ -717,7 +709,11 @@ export default function Employees() {
         />
         <span>Show archived employees</span>
       </label>
-      <FilterGroup label="Department" group="department" options={DEPARTMENTS} />
+      <FilterGroup
+        label="Department"
+        group="department"
+        options={DEPARTMENTS}
+      />
       <FilterGroup label="City" group="city" options={CITIES} />
       <FilterGroup
         label="Designation"
@@ -743,8 +739,8 @@ export default function Employees() {
       <Header
         navLinks={[
           { label: "Employees", path: "/hr/employees" },
-          { label: "Attendance & Wages", path: "/hr/attendance" },
-          { label: "Salary", path: "/hr/salary" },
+          { label: "Attendance", path: "/hr/attendance" },
+          { label: "Advance", path: "/hr/salary" },
         ]}
       />
 
@@ -759,7 +755,12 @@ export default function Employees() {
           </div>
           <div className="emp-page-header-actions">
             <div className="emp-search">
-              <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+              <svg
+                viewBox="0 0 20 20"
+                width="16"
+                height="16"
+                aria-hidden="true"
+              >
                 <path
                   d="M13.6 12.2a6 6 0 1 0-1.4 1.4l3.8 3.8 1.4-1.4-3.8-3.8ZM9 13a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"
                   fill="currentColor"
@@ -1052,10 +1053,7 @@ export default function Employees() {
         </div>
 
         {filterDrawerOpen && (
-          <div
-            className="emp-drawer-overlay"
-            onClick={() => setFilterDrawerOpen(false)}
-          >
+          <div className="emp-drawer-overlay">
             <div className="emp-drawer" onClick={(e) => e.stopPropagation()}>
               <div className="emp-drawer-head">
                 <h3>Filters</h3>
@@ -1091,10 +1089,7 @@ export default function Employees() {
         )}
 
         {archiveTarget && (
-          <div
-            className="emp-modal-overlay"
-            onClick={() => setArchiveTarget(null)}
-          >
+          <div className="emp-modal-overlay">
             <div
               className="emp-modal emp-modal-confirm"
               onClick={(e) => e.stopPropagation()}

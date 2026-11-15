@@ -10,15 +10,14 @@ import {
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import "./Attendance.css";
-import "./Payroll.css";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-// NOTE: renamed from `Error` — importing a component called `Error` shadows the
-// global `Error` constructor (used by `throw new Error(...)` in useAttendance).
+// Renamed from `Error` so it never shadows the global Error constructor.
 import ErrorState from "../../components/error";
 
 /* ==========================================================================
-   CONSTANTS
+   CONSTANTS & SHARED HELPERS
+   (several are re-exported for other modules such as Payroll.jsx)
    ========================================================================== */
 
 export const ATTENDANCE_STATUSES = [
@@ -43,14 +42,38 @@ export const STATUS_META = {
   WEEKLY_OFF: { label: "Weekly Off", requiresTime: false },
 };
 
+export const WORKED_STATUSES = ["PRESENT", "HALF_DAY", "WFH"];
+
 export function statusLabel(status) {
+  if (status === "NOT_MARKED") return "Not Marked";
   return STATUS_META[status]?.label || status;
 }
 
-export function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+function pad2(n) {
+  return String(n).padStart(2, "0");
 }
 
+/** Local-calendar ISO date. (toISOString() is UTC and shifts the day in IST.) */
+export function toLocalISO(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+export function todayISO() {
+  return toLocalISO(new Date());
+}
+
+export function parseISO(iso) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+export function addDays(iso, days) {
+  const d = parseISO(iso);
+  d.setDate(d.getDate() + days);
+  return toLocalISO(d);
+}
+
+// Kept ONLY because Payroll.jsx imports it. Not used anywhere in HR Attendance.
 export function formatINR(amount) {
   const n = Number(amount) || 0;
   return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
@@ -62,8 +85,151 @@ export function formatHours(hours) {
 
 export function formatDisplayDate(iso) {
   if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
+  const [y, m, d] = String(iso).split("-");
   return `${d}/${m}/${y}`;
+}
+
+export function monthRange(monthStr) {
+  const [y, m] = monthStr.split("-").map(Number);
+  const start = `${monthStr}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const end = `${monthStr}-${pad2(lastDay)}`;
+  return { start, end };
+}
+
+export function currentMonthStr() {
+  return todayISO().slice(0, 7);
+}
+
+export function startOfWeek(iso) {
+  const d = parseISO(iso);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return toLocalISO(d);
+}
+
+export function endOfWeek(iso) {
+  return addDays(startOfWeek(iso), 6);
+}
+
+const fmt2 = (n) => (Number(n) || 0).toFixed(2);
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
+
+/* ==========================================================================
+   SHIFT & HOURLY-SLOT LOGIC
+   Mirrors attendance_services.py. Used for LIVE PREVIEW only — the backend
+   recalculates everything from the checked slots on save.
+   ========================================================================== */
+
+const LUNCH_HOUR = 13;
+
+export function shiftFor(dateISO) {
+  const isSunday = dateISO ? parseISO(dateISO).getDay() === 0 : false;
+  return isSunday
+    ? {
+        isSunday: true,
+        start: 6 * 60,
+        startHHMM: "06:00",
+        end: 12 * 60,
+        endHHMM: "12:00",
+        maxNormal: 6,
+        title: "Sunday shift",
+        window: "6:00 AM – 12:00 PM",
+      }
+    : {
+        isSunday: false,
+        start: 9 * 60,
+        startHHMM: "09:00",
+        end: 18 * 60,
+        endHHMM: "18:00",
+        maxNormal: 8,
+        title: "Monday – Saturday shift",
+        window: "9:00 AM – 6:00 PM",
+      };
+}
+
+function toMin(value) {
+  if (!value) return null;
+  const [h, m] = String(value).slice(0, 5).split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+const overlap = (a1, a2, b1, b2) =>
+  Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+
+function clockPart(hour24) {
+  const h = ((hour24 % 24) + 24) % 24;
+  return { n: h % 12 === 0 ? 12 : h % 12, suffix: h >= 12 ? "PM" : "AM" };
+}
+
+function slotLabel(hour) {
+  const a = clockPart(hour);
+  const b = clockPart(hour + 1);
+  return a.suffix === b.suffix
+    ? `${a.n}–${b.n} ${a.suffix}`
+    : `${a.n} ${a.suffix}–${b.n} ${b.suffix}`;
+}
+
+export function validateTimes(login, logout) {
+  const li = toMin(login);
+  const lo = toMin(logout);
+  if (li === null || lo === null) return "";
+  if (lo <= li) return "Logout time must be later than login time.";
+  return "";
+}
+
+/** One slot per clock hour touched by [login, logout]. */
+export function buildSlots(login, logout, dateISO) {
+  const li = toMin(login);
+  const lo = toMin(logout);
+  if (li === null || lo === null || lo <= li) return [];
+  const shift = shiftFor(dateISO);
+  const slots = [];
+  for (let h = Math.floor(li / 60); h <= Math.floor((lo - 1) / 60); h++) {
+    const s0 = Math.max(h * 60, li);
+    const s1 = Math.min(h * 60 + 60, lo);
+    const isLunch = !shift.isSunday && h === LUNCH_HOUR;
+    // Lunch is optional: HR can explicitly mark it as worked.
+    const paidMin = s1 - s0;
+    const normalMin = overlap(s0, s1, shift.start, shift.end);
+    slots.push({
+      hour: h,
+      dateISO,
+      label: slotLabel(h),
+      isLunch,
+      partial: s1 - s0 < 60,
+      paidMin,
+      normalMin,
+      otMin: paidMin - normalMin,
+    });
+  }
+  return slots;
+}
+
+/** Hours from CHECKED slots only. Unchecked slots add 0. */
+export function calcHours(slots, isChecked) {
+  let normalMin = 0;
+  let otMin = 0;
+  let slotCount = 0;
+  slots.forEach((s) => {
+    if (!isChecked(s.hour)) return;
+    slotCount += 1;
+    normalMin += s.normalMin;
+    otMin += s.otMin;
+  });
+  // Work during lunch is counted, but cannot push normal time beyond the
+  // scheduled 8-hour (Mon–Sat) / 6-hour (Sunday) normal shift limit.
+  // Any excess checked time inside the shift becomes suggested overtime.
+  const normalLimitMin = slots.length
+    ? shiftFor(slots[0].dateISO).maxNormal * 60
+    : 0;
+  const excessMin = Math.max(0, normalMin - normalLimitMin);
+  return {
+    normal: round2((normalMin - excessMin) / 60),
+    suggestedOT: round2((otMin + excessMin) / 60),
+    slotCount,
+  };
 }
 
 /* ==========================================================================
@@ -93,19 +259,13 @@ function extractError(err, fallback = "Something went wrong.") {
 }
 
 /**
- * Shared data-loading hook for every summary tab.
- *
- *  - `fetcher` MUST be memoised (useCallback) over the tab's selected
- *    date / month / filters. A new fetcher identity == "user changed a filter".
- *  - `refreshKey` is the centralised trigger owned by the page. When it
- *    changes (after a confirmed create / update / delete) the SAME fetcher is
- *    called again, so the selected month / week / date / filters are preserved.
- *  - Filter changes show the loading state. Refresh-triggered reloads are
- *    "silent": the existing table stays on screen (no flicker, no scroll
- *    jump) and is swapped when fresh data arrives.
- *  - A `cancelled` flag in the effect cleanup guarantees a slow, older
- *    response can never overwrite a newer one.
- *  - One state change == one request (no manual fetch calls elsewhere).
+ * Shared data-loading hook.
+ *  - `fetcher` MUST be memoised. A new fetcher identity means the user
+ *    changed a filter: the old data is dropped and the loading state shows,
+ *    so stale rows from a previous period/date are never displayed.
+ *  - `refreshKey` changes after a confirmed save: the SAME fetcher is called
+ *    again silently (table stays on screen, filters preserved).
+ *  - The `cancelled` flag stops a slow old response overwriting a newer one.
  */
 function useRefreshableQuery(fetcher, refreshKey, fallbackError) {
   const [state, setState] = useState({
@@ -140,7 +300,7 @@ function useRefreshableQuery(fetcher, refreshKey, fallbackError) {
       .catch((err) => {
         if (cancelled) return;
         setState((prev) => ({
-          ...prev, // keep last good data (if any) on a failed silent refresh
+          ...prev,
           loading: false,
           refreshing: false,
           error: extractError(err, fallbackError),
@@ -150,13 +310,22 @@ function useRefreshableQuery(fetcher, refreshKey, fallbackError) {
     return () => {
       cancelled = true;
     };
-    // fallbackError is a constant string per call site
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetcher, refreshKey, retryKey]);
 
   const retry = useCallback(() => setRetryKey((k) => k + 1), []);
-
   return { ...state, retry };
+}
+
+/** Page number that automatically resets to 1 whenever the filter signature changes. */
+function usePageForSignature(signature) {
+  const [pageState, setPageState] = useState({ signature, page: 1 });
+  const page = pageState.signature === signature ? pageState.page : 1;
+  const setPage = useCallback(
+    (p) => setPageState({ signature, page: p }),
+    [signature],
+  );
+  return [page, setPage];
 }
 
 function QueryError({ error, onRetry, stale }) {
@@ -183,10 +352,6 @@ function RefreshIndicator({ show }) {
   );
 }
 
-/* ==========================================================================
-   DROPDOWN OPTIONS
-   ========================================================================== */
-
 const DEPARTMENTS = [
   { value: "", label: "All Departments" },
   { value: "Engineering", label: "Engineering" },
@@ -196,35 +361,34 @@ const DEPARTMENTS = [
   { value: "Accounts", label: "Accounts" },
 ];
 
-const EMPLOYMENT_TYPES = [
-  { value: "", label: "All Types" },
-  { value: "Permanent", label: "Permanent" },
-  { value: "Probation", label: "Probation" },
-  { value: "Contract", label: "Contract" },
-  { value: "Temporary", label: "Temporary" },
-  { value: "Intern", label: "Intern" },
-  { value: "Consultant", label: "Consultant" },
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
-const BRANCHES = [
-  { value: "", label: "All Branches" },
-  { value: "Trichy", label: "Trichy" },
-  { value: "Chennai", label: "Chennai" },
-  { value: "Coimbatore", label: "Coimbatore" },
-  { value: "Madurai", label: "Madurai" },
-];
-
-const WORK_LOCATIONS = [
-  { value: "", label: "All Locations" },
-  { value: "Trichy", label: "Trichy" },
-  { value: "Chennai", label: "Chennai" },
-  { value: "Coimbatore", label: "Coimbatore" },
-  { value: "Madurai", label: "Madurai" },
-];
+const FIRST_YEAR = 2020;
 
 /* ==========================================================================
-   ATTENDANCE API HOOK
+   ATTENDANCE API HOOK  (attendance only — no wage endpoints)
    ========================================================================== */
+
+function buildQuery(params) {
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== "" && v !== null && v !== undefined) q.append(k, v);
+  });
+  return q.toString();
+}
 
 function useAttendanceApi() {
   const { accessToken } = useAuth();
@@ -234,48 +398,16 @@ function useAttendanceApi() {
     [accessToken],
   );
 
-  const buildQuery = (params) => {
-    const q = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== "" && v !== null && v !== undefined) q.append(k, v);
-    });
-    return q.toString();
-  };
-
-  const getEmployees = useCallback(
-    async (params = {}) => {
-      const query = buildQuery({
-        search: params.search || "",
-        department: params.department || "",
-        branch: params.branch || "",
-        employment_type: params.employment_type || "",
-        work_location: params.work_location || "",
-        page: params.page || 1,
-        page_size: params.page_size || 25,
-      });
-      const res = await api.get(`/erp/attendance/employees/?${query}`, {
-        headers: authHeaders(),
-      });
-      return res.data;
-    },
-    [authHeaders],
-  );
-
-  const getAttendance = useCallback(
+  const getDailyRoster = useCallback(
     async (params = {}) => {
       const query = buildQuery({
         date: params.date || "",
         search: params.search || "",
         department: params.department || "",
-        branch: params.branch || "",
-        employment_type: params.employment_type || "",
-        work_location: params.work_location || "",
-        status: params.status || "",
-        employee_id: params.employee_id || "",
         page: params.page || 1,
-        page_size: params.page_size || 50,
+        page_size: params.page_size || 25,
       });
-      const res = await api.get(`/erp/attendance/?${query}`, {
+      const res = await api.get(`/erp/attendance/daily-roster/?${query}`, {
         headers: authHeaders(),
       });
       return res.data;
@@ -303,56 +435,20 @@ function useAttendanceApi() {
     [authHeaders],
   );
 
-  const deleteAttendance = useCallback(
-    async (id) => {
-      const res = await api.delete(`/erp/attendance/${id}/`, {
-        headers: authHeaders(),
-      });
-      return res.data;
-    },
-    [authHeaders],
-  );
-
-  const getWeeklySummary = useCallback(
+  const getHoursSummary = useCallback(
     async (params = {}) => {
       const query = buildQuery({
+        period: params.period || "monthly",
         date: params.date || "",
-        search: params.search || "",
-        department: params.department || "",
-        branch: params.branch || "",
-        employment_type: params.employment_type || "",
-        work_location: params.work_location || "",
-      });
-      const res = await api.get(`/erp/attendance/weekly-summary/?${query}`, {
-        headers: authHeaders(),
-      });
-      return res.data;
-    },
-    [authHeaders],
-  );
-
-  const getMonthlySummary = useCallback(
-    async (params = {}) => {
-      const query = buildQuery({
         month: params.month || "",
+        year: params.year || "",
         search: params.search || "",
         department: params.department || "",
-        branch: params.branch || "",
-        employment_type: params.employment_type || "",
-        work_location: params.work_location || "",
+        page: params.page || 1,
+        page_size: params.page_size || 50,
       });
-      const res = await api.get(`/erp/attendance/monthly-summary/?${query}`, {
-        headers: authHeaders(),
-      });
-      return res.data;
-    },
-    [authHeaders],
-  );
-
-  const getEmployeeSummary = useCallback(
-    async (employeeId) => {
       const res = await api.get(
-        `/erp/attendance/employee-summary/?employee=${employeeId}`,
+        `/erp/attendance/employee-hours-summary/?${query}`,
         { headers: authHeaders() },
       );
       return res.data;
@@ -360,24 +456,17 @@ function useAttendanceApi() {
     [authHeaders],
   );
 
-  const getWageConfigByEmployee = useCallback(
-    async (employeeId) => {
-      const res = await api.get(`/erp/wage-config/?employee_id=${employeeId}`, {
-        headers: authHeaders(),
+  const getEmployeeHoursDetail = useCallback(
+    async (params = {}) => {
+      const query = buildQuery({
+        employee: params.employee || "",
+        period: params.period || "monthly",
+        date: params.date || "",
+        month: params.month || "",
+        year: params.year || "",
       });
-      const list = Array.isArray(res.data)
-        ? res.data
-        : res.data?.results || res.data?.data || [];
-      return list[0] || null;
-    },
-    [authHeaders],
-  );
-
-  const upsertWageConfig = useCallback(
-    async (employeeId, data) => {
-      const res = await api.post(
-        "/erp/wage-config/",
-        { employee: employeeId, ...data },
+      const res = await api.get(
+        `/erp/attendance/employee-hours-detail/?${query}`,
         { headers: authHeaders() },
       );
       return res.data;
@@ -387,28 +476,18 @@ function useAttendanceApi() {
 
   return useMemo(
     () => ({
-      getEmployees,
-      getAttendance,
+      getDailyRoster,
       createAttendance,
       updateAttendance,
-      deleteAttendance,
-      getWeeklySummary,
-      getMonthlySummary,
-      getEmployeeSummary,
-      getWageConfigByEmployee,
-      upsertWageConfig,
+      getHoursSummary,
+      getEmployeeHoursDetail,
     }),
     [
-      getEmployees,
-      getAttendance,
+      getDailyRoster,
       createAttendance,
       updateAttendance,
-      deleteAttendance,
-      getWeeklySummary,
-      getMonthlySummary,
-      getEmployeeSummary,
-      getWageConfigByEmployee,
-      upsertWageConfig,
+      getHoursSummary,
+      getEmployeeHoursDetail,
     ],
   );
 }
@@ -427,10 +506,9 @@ export function useAttendance() {
 }
 
 export function AttendanceProvider({ children }) {
-  const api = useAttendanceApi();
-  const value = useMemo(() => api, [api]);
+  const endpoints = useAttendanceApi();
   return (
-    <AttendanceContext.Provider value={value}>
+    <AttendanceContext.Provider value={endpoints}>
       {children}
     </AttendanceContext.Provider>
   );
@@ -459,42 +537,77 @@ function StatusPill({ status }) {
   );
 }
 
-/* ==========================================================================
-   SHARED FILTER BAR
-   ========================================================================== */
-
-function FilterControls({ filters, onChange, onClear, showStatus = false }) {
-  const dirty =
-    filters.search ||
-    filters.department ||
-    filters.branch ||
-    filters.employment_type ||
-    filters.work_location ||
-    (showStatus && filters.status);
-
-  function set(field, value) {
-    onChange({ ...filters, [field]: value });
-  }
-
+function Pagination({ page, totalPages, count, pageSize, onPage, onPageSize }) {
   return (
-    <div className="aw-toolbar" style={{ marginBottom: 14 }}>
+    <div className="aw-pagination">
+      <span className="aw-hint">
+        {count} employee{count === 1 ? "" : "s"}
+      </span>
+      <div className="aw-pagination-controls">
+        <label className="aw-page-size">
+          <span>Rows</span>
+          <select
+            className="aw-select"
+            value={pageSize}
+            onChange={(e) => onPageSize(Number(e.target.value))}
+          >
+            {[25, 50, 100].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="aw-btn-outline aw-btn-sm"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+        >
+          Prev
+        </button>
+        <span className="aw-page-indicator">
+          Page {page} of {totalPages}
+        </span>
+        <button
+          type="button"
+          className="aw-btn-outline aw-btn-sm"
+          disabled={page >= totalPages}
+          onClick={() => onPage(page + 1)}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EmployeeFilterBar({
+  search,
+  onSearch,
+  department,
+  onDepartment,
+  onClear,
+}) {
+  const dirty = search || department;
+  return (
+    <div className="aw-toolbar">
       <label className="aw-field aw-field-inline">
         <span className="aw-field-label">Employee Search</span>
         <input
           className="aw-input"
           type="text"
-          placeholder="Name / ID…"
-          value={filters.search}
-          onChange={(e) => set("search", e.target.value)}
+          placeholder="Employee ID or name…"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
         />
       </label>
-
       <label className="aw-field aw-field-inline">
         <span className="aw-field-label">Department</span>
         <select
           className="aw-select"
-          value={filters.department}
-          onChange={(e) => set("department", e.target.value)}
+          value={department}
+          onChange={(e) => onDepartment(e.target.value)}
         >
           {DEPARTMENTS.map((d) => (
             <option key={d.value} value={d.value}>
@@ -503,70 +616,6 @@ function FilterControls({ filters, onChange, onClear, showStatus = false }) {
           ))}
         </select>
       </label>
-
-      <label className="aw-field aw-field-inline">
-        <span className="aw-field-label">Branch</span>
-        <select
-          className="aw-select"
-          value={filters.branch}
-          onChange={(e) => set("branch", e.target.value)}
-        >
-          {BRANCHES.map((b) => (
-            <option key={b.value} value={b.value}>
-              {b.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="aw-field aw-field-inline">
-        <span className="aw-field-label">Employment Type</span>
-        <select
-          className="aw-select"
-          value={filters.employment_type}
-          onChange={(e) => set("employment_type", e.target.value)}
-        >
-          {EMPLOYMENT_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="aw-field aw-field-inline">
-        <span className="aw-field-label">Work Location</span>
-        <select
-          className="aw-select"
-          value={filters.work_location}
-          onChange={(e) => set("work_location", e.target.value)}
-        >
-          {WORK_LOCATIONS.map((l) => (
-            <option key={l.value} value={l.value}>
-              {l.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {showStatus && (
-        <label className="aw-field aw-field-inline">
-          <span className="aw-field-label">Attendance Status</span>
-          <select
-            className="aw-select"
-            value={filters.status}
-            onChange={(e) => set("status", e.target.value)}
-          >
-            <option value="">All</option>
-            {ATTENDANCE_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {statusLabel(s)}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
       {dirty && (
         <button
           type="button"
@@ -582,381 +631,217 @@ function FilterControls({ filters, onChange, onClear, showStatus = false }) {
 }
 
 /* ==========================================================================
-   EMPLOYEE SEARCH SELECT
+   ATTENDANCE FORM MODAL  (hourly-slot based)
    ========================================================================== */
 
-function EmployeeSearchSelect({ value, onChange, filters }) {
-  const { getEmployees } = useAttendance();
-
-  const [search, setSearch] = useState("");
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState(null);
-  const [reloadKey, setReloadKey] = useState(0);
-
-  const debouncedSearch = useDebounce(search, 300);
-  // Search typed in the filter bar should also filter the employee dropdown.
-  const debouncedFilterSearch = useDebounce(filters.search || "", 300);
-  const apiSearch = debouncedSearch.trim() || debouncedFilterSearch.trim();
-  const wrapRef = useRef(null);
-
-  // Start from the first page whenever the top-level filters change.
-  useEffect(() => {
-    setPage(1);
-  }, [
-    debouncedFilterSearch,
-    filters.department,
-    filters.branch,
-    filters.employment_type,
-    filters.work_location,
-  ]);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const data = await getEmployees({
-          search: apiSearch,
-          department: filters.department,
-          branch: filters.branch,
-          employment_type: filters.employment_type,
-          work_location: filters.work_location,
-          page,
-          page_size: 25,
-        });
-        if (!cancelled) {
-          const list = data.results || data.data || [];
-          setResults(list);
-          const total = data.count || list.length;
-          setTotalPages(data.total_pages || Math.max(1, Math.ceil(total / 25)));
-        }
-      } catch (err) {
-        if (!cancelled)
-          setError(extractError(err, "Failed to load employees."));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
+function initForm(editRecord, presetDate) {
+  if (editRecord) {
+    const legacy =
+      WORKED_STATUSES.includes(editRecord.status) &&
+      editRecord.selected_slots == null;
+    const recordShift = shiftFor(editRecord.date);
+    const login = hhmm(editRecord.login_time) || recordShift.startHHMM;
+    const logout = hhmm(editRecord.logout_time) || recordShift.endHHMM;
+    const checked = {};
+    if (Array.isArray(editRecord.selected_slots)) {
+      buildSlots(login, logout, editRecord.date).forEach((s) => {
+        checked[s.hour] = editRecord.selected_slots.includes(s.hour);
+      });
+    }
+    return {
+      date: editRecord.date,
+      status: editRecord.status,
+      loginTime: login,
+      logoutTime: logout,
+      checked,
+      legacy, // legacy rows: no slot data, so nothing is pre-checked
+      otOverride: editRecord.ot_manually_edited
+        ? String(Number(editRecord.approved_ot_hours))
+        : null,
+      remarks: editRecord.remarks || "",
     };
-  }, [
-    open,
-    apiSearch,
-    page,
-    reloadKey,
-    debouncedFilterSearch,
-    filters.department,
-    filters.branch,
-    filters.employment_type,
-    filters.work_location,
-    getEmployees,
-  ]);
-
-  useEffect(() => {
-    function onDoc(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-
-  // Hydrate selected when parent value changes
-  useEffect(() => {
-    if (!value) {
-      setSelected(null);
-      return;
-    }
-    if (selected && String(selected.id) === String(value)) return;
-    const found = results.find((r) => String(r.id) === String(value));
-    if (found) {
-      setSelected(found);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await getEmployees({
-          search: "",
-          page: 1,
-          page_size: 100,
-        });
-        if (cancelled) return;
-        const list = data.results || data.data || [];
-        const hit = list.find((r) => String(r.id) === String(value));
-        if (hit) setSelected(hit);
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [value, results, selected, getEmployees]);
-
-  const displayValue = selected
-    ? `${selected.employee_id} - ${
-        selected.full_name ||
-        `${selected.first_name || ""} ${selected.last_name || ""}`.trim()
-      }`
-    : "";
-
-  return (
-    <div
-      ref={wrapRef}
-      style={{ position: "relative", minWidth: 280, zIndex: 50 }}
-    >
-      <span className="aw-field-label">Employee</span>
-      <input
-        className="aw-input"
-        type="text"
-        value={open ? search : displayValue}
-        placeholder="Search employee by name or ID…"
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-          setOpen(true);
-        }}
-        onFocus={() => {
-          setOpen(true);
-          setSearch("");
-          setPage(1);
-        }}
-      />
-
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: 0,
-            marginTop: 4,
-            background: "#fff",
-            border: "1px solid var(--aw-border)",
-            borderRadius: "var(--aw-radius-sm)",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
-            maxHeight: 320,
-            overflowY: "auto",
-            zIndex: 999, // Ensures it overlaps filters below
-          }}
-        >
-          {loading && (
-            <div style={{ padding: 14, textAlign: "center" }}>
-              <Loading />
-            </div>
-          )}
-
-          {!loading && error && (
-            <div style={{ padding: 12 }}>
-              <ErrorState onRetry={() => setReloadKey((k) => k + 1)} />
-              <div style={{ marginTop: 6, fontSize: 13, color: "#a52626" }}>
-                {error}
-              </div>
-            </div>
-          )}
-
-          {!loading && !error && results.length === 0 && (
-            <div
-              style={{
-                padding: 14,
-                textAlign: "center",
-                color: "var(--aw-text-muted)",
-                fontSize: 13,
-              }}
-            >
-              No employees found.
-            </div>
-          )}
-
-          {!loading &&
-            !error &&
-            results.map((emp) => {
-              const name =
-                emp.full_name ||
-                `${emp.first_name || ""} ${emp.last_name || ""}`.trim();
-              return (
-                <div
-                  key={emp.id}
-                  onClick={() => {
-                    setSelected(emp);
-                    onChange(String(emp.id));
-                    setOpen(false);
-                    setSearch("");
-                  }}
-                  style={{
-                    padding: "10px 12px",
-                    cursor: "pointer",
-                    borderBottom: "1px solid var(--aw-border-light)",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "var(--aw-bg)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "#fff")
-                  }
-                >
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>
-                    {emp.employee_id} - {name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: "var(--aw-text-muted)",
-                      marginTop: 2,
-                    }}
-                  >
-                    {emp.designation || "—"} · {emp.department || "—"} ·{" "}
-                    {emp.branch || "—"}
-                  </div>
-                </div>
-              );
-            })}
-
-          {!loading && !error && totalPages > 1 && (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "8px 12px",
-                background: "var(--aw-bg)",
-                borderTop: "1px solid var(--aw-border-light)",
-              }}
-            >
-              <button
-                type="button"
-                className="aw-btn-outline aw-btn-sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Prev
-              </button>
-              <span style={{ fontSize: 12, color: "var(--aw-text-muted)" }}>
-                {page} / {totalPages}
-              </span>
-              <button
-                type="button"
-                className="aw-btn-outline aw-btn-sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              >
-                Next
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ==========================================================================
-   ATTENDANCE FORM MODAL
-   ========================================================================== */
-
-function blankForm(employeeId, date) {
+  }
+  const date = presetDate || todayISO();
   return {
-    employeeId: employeeId || "",
-    date: date || todayISO(),
+    date,
     status: "PRESENT",
-    loginTime: "09:00",
-    logoutTime: "18:00",
-    breakHours: 0,
-    hourlyRate: "",
+    loginTime: shiftFor(date).startHHMM,
+    logoutTime: shiftFor(date).endHHMM,
+    checked: {},
+    legacy: false,
+    otOverride: null,
     remarks: "",
   };
 }
 
+/**
+ * 12-hour time selector. Stores 24-hour HH:mm internally because Django's
+ * TimeField and the existing API expect that format.
+ */
+function Time12Picker({ value, onChange, label }) {
+  const [h24, minute] = (value || "09:00").split(":").map(Number);
+  const hour12 = h24 % 12 || 12;
+  const period = h24 >= 12 ? "PM" : "AM";
+  function update(nextHour, nextMinute, nextPeriod) {
+    const converted = (Number(nextHour) % 12) + (nextPeriod === "PM" ? 12 : 0);
+    onChange(`${pad2(converted)}:${pad2(nextMinute)}`);
+  }
+  return (
+    <div
+      className="aw-time12-picker"
+      role="group"
+      aria-label={label}
+      style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}
+    >
+      <select
+        className="aw-select"
+        style={{ flex: "1 1 0", minWidth: 0 }}
+        aria-label={`${label} hour`}
+        value={hour12}
+        onChange={(e) => update(e.target.value, minute, period)}
+      >
+        {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+          <option key={h} value={h}>
+            {pad2(h)}
+          </option>
+        ))}
+      </select>
+      <span aria-hidden="true">:</span>
+      <select
+        className="aw-select"
+        style={{ flex: "1 1 0", minWidth: 0 }}
+        aria-label={`${label} minute`}
+        value={minute}
+        onChange={(e) => update(hour12, e.target.value, period)}
+      >
+        {Array.from({ length: 60 }, (_, i) => i).map((m) => (
+          <option key={m} value={m}>
+            {pad2(m)}
+          </option>
+        ))}
+      </select>
+      <select
+        className="aw-select"
+        style={{ flex: "1 1 0", minWidth: 0 }}
+        aria-label={`${label} AM or PM`}
+        value={period}
+        onChange={(e) => update(hour12, minute, e.target.value)}
+      >
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  );
+}
+
 function AttendanceFormModal({
+  employee,
   editRecord,
-  presetEmployeeId,
   presetDate,
   onClose,
   onSaved,
 }) {
-  const { createAttendance, updateAttendance, getWageConfigByEmployee } =
-    useAttendance();
+  const { createAttendance, updateAttendance } = useAttendance();
 
-  const [form, setForm] = useState(() =>
-    editRecord
-      ? {
-          employeeId: String(editRecord.employee),
-          date: editRecord.date,
-          status: editRecord.status,
-          loginTime: editRecord.login_time || "09:00",
-          logoutTime: editRecord.logout_time || "18:00",
-          breakHours: editRecord.break_hours || 0,
-          hourlyRate: String(editRecord.hourly_rate ?? ""),
-          remarks: editRecord.remarks || "",
-        }
-      : blankForm(presetEmployeeId, presetDate),
-  );
-
+  const [form, setForm] = useState(() => initForm(editRecord, presetDate));
+  const [timesTouched, setTimesTouched] = useState(!!editRecord);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [duplicateMsg, setDuplicateMsg] = useState("");
-  const [employeeFilters, setEmployeeFilters] = useState({
-    search: "",
-    department: "",
-    branch: "",
-    employment_type: "",
-    work_location: "",
-  });
-  const [wageConfig, setWageConfig] = useState(null);
 
-  const meta = STATUS_META[form.status];
-  const usesTime = meta?.requiresTime;
+  const usesTime = !!STATUS_META[form.status]?.requiresTime;
+  const shift = shiftFor(form.date);
 
-  useEffect(() => {
-    if (!form.employeeId) {
-      setWageConfig(null);
-      return;
+  const slots = useMemo(
+    () =>
+      usesTime ? buildSlots(form.loginTime, form.logoutTime, form.date) : [],
+    [usesTime, form.loginTime, form.logoutTime, form.date],
+  );
+
+  const isChecked = useCallback(
+    (hour) =>
+      hour in form.checked
+        ? form.checked[hour]
+        : !form.legacy && (shift.isSunday || hour !== LUNCH_HOUR),
+    [form.checked, form.legacy, shift.isSunday],
+  );
+
+  const calc = useMemo(() => calcHours(slots, isChecked), [slots, isChecked]);
+  const timeError = usesTime
+    ? validateTimes(form.loginTime, form.logoutTime)
+    : "";
+
+  // ---- OT: suggested vs HR-approved --------------------------------------
+  const otOverridden = form.otOverride !== null;
+  const otNumber = otOverridden ? Number(form.otOverride) : calc.suggestedOT;
+  let otError = "";
+  if (usesTime && otOverridden) {
+    if (form.otOverride === "" || Number.isNaN(otNumber)) {
+      otError = "Enter a valid number of hours.";
+    } else if (otNumber < 0) {
+      otError = "Approved OT cannot be negative.";
+    } else if (otNumber - calc.suggestedOT > 0.0001) {
+      otError = `Approved OT cannot exceed the suggested ${fmt2(calc.suggestedOT)} hrs.`;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const cfg = await getWageConfigByEmployee(form.employeeId);
-        if (!cancelled) setWageConfig(cfg);
-      } catch {
-        if (!cancelled) setWageConfig(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [form.employeeId, getWageConfigByEmployee]);
+  }
+  const approvedOT = usesTime && !otError ? round2(otNumber) : 0;
+  const totalApproved = usesTime ? round2(calc.normal + approvedOT) : 0;
+  const suggestedChanged =
+    otOverridden && !otError && Math.abs(otNumber - calc.suggestedOT) > 0.0001;
 
   function set(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function setDate(value) {
+    setForm((prev) => ({
+      ...prev,
+      date: value,
+      // New record with untouched times: follow the Sunday / weekday shift end.
+      loginTime:
+        !timesTouched && value ? shiftFor(value).startHHMM : prev.loginTime,
+      logoutTime:
+        !timesTouched && value ? shiftFor(value).endHHMM : prev.logoutTime,
+    }));
+  }
+
+  function setTime(field, value) {
+    setTimesTouched(true);
+    set(field, value);
+  }
+
+  function toggleSlot(hour) {
+    setForm((prev) => {
+      const current =
+        hour in prev.checked
+          ? prev.checked[hour]
+          : !prev.legacy && (shift.isSunday || hour !== LUNCH_HOUR);
+      return { ...prev, checked: { ...prev.checked, [hour]: !current } };
+    });
+  }
+
+  function setAllSlots(value) {
+    setForm((prev) => {
+      const next = { ...prev.checked };
+      slots.forEach((s) => {
+        next[s.hour] = value;
+      });
+      return { ...prev, checked: next };
+    });
+  }
+
   function validate() {
     const next = {};
-    if (!form.employeeId) next.employeeId = "Employee is required.";
     if (!form.date) next.date = "Date is required.";
     if (usesTime) {
-      if (!form.loginTime) next.loginTime = "Login time is required.";
-      if (!form.logoutTime) next.logoutTime = "Logout time is required.";
-      if (
-        form.loginTime &&
-        form.logoutTime &&
-        form.loginTime === form.logoutTime
-      ) {
-        next.logoutTime = "Logout cannot equal login.";
+      if (!form.loginTime) next.loginTime = "In time is required.";
+      if (!form.logoutTime) next.logoutTime = "Out time is required.";
+      if (timeError) next.logoutTime = timeError;
+      else if (form.loginTime && form.logoutTime && calc.slotCount === 0) {
+        next.slots = "Select at least one hourly slot.";
       }
+      if (otError) next.ot = otError;
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -964,7 +849,7 @@ function AttendanceFormModal({
 
   async function handleSubmit(e) {
     if (e?.preventDefault) e.preventDefault();
-    if (saving) return; // guard against double submit → duplicate API calls
+    if (saving) return;
     if (!validate()) return;
 
     setSaving(true);
@@ -973,26 +858,32 @@ function AttendanceFormModal({
 
     try {
       const payload = {
-        employee: Number(form.employeeId),
+        employee: employee.id,
         date: form.date,
         status: form.status,
         login_time: usesTime ? form.loginTime : null,
         logout_time: usesTime ? form.logoutTime : null,
-        break_hours: usesTime ? Number(form.breakHours) || 0 : 0,
+        // The backend must also accept the lunch hour (13) as a worked slot
+        // and apply the same normal-hours cap / excess-as-OT calculation.
+        selected_slots: usesTime
+          ? slots.filter((s) => isChecked(s.hour)).map((s) => s.hour)
+          : [],
+        // null => backend keeps approved OT equal to the suggested OT.
+        approved_ot_hours: usesTime && otOverridden ? round2(otNumber) : null,
         remarks: form.remarks || "",
       };
-      if (form.hourlyRate !== "") {
-        payload.hourly_rate = Number(form.hourlyRate);
-      }
 
       if (editRecord) {
         await updateAttendance(editRecord.id, payload);
       } else {
         await createAttendance(payload);
       }
-      // Reached ONLY when the backend confirmed the write (axios throws on
-      // non-2xx). The parent now bumps the central refresh trigger.
-      onSaved?.();
+      // Reached only when the backend confirmed the write.
+      onSaved?.({
+        edited: !!editRecord,
+        date: form.date,
+        employeeLabel: `${employee.employee_id} – ${employee.employee_name}`,
+      });
     } catch (err) {
       if (err?.response?.status === 409) {
         setDuplicateMsg(
@@ -1006,15 +897,14 @@ function AttendanceFormModal({
     }
   }
 
-  const cfg = wageConfig || { hourly_rate: 0 };
-
   return (
-    <div className="aw-modal-overlay" onClick={onClose}>
+    <div className="aw-modal-overlay">
       <div
-        className="aw-modal"
+        className="aw-modal aw-modal-wide"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-label={editRecord ? "Edit attendance" : "Add attendance"}
       >
         <div className="aw-modal-head">
           <h3>{editRecord ? "Edit Attendance" : "Add Attendance"}</h3>
@@ -1023,94 +913,65 @@ function AttendanceFormModal({
             type="button"
             aria-label="Close"
             onClick={onClose}
+            disabled={saving}
           >
             ×
           </button>
         </div>
 
         {saveError && (
-          <div style={{ paddingBottom: 12 }}>
-            <ErrorState onRetry={handleSubmit} />
-            <div style={{ marginTop: 6, fontSize: 13, color: "#a52626" }}>
-              {saveError}
-            </div>
+          <div className="aw-alert aw-alert-error" role="alert">
+            {saveError}
           </div>
         )}
-
         {duplicateMsg && (
-          <div
-            style={{
-              background: "var(--aw-warning-light)",
-              border: "1px solid #fbbf24",
-              color: "#78350f",
-              padding: "10px 14px",
-              borderRadius: 8,
-              marginBottom: 12,
-              fontSize: 13,
-            }}
-          >
+          <div className="aw-alert aw-alert-warning" role="alert">
             {duplicateMsg}
           </div>
         )}
+        {editRecord && form.legacy && (
+          <div className="aw-alert aw-alert-info">
+            This record was saved before hourly slots existed, so no slots are
+            pre-selected. Tick the slots that were actually worked, then save.
+          </div>
+        )}
 
-        <form className="aw-form" onSubmit={handleSubmit}>
+        <form className="aw-form" onSubmit={handleSubmit} noValidate>
+          <div className="aw-employee-chip">
+            <div>
+              <span className="aw-field-label">Employee</span>
+              <div className="aw-employee-chip-name">
+                {employee.employee_id} – {employee.employee_name}
+              </div>
+            </div>
+            <span className="aw-mini-pill">{employee.department || "—"}</span>
+          </div>
+
           <div className="aw-form-grid">
-            {/* 1. Employee Filters - displayed above employee selection */}
-            <div className="aw-field aw-field-wide">
-              <FilterControls
-                filters={employeeFilters}
-                onChange={setEmployeeFilters}
-                onClear={() =>
-                  setEmployeeFilters({
-                    search: "",
-                    department: "",
-                    branch: "",
-                    employment_type: "",
-                    work_location: "",
-                  })
-                }
-              />
-            </div>
-
-            {/* 2. Employee Search - displayed below filters */}
-            <div
-              className="aw-field aw-field-wide"
-              style={{ position: "relative", zIndex: 50 }}
-            >
-              <EmployeeSearchSelect
-                value={form.employeeId}
-                onChange={(v) => {
-                  set("employeeId", v);
-                  setErrors((prev) => ({ ...prev, employeeId: null }));
-                }}
-                filters={employeeFilters}
-              />
-              {errors.employeeId && (
-                <span
-                  className="aw-error"
-                  style={{ marginTop: 4, display: "block" }}
-                >
-                  {errors.employeeId}
-                </span>
-              )}
-            </div>
-
             <label className="aw-field">
               <span className="aw-field-label">
-                Date<span className="aw-required">*</span>
+                Attendance Date<span className="aw-required">*</span>
               </span>
               <input
                 className="aw-input"
                 type="date"
                 value={form.date}
-                onChange={(e) => set("date", e.target.value)}
+                onChange={(e) => setDate(e.target.value)}
               />
               {errors.date && <span className="aw-error">{errors.date}</span>}
+              {form.date && (
+                <span className="aw-hint">
+                  {parseISO(form.date).toLocaleDateString("en-IN", {
+                    weekday: "long",
+                  })}
+                  {shift.isSunday ? " — Sunday shift applies" : ""}
+                </span>
+              )}
             </label>
 
             <label className="aw-field">
               <span className="aw-field-label">
-                Status<span className="aw-required">*</span>
+                Attendance Status<span className="aw-required">*</span>
               </span>
               <select
                 className="aw-select"
@@ -1125,85 +986,209 @@ function AttendanceFormModal({
               </select>
             </label>
 
-            <label className="aw-field">
-              <span className="aw-field-label">Hourly Rate</span>
-              <input
-                className="aw-input"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder={String(cfg.hourly_rate || 0)}
-                value={form.hourlyRate}
-                onChange={(e) => set("hourlyRate", e.target.value)}
-              />
-              <span className="aw-hint">
-                Defaults to the employee's current rate (₹
-                {cfg.hourly_rate || 0}/hr).
-              </span>
-            </label>
+            {usesTime && (
+              <>
+                <label className="aw-field">
+                  <span className="aw-field-label">
+                    In Time<span className="aw-required">*</span>
+                  </span>
+                  <Time12Picker
+                    label="In Time"
+                    value={form.loginTime}
+                    onChange={(value) => setTime("loginTime", value)}
+                  />
+                  {errors.loginTime && (
+                    <span className="aw-error">{errors.loginTime}</span>
+                  )}
+                </label>
 
-            <label
-              className={`aw-field ${!usesTime ? "aw-field-disabled" : ""}`}
-            >
-              <span className="aw-field-label">
-                Login Time{usesTime && <span className="aw-required">*</span>}
-              </span>
-              <input
-                className="aw-input"
-                type="time"
-                disabled={!usesTime}
-                value={usesTime ? form.loginTime : ""}
-                onChange={(e) => set("loginTime", e.target.value)}
-              />
-              {errors.loginTime && (
-                <span className="aw-error">{errors.loginTime}</span>
-              )}
-            </label>
-
-            <label
-              className={`aw-field ${!usesTime ? "aw-field-disabled" : ""}`}
-            >
-              <span className="aw-field-label">
-                Logout Time{usesTime && <span className="aw-required">*</span>}
-              </span>
-              <input
-                className="aw-input"
-                type="time"
-                disabled={!usesTime}
-                value={usesTime ? form.logoutTime : ""}
-                onChange={(e) => set("logoutTime", e.target.value)}
-              />
-              {errors.logoutTime && (
-                <span className="aw-error">{errors.logoutTime}</span>
-              )}
-            </label>
-
-            <label
-              className={`aw-field ${!usesTime ? "aw-field-disabled" : ""}`}
-            >
-              <span className="aw-field-label">Break (hours)</span>
-              <input
-                className="aw-input"
-                type="number"
-                min="0"
-                step="0.25"
-                disabled={!usesTime}
-                value={usesTime ? form.breakHours : 0}
-                onChange={(e) => set("breakHours", e.target.value)}
-              />
-            </label>
-
-            <label className="aw-field aw-field-wide">
-              <span className="aw-field-label">Remarks</span>
-              <input
-                className="aw-input"
-                type="text"
-                value={form.remarks}
-                onChange={(e) => set("remarks", e.target.value)}
-                placeholder="Optional"
-              />
-            </label>
+                <label className="aw-field">
+                  <span className="aw-field-label">
+                    Out Time<span className="aw-required">*</span>
+                  </span>
+                  <Time12Picker
+                    label="Out Time"
+                    value={form.logoutTime}
+                    onChange={(value) => setTime("logoutTime", value)}
+                  />
+                  {errors.logoutTime && (
+                    <span className="aw-error">{errors.logoutTime}</span>
+                  )}
+                </label>
+              </>
+            )}
           </div>
+
+          {!usesTime && (
+            <div className="aw-alert aw-alert-info">
+              No working times are needed for {statusLabel(form.status)}. Normal
+              and OT hours are saved as 0.
+            </div>
+          )}
+
+          {usesTime && (
+            <div className="aw-panel aw-slot-panel">
+              <div className="aw-slot-head">
+                <div>
+                  <h4>Hourly Breakup</h4>
+                  <p className="aw-hint">
+                    {shift.title}: {shift.window} · Lunch 1:00 PM – 2:00 PM ·
+                    Max {shift.maxNormal} normal hours. Only ticked slots are
+                    counted.
+                  </p>
+                </div>
+                {slots.length > 0 && (
+                  <div className="aw-slot-bulk">
+                    <button
+                      type="button"
+                      className="aw-link-btn"
+                      onClick={() => setAllSlots(true)}
+                    >
+                      Tick all
+                    </button>
+                    <button
+                      type="button"
+                      className="aw-link-btn"
+                      onClick={() => setAllSlots(false)}
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {slots.length === 0 ? (
+                <p className="aw-hint">
+                  Enter a valid In Time and Out Time to generate hourly slots.
+                </p>
+              ) : (
+                <div className="aw-table-wrap">
+                  <table className="aw-table aw-slot-table">
+                    <thead>
+                      <tr>
+                        <th>Time Slot</th>
+                        <th className="aw-center">Worked</th>
+                        <th className="aw-center">Type</th>
+                        <th className="aw-num">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {slots.map((s) => {
+                        const checked = isChecked(s.hour);
+                        const type = s.isLunch
+                          ? "Lunch"
+                          : s.otMin > 0
+                            ? "OT"
+                            : "Normal";
+                        return (
+                          <tr
+                            key={s.hour}
+                            className={s.isLunch ? "aw-slot-lunch" : ""}
+                          >
+                            <td>
+                              {s.label}
+                              {s.partial && (
+                                <span className="aw-hint aw-hint-inline">
+                                  {" "}
+                                  (partial)
+                                </span>
+                              )}
+                            </td>
+                            <td className="aw-center">
+                              <input
+                                type="checkbox"
+                                className="aw-checkbox"
+                                checked={checked}
+                                disabled={saving}
+                                onChange={() => toggleSlot(s.hour)}
+                                aria-label={`Worked ${s.label}`}
+                              />
+                            </td>
+                            <td className="aw-center">
+                              <span
+                                className={`aw-slot-type aw-slot-type-${type.toLowerCase()}`}
+                              >
+                                {type}
+                              </span>
+                            </td>
+                            <td className="aw-num">
+                              {s.isLunch
+                                ? "0 hr (Lunch)"
+                                : checked
+                                  ? `${fmt2(s.paidMin / 60)} hr`
+                                  : "0 hr"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {errors.slots && <span className="aw-error">{errors.slots}</span>}
+            </div>
+          )}
+
+          {usesTime && (
+            <div className="aw-hours-grid">
+              <div className="aw-hours-box">
+                <span className="aw-summary-label">Normal Working Hours</span>
+                <strong>{fmt2(calc.normal)} hrs</strong>
+              </div>
+              <div className="aw-hours-box">
+                <span className="aw-summary-label">Suggested OT Hours</span>
+                <strong>{fmt2(calc.suggestedOT)} hrs</strong>
+              </div>
+              <div className="aw-hours-box aw-hours-box-edit">
+                <label className="aw-field">
+                  <span className="aw-summary-label">Approved OT Hours</span>
+                  <input
+                    className="aw-input"
+                    type="number"
+                    min="0"
+                    step="0.25"
+                    value={
+                      otOverridden ? form.otOverride : fmt2(calc.suggestedOT)
+                    }
+                    onChange={(e) => set("otOverride", e.target.value)}
+                    aria-invalid={!!otError}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="aw-link-btn"
+                  onClick={() => set("otOverride", null)}
+                  disabled={!otOverridden}
+                >
+                  Reset to Suggested
+                </button>
+              </div>
+              <div className="aw-hours-box aw-hours-box-total">
+                <span className="aw-summary-label">Total Approved Hours</span>
+                <strong>{fmt2(totalApproved)} hrs</strong>
+              </div>
+            </div>
+          )}
+          {errors.ot && <span className="aw-error">{errors.ot}</span>}
+          {!errors.ot && otError && <span className="aw-error">{otError}</span>}
+          {suggestedChanged && (
+            <p className="aw-hint">
+              Your approved OT ({fmt2(otNumber)} hrs) is kept. Suggested OT is
+              now {fmt2(calc.suggestedOT)} hrs — use “Reset to Suggested” to
+              follow it again.
+            </p>
+          )}
+
+          <label className="aw-field" style={{ marginTop: 14 }}>
+            <span className="aw-field-label">Remarks</span>
+            <input
+              className="aw-input"
+              type="text"
+              value={form.remarks}
+              onChange={(e) => set("remarks", e.target.value)}
+              placeholder="Optional"
+            />
+          </label>
 
           <div className="aw-modal-actions">
             <button
@@ -1229,95 +1214,33 @@ function AttendanceFormModal({
 }
 
 /* ==========================================================================
-   DAILY TAB
+   PAGE 1 — ADD ATTENDANCE
    ========================================================================== */
 
-function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
-  const { getEmployees, getAttendance, deleteAttendance } = useAttendance();
+function AddAttendanceTab({ refreshKey, onAdd, onEdit }) {
+  const { getDailyRoster } = useAttendance();
 
   const [date, setDate] = useState(todayISO());
-  const [filters, setFilters] = useState({
-    search: "",
-    department: "",
-    branch: "",
-    employment_type: "",
-    work_location: "",
-    status: "",
-  });
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [department, setDepartment] = useState("");
+  const [pageSize, setPageSize] = useState(25);
 
-  const debounced = useDebounce(filters.search, 400);
+  const search = useDebounce(searchInput, 400);
+  const [page, setPage] = usePageForSignature(
+    JSON.stringify([date, search, department, pageSize]),
+  );
 
-  // Load the employee directory and the selected day's attendance separately.
-  // Merging them ensures employees without a record still appear in the table.
-  const fetcher = useCallback(async () => {
-    const commonFilters = {
-      search: debounced,
-      department: filters.department,
-      branch: filters.branch,
-      employment_type: filters.employment_type,
-      work_location: filters.work_location,
-    };
-
-    async function fetchAllPages(fetchPage, pageSize = 200) {
-      const all = [];
-      let page = 1;
-      let totalPages = 1;
-      do {
-        const response = await fetchPage(page, pageSize);
-        const items = response.results || response.data || [];
-        all.push(...items);
-        totalPages =
-          response.total_pages ||
-          (response.count != null
-            ? Math.ceil(response.count / pageSize)
-            : response.next
-              ? page + 1
-              : page);
-        page += 1;
-      } while (page <= totalPages && page <= 100);
-      return all;
-    }
-
-    const [employees, attendanceRecords] = await Promise.all([
-      fetchAllPages((page, page_size) =>
-        getEmployees({ ...commonFilters, page, page_size }),
-      ),
-      fetchAllPages((page, page_size) =>
-        getAttendance({ date, page, page_size }),
-      ),
-    ]);
-
-    const attendanceByEmployee = new Map(
-      attendanceRecords.map((record) => [String(record.employee), record]),
-    );
-
-    let merged = employees.map((employee) => ({
-      ...employee,
-      attendance: attendanceByEmployee.get(String(employee.id)) || null,
-    }));
-
-    // Status filtering is applied after merging so employees with no record
-    // are never incorrectly treated as absent records.
-    if (filters.status) {
-      merged = merged.filter(
-        (row) => row.attendance?.status === filters.status,
-      );
-    }
-    return merged;
-  }, [
-    getEmployees,
-    getAttendance,
-    date,
-    debounced,
-    filters.department,
-    filters.branch,
-    filters.employment_type,
-    filters.work_location,
-    filters.status,
-  ]);
+  const fetcher = useCallback(
+    () =>
+      getDailyRoster({
+        date,
+        search,
+        department,
+        page,
+        page_size: pageSize,
+      }),
+    [getDailyRoster, date, search, department, page, pageSize],
+  );
 
   const { data, loading, refreshing, error, retry } = useRefreshableQuery(
     fetcher,
@@ -1325,86 +1248,51 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
     "Failed to load employees and attendance.",
   );
 
-  const rows = useMemo(() => data || [], [data]);
-  const recordedRows = useMemo(
-    () => rows.map((row) => row.attendance).filter(Boolean),
-    [rows],
-  );
-
-  const summary = useMemo(
-    () => ({
-      employees: rows.length,
-      recorded: recordedRows.length,
-      present: recordedRows.filter((r) =>
-        ["PRESENT", "HALF_DAY", "WFH"].includes(r.status),
-      ).length,
-      absent: recordedRows.filter((r) => r.status === "ABSENT").length,
-      notMarked: rows.length - recordedRows.length,
-    }),
-    [rows, recordedRows],
-  );
-
-  async function handleDelete() {
-    if (!deleteTarget || deleting) return;
-    setDeleting(true);
-    setDeleteError("");
-    try {
-      await deleteAttendance(deleteTarget.id);
-      setDeleteTarget(null);
-      onChanged?.();
-    } catch (err) {
-      setDeleteError(extractError(err, "Failed to delete attendance."));
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  function employeeName(row) {
-    return (
-      row.full_name ||
-      row.employee_name ||
-      `${row.first_name || ""} ${row.last_name || ""}`.trim() ||
-      row.employee_code ||
-      "—"
-    );
-  }
+  const rows = data?.results || [];
+  const count = data?.count || 0;
+  const marked = data?.marked_count || 0;
+  const shift = shiftFor(date);
 
   return (
     <div className="aw-tab">
-      <div className="aw-summary-grid">
-        <SummaryCard label="Employees" value={summary.employees} />
-        <SummaryCard label="Present" value={summary.present} />
-        <SummaryCard label="Absent" value={summary.absent} />
-        <SummaryCard label="Not Marked" value={summary.notMarked} />
-        <SummaryCard label="Attendance Records" value={summary.recorded} />
+      <div className="aw-summary-grid aw-summary-grid-tight">
+        <SummaryCard label="Employees" value={loading && !data ? "…" : count} />
+        <SummaryCard label="Marked" value={loading && !data ? "…" : marked} />
+        <SummaryCard
+          label="Not Marked"
+          value={loading && !data ? "…" : Math.max(0, count - marked)}
+        />
       </div>
 
       <div className="aw-toolbar">
         <label className="aw-field aw-field-inline">
-          <span className="aw-field-label">Date</span>
+          <span className="aw-field-label">Attendance Date</span>
           <input
             className="aw-input"
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
           />
         </label>
+        <div className="aw-shift-note">
+          <strong>{shift.title}</strong>
+          <span>
+            {shift.window} ·{" "}
+            {shift.isSunday ? "No lunch break" : "Lunch 1–2 PM"} · Max{" "}
+            {shift.maxNormal} normal hrs
+          </span>
+        </div>
       </div>
 
-      <FilterControls
-        filters={filters}
-        onChange={setFilters}
-        showStatus
-        onClear={() =>
-          setFilters({
-            search: "",
-            department: "",
-            branch: "",
-            employment_type: "",
-            work_location: "",
-            status: "",
-          })
-        }
+      <EmployeeFilterBar
+        search={searchInput}
+        onSearch={setSearchInput}
+        department={department}
+        onDepartment={setDepartment}
+        onClear={() => {
+          setSearchInput("");
+          setDepartment("");
+        }}
       />
 
       <RefreshIndicator show={refreshing} />
@@ -1417,1117 +1305,669 @@ function DailyTab({ onAdd, onEdit, refreshKey, onChanged }) {
         <>
           {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
           {(!error || data) && (
-            <div className="aw-table-wrap">
-              <table className="aw-table">
-                <thead>
-                  <tr>
-                    <th>Employee ID</th>
-                    <th>Employee</th>
-                    <th>Department</th>
-                    <th>Designation</th>
-                    <th>Attendance Status</th>
-                    <th>Login</th>
-                    <th>Logout</th>
-                    <th className="aw-center">Hours</th>
-                    <th className="aw-num">Rate</th>
-                    <th className="aw-num">Daily Wage</th>
-                    <th>Remarks</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 && (
+            <>
+              <div className="aw-table-wrap">
+                <table className="aw-table">
+                  <thead>
                     <tr>
-                      <td colSpan={12} className="aw-empty-row">
-                        No employees found for this filter.
-                      </td>
+                      <th>Employee ID</th>
+                      <th>Employee Name</th>
+                      <th>Department</th>
+                      <th>Status</th>
+                      <th className="aw-num">Normal Hours</th>
+                      <th className="aw-num">OT Hours</th>
+                      <th className="aw-num">Total Hours</th>
+                      <th>Action</th>
                     </tr>
-                  )}
-                  {rows.map((employee) => {
-                    const record = employee.attendance;
-                    return (
-                      <tr key={employee.id}>
-                        <td>
-                          {employee.employee_id ||
-                            employee.employee_code ||
-                            employee.id}
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="aw-empty-row">
+                          No employees found for this filter.
                         </td>
-                        <td>{employeeName(employee)}</td>
-                        <td>{employee.department || "—"}</td>
-                        <td>{employee.designation || "—"}</td>
-                        <td>
-                          {record ? (
-                            <StatusPill status={record.status} />
-                          ) : (
-                            <span className="aw-hint">Not Marked</span>
-                          )}
-                        </td>
-                        <td>{record?.login_time || "—"}</td>
-                        <td>{record?.logout_time || "—"}</td>
-                        <td className="aw-center">
-                          {record
-                            ? Number(record.working_hours || 0).toFixed(2)
-                            : "—"}
-                        </td>
-                        <td className="aw-num">
-                          {record ? formatINR(record.hourly_rate) : "—"}
-                        </td>
-                        <td className="aw-num">
-                          {record ? formatINR(record.daily_wage) : "—"}
-                        </td>
-                        <td className="aw-remarks">{record?.remarks || "—"}</td>
-                        <td className="aw-row-actions">
-                          {record ? (
-                            <>
+                      </tr>
+                    )}
+                    {rows.map((row) => {
+                      const rec = row.attendance;
+                      return (
+                        <tr key={row.id}>
+                          <td>{row.employee_id}</td>
+                          <td>{row.employee_name || "—"}</td>
+                          <td>{row.department || "—"}</td>
+                          <td>
+                            <StatusPill
+                              status={rec ? rec.status : "NOT_MARKED"}
+                            />
+                          </td>
+                          <td className="aw-num">
+                            {rec ? fmt2(rec.normal_hours) : "—"}
+                          </td>
+                          <td className="aw-num">
+                            {rec ? fmt2(rec.approved_ot_hours) : "—"}
+                          </td>
+                          <td className="aw-num">
+                            {rec ? fmt2(rec.total_hours) : "—"}
+                          </td>
+                          <td className="aw-row-actions">
+                            {rec ? (
                               <button
                                 type="button"
                                 className="aw-link-btn"
-                                onClick={() => onEdit(record)}
+                                onClick={() => onEdit(row, rec)}
                               >
-                                Edit
+                                Edit Attendance
                               </button>
+                            ) : (
                               <button
                                 type="button"
-                                className="aw-link-btn aw-link-danger"
-                                onClick={() => {
-                                  setDeleteError("");
-                                  setDeleteTarget(record);
-                                }}
+                                className="aw-btn-primary aw-btn-sm"
+                                onClick={() => onAdd(row, date)}
                               >
-                                Delete
+                                + Add Attendance
                               </button>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              className="aw-btn-primary aw-btn-sm"
-                              onClick={() => onAdd(String(employee.id), date)}
-                            >
-                              + Add Attendance
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
-      {deleteTarget && (
-        <div
-          className="aw-modal-overlay"
-          onClick={() => !deleting && setDeleteTarget(null)}
-        >
-          <div
-            className="aw-modal aw-modal-confirm"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <h3>Delete attendance record?</h3>
-            <p>
-              This removes the record for {employeeName(deleteTarget)} on{" "}
-              {formatDisplayDate(deleteTarget.date)}.
-            </p>
-            {deleteError && (
-              <div style={{ fontSize: 13, color: "#a52626", marginBottom: 8 }}>
-                {deleteError}
-              </div>
-            )}
-            <div className="aw-modal-actions">
-              <button
-                type="button"
-                className="aw-btn-outline"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="aw-btn-danger"
-                onClick={handleDelete}
-                disabled={deleting}
-              >
-                {deleting ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ==========================================================================
-   WEEKLY TAB
-   ========================================================================== */
-
-const EMPTY_WEEKLY = {
-  start_date: "",
-  end_date: "",
-  total_hours: 0,
-  total_wage: 0,
-  employees: 0,
-  results: [],
-};
-
-function WeeklyTab({ refreshKey }) {
-  const { getWeeklySummary } = useAttendance();
-
-  const [anchorDate, setAnchorDate] = useState(todayISO());
-  const [filters, setFilters] = useState({
-    search: "",
-    department: "",
-    branch: "",
-    employment_type: "",
-    work_location: "",
-  });
-
-  const debounced = useDebounce(filters.search, 400);
-
-  const fetcher = useCallback(async () => {
-    const res = await getWeeklySummary({
-      date: anchorDate,
-      search: debounced,
-      department: filters.department,
-      branch: filters.branch,
-      employment_type: filters.employment_type,
-      work_location: filters.work_location,
-    });
-    return res || {};
-  }, [
-    getWeeklySummary,
-    anchorDate,
-    debounced,
-    filters.department,
-    filters.branch,
-    filters.employment_type,
-    filters.work_location,
-  ]);
-
-  const { data, loading, refreshing, error, retry } = useRefreshableQuery(
-    fetcher,
-    refreshKey,
-    "Failed to load weekly summary.",
-  );
-
-  const view = data || EMPTY_WEEKLY;
-  const rows = view.results || [];
-
-  return (
-    <div className="aw-tab">
-      <div className="aw-toolbar">
-        <label className="aw-field aw-field-inline">
-          <span className="aw-field-label">Week of</span>
-          <input
-            className="aw-input"
-            type="date"
-            value={anchorDate}
-            onChange={(e) => setAnchorDate(e.target.value)}
-          />
-        </label>
-        <span className="aw-hint">
-          {view.start_date
-            ? `${formatDisplayDate(view.start_date)} – ${formatDisplayDate(
-                view.end_date,
-              )}`
-            : ""}
-        </span>
-      </div>
-
-      <FilterControls
-        filters={filters}
-        onChange={setFilters}
-        onClear={() =>
-          setFilters({
-            search: "",
-            department: "",
-            branch: "",
-            employment_type: "",
-            work_location: "",
-          })
-        }
-      />
-
-      <div className="aw-summary-grid aw-summary-grid-tight">
-        <SummaryCard
-          label="Total Hours"
-          value={formatHours(view.total_hours || 0)}
-        />
-        <SummaryCard
-          label="Total Wage"
-          value={formatINR(view.total_wage || 0)}
-        />
-        <SummaryCard label="Employees" value={view.employees || 0} />
-      </div>
-
-      <RefreshIndicator show={refreshing} />
-
-      {loading ? (
-        <div style={{ padding: 40, textAlign: "center" }}>
-          <Loading />
-        </div>
-      ) : (
-        <>
-          {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
-          {(!error || data) && (
-            <div className="aw-table-wrap">
-              <table className="aw-table aw-summary-centered">
-                <thead>
-                  <tr>
-                    <th className="aw-center">Employee</th>
-                    <th className="aw-center">Days Worked</th>
-                    <th className="aw-center">Total Hours</th>
-                    <th className="aw-center">Hourly Rate</th>
-                    <th className="aw-center">Total Wage</th>
-                    <th className="aw-center">Outstanding Advance</th>
-                    <th className="aw-center">Status Breakdown</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="aw-empty-row aw-center">
-                        No attendance recorded for this week.
-                      </td>
-                    </tr>
-                  )}
-                  {rows.map((r) => (
-                    <tr key={r.employee_id}>
-                      <td className="aw-center">
-                        {r.employee_id} · {r.employee_name}
-                      </td>
-                      <td className="aw-center">{r.days_worked}</td>
-                      <td className="aw-center">
-                        {Number(r.total_hours || 0).toFixed(2)}
-                      </td>
-                      <td className="aw-center">₹{r.last_rate || 0}</td>
-                      <td className="aw-center">{formatINR(r.total_wage)}</td>
-                      <td className="aw-center">
-                        {formatINR(r.outstanding_advance)}
-                      </td>
-                      <td className="aw-status-breakdown aw-center">
-                        {Object.entries(r.status_counts || {}).map(
-                          ([s, count]) => (
-                            <span key={s} className="aw-mini-pill">
-                              {statusLabel(s)}: {count}
-                            </span>
-                          ),
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ==========================================================================
-   MONTHLY TAB
-   ========================================================================== */
-
-const EMPTY_MONTHLY = {
-  total_employees: 0,
-  total_working_days: 0,
-  total_working_hours: 0,
-  total_wage: 0,
-  missing_attendance_count: 0,
-  results: [],
-};
-
-function MonthlyTab({ onFixMissing, refreshKey }) {
-  const { getMonthlySummary } = useAttendance();
-
-  const [month, setMonth] = useState(todayISO().slice(0, 7));
-  const [filters, setFilters] = useState({
-    search: "",
-    department: "",
-    branch: "",
-    employment_type: "",
-    work_location: "",
-  });
-
-  const debounced = useDebounce(filters.search, 400);
-
-  const fetcher = useCallback(async () => {
-    const res = await getMonthlySummary({
-      month,
-      search: debounced,
-      department: filters.department,
-      branch: filters.branch,
-      employment_type: filters.employment_type,
-      work_location: filters.work_location,
-    });
-    return res || {};
-  }, [
-    getMonthlySummary,
-    month,
-    debounced,
-    filters.department,
-    filters.branch,
-    filters.employment_type,
-    filters.work_location,
-  ]);
-
-  const { data, loading, refreshing, error, retry } = useRefreshableQuery(
-    fetcher,
-    refreshKey,
-    "Failed to load monthly summary.",
-  );
-
-  const view = data || EMPTY_MONTHLY;
-  const rows = view.results || [];
-
-  return (
-    <div className="aw-tab">
-      <div className="aw-toolbar">
-        <label className="aw-field aw-field-inline">
-          <span className="aw-field-label">Month</span>
-          <input
-            className="aw-input"
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-          />
-        </label>
-      </div>
-
-      <FilterControls
-        filters={filters}
-        onChange={setFilters}
-        onClear={() =>
-          setFilters({
-            search: "",
-            department: "",
-            branch: "",
-            employment_type: "",
-            work_location: "",
-          })
-        }
-      />
-
-      <div className="aw-summary-grid aw-summary-grid-tight">
-        <SummaryCard
-          label="Total Employees"
-          value={view.total_employees || 0}
-        />
-        <SummaryCard
-          label="Total Working Days"
-          value={view.total_working_days || 0}
-        />
-        <SummaryCard
-          label="Total Working Hours"
-          value={formatHours(view.total_working_hours || 0)}
-        />
-        <SummaryCard
-          label="Total Wage Amount"
-          value={formatINR(view.total_wage || 0)}
-        />
-        {view.missing_attendance_count > 0 && (
-          <SummaryCard
-            label="⚠ Missing Attendance"
-            value={view.missing_attendance_count}
-            sub="across all employees"
-          />
-        )}
-      </div>
-
-      <RefreshIndicator show={refreshing} />
-
-      {loading ? (
-        <div style={{ padding: 40, textAlign: "center" }}>
-          <Loading />
-        </div>
-      ) : (
-        <>
-          {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
-          {(!error || data) && (
-            <div className="aw-table-wrap">
-              <table className="aw-table aw-summary-centered">
-                <thead>
-                  <tr>
-                    <th className="aw-center">Employee</th>
-                    <th className="aw-center">Days Worked</th>
-                    <th className="aw-center">Total Hours</th>
-                    <th className="aw-center">Total Wage</th>
-                    <th className="aw-center">Outstanding Advance</th>
-                    <th className="aw-center">Status Breakdown</th>
-                    <th className="aw-center">Missing</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="aw-empty-row aw-center">
-                        No attendance recorded for this month.
-                      </td>
-                    </tr>
-                  )}
-                  {rows.map((r) => (
-                    <tr key={r.employee_id}>
-                      <td className="aw-center">
-                        {r.employee_id} · {r.employee_name}
-                      </td>
-                      <td className="aw-center">{r.days_worked}</td>
-                      <td className="aw-center">
-                        {Number(r.total_hours || 0).toFixed(2)}
-                      </td>
-                      <td className="aw-center">{formatINR(r.total_wage)}</td>
-                      <td className="aw-center">
-                        {formatINR(r.outstanding_advance)}
-                      </td>
-                      <td className="aw-status-breakdown aw-center">
-                        {Object.entries(r.status_counts || {}).map(
-                          ([s, count]) => (
-                            <span key={s} className="aw-mini-pill">
-                              {statusLabel(s)}: {count}
-                            </span>
-                          ),
-                        )}
-                        {!r.status_counts && "—"}
-                      </td>
-                      <td className="aw-center">
-                        {r.missing_count === 0 ? (
-                          "—"
-                        ) : (
-                          <button
-                            type="button"
-                            className="aw-link-btn aw-link-warning"
-                            onClick={() =>
-                              onFixMissing &&
-                              onFixMissing(
-                                r.employee_id,
-                                view.start_date || todayISO(),
-                              )
-                            }
-                          >
-                            ⚠ {r.missing_count} missing
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ==========================================================================
-   EMPLOYEE SUMMARY TAB
-   ========================================================================== */
-
-function EmployeeSummaryTab({ refreshKey }) {
-  const { getEmployeeSummary, getEmployees } = useAttendance();
-
-  const [filters, setFilters] = useState({
-    search: "",
-    department: "",
-    branch: "",
-    employment_type: "",
-    work_location: "",
-  });
-  const [employeeId, setEmployeeId] = useState("");
-
-  const debounced = useDebounce(filters.search, 400);
-
-  // Summary if an employee is chosen, else the filtered employee list.
-  const fetcher = useCallback(async () => {
-    if (employeeId) {
-      // employee-summary returns both aggregate month totals and the
-      // individual attendance records for that month.
-      const summaryResponse = await getEmployeeSummary(employeeId);
-      const monthAttendance = Array.isArray(summaryResponse?.month?.records)
-        ? summaryResponse.month.records
-        : [];
-
-      return {
-        mode: "summary",
-        summary: summaryResponse || null,
-        monthAttendance,
-        list: [],
-      };
-    }
-    const res = await getEmployees({
-      search: debounced,
-      department: filters.department,
-      branch: filters.branch,
-      employment_type: filters.employment_type,
-      work_location: filters.work_location,
-      page: 1,
-      page_size: 100,
-    });
-    return { mode: "list", summary: null, list: res.results || res.data || [] };
-  }, [
-    employeeId,
-    debounced,
-    filters.department,
-    filters.branch,
-    filters.employment_type,
-    filters.work_location,
-    getEmployeeSummary,
-    getEmployees,
-  ]);
-
-  const { data, loading, refreshing, error, retry } = useRefreshableQuery(
-    fetcher,
-    refreshKey,
-    employeeId
-      ? "Failed to load employee summary."
-      : "Failed to load employee list.",
-  );
-
-  const summary = data?.mode === "summary" ? data.summary : null;
-  const monthAttendance =
-    data?.mode === "summary" ? data.monthAttendance || [] : [];
-  const list = data?.mode === "list" ? data.list : [];
-  const currentMonthLabel = new Date().toLocaleDateString("en-IN", {
-    month: "long",
-    year: "numeric",
-  });
-  const presentCount = monthAttendance.filter((r) =>
-    ["PRESENT", "HALF_DAY", "WFH"].includes(r.status),
-  ).length;
-  const absentCount = monthAttendance.filter(
-    (r) => r.status === "ABSENT",
-  ).length;
-
-  const week = summary?.week?.summary;
-  const month = summary?.month?.summary;
-  const emp = summary?.employee;
-
-  return (
-    <div className="aw-tab">
-      <FilterControls
-        filters={filters}
-        onChange={setFilters}
-        onClear={() =>
-          setFilters({
-            search: "",
-            department: "",
-            branch: "",
-            employment_type: "",
-            work_location: "",
-          })
-        }
-      />
-
-      <div className="aw-toolbar">
-        <div style={{ flex: 1 }}>
-          <EmployeeSearchSelect
-            value={employeeId}
-            onChange={(v) => setEmployeeId(v)}
-            filters={filters}
-          />
-        </div>
-        {employeeId && (
-          <button
-            type="button"
-            className="aw-btn-outline aw-btn-sm"
-            onClick={() => setEmployeeId("")}
-            style={{ alignSelf: "flex-end" }}
-          >
-            Clear Selection
-          </button>
-        )}
-      </div>
-
-      <RefreshIndicator show={refreshing} />
-
-      {loading ? (
-        <div style={{ padding: 40, textAlign: "center" }}>
-          <Loading />
-        </div>
-      ) : (
-        <>
-          {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
-          {error && !data ? null : employeeId && summary ? (
-            <div className="aw-employee-summary">
-              <div className="aw-employee-summary-head">
-                <h3>{emp?.employee_name || emp?.full_name || "Employee"}</h3>
-                <span className="aw-hint">
-                  {emp?.employee_id} · {emp?.department || "—"} ·{" "}
-                  {emp?.designation || "—"}
-                </span>
-              </div>
-
-              <div className="pll-section">
-                <h4>Attendance Summary</h4>
-                <div className="aw-summary-grid">
-                  <SummaryCard
-                    label="This Week"
-                    value={formatHours(week?.total_hours || 0)}
-                    sub={formatINR(week?.total_wage || 0)}
-                  />
-                  <SummaryCard
-                    label="Present Days (Month)"
-                    value={presentCount}
-                    sub={`${absentCount} absent`}
-                  />
-                  <SummaryCard
-                    label="Total Hours (Month)"
-                    value={formatHours(month?.total_hours || 0)}
-                    sub={formatINR(month?.total_wage || 0)}
-                  />
-                  <SummaryCard
-                    label="Outstanding Advance"
-                    value={formatINR(
-                      month?.outstanding_advance ||
-                        week?.outstanding_advance ||
-                        0,
-                    )}
-                  />
-                </div>
-              </div>
-
-              <div className="pll-section">
-                <h4>Employee Details</h4>
-                <dl className="pll-view-grid">
-                  <dt>Department</dt>
-                  <dd>{emp?.department || "—"}</dd>
-                  <dt>Designation</dt>
-                  <dd>{emp?.designation || "—"}</dd>
-                  <dt>Branch</dt>
-                  <dd>{emp?.branch || "—"}</dd>
-                  <dt>Employment Type</dt>
-                  <dd>{emp?.employment_type || "—"}</dd>
-                  <dt>Work Location</dt>
-                  <dd>{emp?.work_location || "—"}</dd>
-                </dl>
-              </div>
-
-              <div className="pll-section">
-                <h4>Current Month Attendance — {currentMonthLabel}</h4>
-                <div className="aw-table-wrap">
-                  <table className="aw-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Status</th>
-                        <th>Login Time</th>
-                        <th>Logout Time</th>
-                        <th className="aw-center">Working Hours</th>
-                        <th className="aw-center">Hourly Rate</th>
-                        <th className="aw-center">Daily Wage</th>
-                        <th>Remarks</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {monthAttendance.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="aw-empty-row">
-                            No attendance records found for {currentMonthLabel}.
+                            )}
                           </td>
                         </tr>
-                      ) : (
-                        monthAttendance.map((record) => (
-                          <tr key={record.id}>
-                            <td>{formatDisplayDate(record.date)}</td>
-                            <td>
-                              <StatusPill status={record.status} />
-                            </td>
-                            <td>{record.login_time || "—"}</td>
-                            <td>{record.logout_time || "—"}</td>
-                            <td className="aw-center">
-                              {Number(record.working_hours || 0).toFixed(2)}
-                            </td>
-                            <td className="aw-center">
-                              {record.hourly_rate == null
-                                ? "—"
-                                : formatINR(record.hourly_rate)}
-                            </td>
-                            <td className="aw-center">
-                              {record.daily_wage == null
-                                ? "—"
-                                : formatINR(record.daily_wage)}
-                            </td>
-                            <td className="aw-remarks">
-                              {record.remarks || "—"}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
 
-              {month?.status_counts && (
-                <div className="pll-section">
-                  <h4>Status Breakdown (Month)</h4>
-                  <div className="aw-status-breakdown">
-                    {Object.entries(month.status_counts).map(([s, count]) => (
-                      <span key={s} className="aw-mini-pill">
-                        {statusLabel(s)}: {count}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="aw-employee-summary">
-              <div className="aw-employee-summary-head">
-                <h3>Filtered Employees</h3>
-                <span className="aw-hint">
-                  Pick an employee above to view their summary, or refine
-                  filters to narrow this list.
-                </span>
-              </div>
-
-              {list.length === 0 ? (
-                <p className="aw-hint">No employees match these filters.</p>
-              ) : (
-                <div className="aw-table-wrap">
-                  <table className="aw-table">
-                    <thead>
-                      <tr>
-                        <th>Employee ID</th>
-                        <th>Name</th>
-                        <th>Department</th>
-                        <th>Designation</th>
-                        <th>Branch</th>
-                        <th>Type</th>
-                        <th>Location</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {list.map((e) => (
-                        <tr key={e.id}>
-                          <td>{e.employee_id}</td>
-                          <td>{e.full_name}</td>
-                          <td>{e.department || "—"}</td>
-                          <td>{e.designation || "—"}</td>
-                          <td>{e.branch || "—"}</td>
-                          <td>{e.employment_type || "—"}</td>
-                          <td>{e.work_location || "—"}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="aw-link-btn"
-                              onClick={() => setEmployeeId(String(e.id))}
-                            >
-                              View Summary
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ==========================================================================
-   WAGE RATES PANEL
-   ========================================================================== */
-
-function WageRatesPanel() {
-  const { getWageConfigByEmployee, upsertWageConfig } = useAttendance();
-
-  const [filters, setFilters] = useState({
-    search: "",
-    department: "",
-    branch: "",
-    employment_type: "",
-    work_location: "",
-  });
-  const [employeeId, setEmployeeId] = useState("");
-  const [draft, setDraft] = useState({
-    salaryType: "HOURLY",
-    hourlyRate: 0,
-    monthlySalary: 0,
-    standardHoursPerDay: 8,
-    paidLeavePolicy: "UNPAID",
-    holidayPolicy: "UNPAID",
-    weeklyOffPolicy: "UNPAID",
-  });
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [savedFlash, setSavedFlash] = useState(false);
-
-  // Load config whenever employee changes
-  useEffect(() => {
-    if (!employeeId) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const cfg = await getWageConfigByEmployee(employeeId);
-        if (!cancelled) {
-          setDraft({
-            salaryType: cfg?.salary_type || "HOURLY",
-            hourlyRate: cfg?.hourly_rate ?? 0,
-            monthlySalary: cfg?.monthly_salary ?? 0,
-            standardHoursPerDay: cfg?.standard_hours_per_day ?? 8,
-            paidLeavePolicy: cfg?.paid_leave_policy || "UNPAID",
-            holidayPolicy: cfg?.holiday_policy || "UNPAID",
-            weeklyOffPolicy: cfg?.weekly_off_policy || "UNPAID",
-          });
-        }
-      } catch (err) {
-        if (!cancelled)
-          setError(extractError(err, "Failed to load wage config."));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [employeeId, getWageConfigByEmployee]);
-
-  async function handleSave() {
-    if (!employeeId || saving) return;
-    setSaving(true);
-    setError("");
-    try {
-      await upsertWageConfig(employeeId, {
-        salary_type: draft.salaryType,
-        hourly_rate: Number(draft.hourlyRate) || 0,
-        monthly_salary: Number(draft.monthlySalary) || 0,
-        standard_hours_per_day: Number(draft.standardHoursPerDay) || 8,
-        paid_leave_policy: draft.paidLeavePolicy,
-        holiday_policy: draft.holidayPolicy,
-        weekly_off_policy: draft.weeklyOffPolicy,
-      });
-      setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 2000);
-    } catch (err) {
-      setError(extractError(err, "Failed to save wage config."));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="aw-panel">
-      <div className="aw-panel-head">
-        <h3>Wage Configuration</h3>
-        <p>
-          Set how each employee is paid. Changing a rate here only affects
-          future attendance — past records keep the rate stored on them.
-        </p>
-      </div>
-
-      <FilterControls
-        filters={filters}
-        onChange={setFilters}
-        onClear={() =>
-          setFilters({
-            search: "",
-            department: "",
-            branch: "",
-            employment_type: "",
-            work_location: "",
-          })
-        }
-      />
-
-      <div className="aw-wage-grid">
-        <div className="aw-field" style={{ gridColumn: "1 / -1" }}>
-          <EmployeeSearchSelect
-            value={employeeId}
-            onChange={setEmployeeId}
-            filters={filters}
-          />
-        </div>
-
-        {employeeId && (
-          <>
-            <label className="aw-field">
-              <span className="aw-field-label">Salary Type</span>
-              <select
-                className="aw-select"
-                value={draft.salaryType}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, salaryType: e.target.value }))
-                }
-              >
-                <option value="HOURLY">Hourly Wage</option>
-                <option value="MONTHLY">Monthly Salary</option>
-              </select>
-            </label>
-
-            {draft.salaryType === "HOURLY" ? (
-              <label className="aw-field">
-                <span className="aw-field-label">Hourly Rate (₹/hour)</span>
-                <input
-                  className="aw-input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={draft.hourlyRate}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, hourlyRate: e.target.value }))
-                  }
-                />
-              </label>
-            ) : (
-              <label className="aw-field">
-                <span className="aw-field-label">Monthly Salary (₹)</span>
-                <input
-                  className="aw-input"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={draft.monthlySalary}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, monthlySalary: e.target.value }))
-                  }
-                />
-              </label>
-            )}
-
-            <label className="aw-field">
-              <span className="aw-field-label">Standard Hours / Day</span>
-              <input
-                className="aw-input"
-                type="number"
-                min="1"
-                step="0.5"
-                value={draft.standardHoursPerDay}
-                onChange={(e) =>
-                  setDraft((d) => ({
-                    ...d,
-                    standardHoursPerDay: e.target.value,
-                  }))
-                }
+              <Pagination
+                page={data?.page || page}
+                totalPages={data?.total_pages || 1}
+                count={count}
+                pageSize={pageSize}
+                onPage={setPage}
+                onPageSize={setPageSize}
               />
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ==========================================================================
+   EMPLOYEE DETAIL MODAL  (daily breakdown for the selected period)
+   ========================================================================== */
+
+function EmployeeHoursDetailModal({ target, onClose }) {
+  const { getEmployeeHoursDetail } = useAttendance();
+  const [hideUnmarked, setHideUnmarked] = useState(false);
+
+  // `target` is a snapshot taken when the row was opened, so the employee id
+  // and the date range always match what the summary table was showing.
+  const fetcher = useCallback(
+    () =>
+      getEmployeeHoursDetail({
+        employee: target.employee.id,
+        ...target.params,
+      }),
+    [getEmployeeHoursDetail, target],
+  );
+
+  const { data, loading, error, retry } = useRefreshableQuery(
+    fetcher,
+    0,
+    "Failed to load employee attendance details.",
+  );
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const days = data?.days || [];
+  const visibleDays = hideUnmarked ? days.filter((d) => d.is_marked) : days;
+  const summary = data?.summary;
+  const emp = data?.employee || target.employee;
+
+  return (
+    <div className="aw-modal-overlay" onClick={onClose}>
+      <div
+        className="aw-modal aw-modal-xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Employee attendance details"
+      >
+        <div className="aw-modal-head">
+          <div>
+            <h3>
+              {emp.employee_id} – {emp.employee_name}
+            </h3>
+            <span className="aw-hint">
+              {emp.department || "—"} · {target.label}
+            </span>
+          </div>
+          <button
+            className="aw-icon-btn"
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: 40, textAlign: "center" }}>
+            <Loading />
+          </div>
+        ) : error ? (
+          <QueryError error={error} onRetry={retry} stale={false} />
+        ) : (
+          <>
+            <div className="aw-summary-grid aw-summary-grid-tight">
+              <SummaryCard
+                label="Days Worked"
+                value={summary?.days_worked ?? 0}
+              />
+              <SummaryCard
+                label="Normal Hours"
+                value={fmt2(summary?.normal_hours)}
+              />
+              <SummaryCard label="OT Hours" value={fmt2(summary?.ot_hours)} />
+              <SummaryCard
+                label="Total Hours"
+                value={fmt2(summary?.total_hours)}
+              />
+              <SummaryCard
+                label="Not Marked Days"
+                value={summary?.missing_days ?? 0}
+              />
+            </div>
+
+            <label className="aw-toggle">
+              <input
+                type="checkbox"
+                className="aw-checkbox"
+                checked={hideUnmarked}
+                onChange={(e) => setHideUnmarked(e.target.checked)}
+              />
+              <span>Hide Not Marked days</span>
             </label>
+
+            <div className="aw-table-wrap aw-detail-scroll">
+              <table className="aw-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Day</th>
+                    <th>Status</th>
+                    <th>In</th>
+                    <th>Out</th>
+                    <th className="aw-num">Normal Hours</th>
+                    <th className="aw-num">OT Hours</th>
+                    <th className="aw-num">Total Hours</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleDays.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="aw-empty-row">
+                        No dates to show for this period.
+                      </td>
+                    </tr>
+                  )}
+                  {visibleDays.map((d) => (
+                    <tr
+                      key={d.date}
+                      className={d.day_name === "Sun" ? "aw-row-sunday" : ""}
+                    >
+                      <td>{formatDisplayDate(d.date)}</td>
+                      <td>{d.day_name}</td>
+                      <td>
+                        <StatusPill status={d.status} />
+                      </td>
+                      <td>{d.login_time || "—"}</td>
+                      <td>{d.logout_time || "—"}</td>
+                      <td className="aw-num">
+                        {d.is_marked ? fmt2(d.normal_hours) : "—"}
+                      </td>
+                      <td className="aw-num">
+                        {d.is_marked ? fmt2(d.ot_hours) : "—"}
+                      </td>
+                      <td className="aw-num">
+                        {d.is_marked ? fmt2(d.total_hours) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="aw-hint" style={{ marginTop: 10 }}>
+              Not Marked days have no saved record and are never counted as
+              worked. Saved Absent / Leave records show 0.00 hours.
+            </p>
           </>
         )}
       </div>
+    </div>
+  );
+}
 
-      {employeeId && (
-        <div className="aw-panel-sub">
-          <h4>Leave &amp; Holiday Pay Policy</h4>
-          <div className="aw-policy-row">
-            {[
-              ["paidLeavePolicy", "Paid Leave"],
-              ["holidayPolicy", "Holiday"],
-              ["weeklyOffPolicy", "Weekly Off"],
-            ].map(([key, label]) => (
-              <label key={key} className="aw-field">
-                <span className="aw-field-label">{label}</span>
-                <select
-                  className="aw-select"
-                  value={draft[key]}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, [key]: e.target.value }))
-                  }
-                >
-                  <option value="UNPAID">Unpaid (₹0)</option>
-                  <option value="FULL_DAY">Paid (standard hours × rate)</option>
-                </select>
-              </label>
+/* ==========================================================================
+   PAGE 2 — EMPLOYEE SUMMARY  (weekly / monthly / yearly)
+   ========================================================================== */
+
+const EMPTY_SUMMARY = {
+  label: "",
+  totals: {
+    total_employees: 0,
+    employees_marked: 0,
+    total_normal_hours: 0,
+    total_ot_hours: 0,
+    total_hours: 0,
+  },
+  count: 0,
+  total_pages: 1,
+  results: [],
+};
+
+const PERIOD_MODES = [
+  { key: "weekly", label: "Weekly" },
+  { key: "monthly", label: "Monthly" },
+  { key: "yearly", label: "Yearly" },
+];
+
+function EmployeeSummaryTab({ refreshKey }) {
+  const { getHoursSummary } = useAttendance();
+
+  const now = new Date();
+  const [mode, setMode] = useState("monthly");
+  const [weekDate, setWeekDate] = useState(todayISO());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [monthYear, setMonthYear] = useState(now.getFullYear());
+  const [year, setYear] = useState(now.getFullYear());
+
+  const [searchInput, setSearchInput] = useState("");
+  const [department, setDepartment] = useState("");
+  const [pageSize, setPageSize] = useState(50);
+  const [detailTarget, setDetailTarget] = useState(null);
+
+  const search = useDebounce(searchInput, 400);
+
+  const yearOptions = useMemo(() => {
+    const out = [];
+    for (let y = now.getFullYear() + 1; y >= FIRST_YEAR; y--) out.push(y);
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const periodParams = useMemo(() => {
+    if (mode === "weekly") return { period: "weekly", date: weekDate };
+    if (mode === "monthly")
+      return { period: "monthly", month: `${monthYear}-${pad2(month)}` };
+    return { period: "yearly", year: String(year) };
+  }, [mode, weekDate, month, monthYear, year]);
+
+  const [page, setPage] = usePageForSignature(
+    JSON.stringify([periodParams, search, department, pageSize]),
+  );
+
+  const fetcher = useCallback(
+    () =>
+      getHoursSummary({
+        ...periodParams,
+        search,
+        department,
+        page,
+        page_size: pageSize,
+      }),
+    [getHoursSummary, periodParams, search, department, page, pageSize],
+  );
+
+  const { data, loading, refreshing, error, retry } = useRefreshableQuery(
+    fetcher,
+    refreshKey,
+    "Failed to load employee summary.",
+  );
+
+  const view = data || EMPTY_SUMMARY;
+  const rows = view.results || [];
+  const totals = view.totals || EMPTY_SUMMARY.totals;
+  const waiting = loading && !data;
+  const card = (v) => (waiting ? "…" : v);
+
+  const weekLabel = `${formatDisplayDate(startOfWeek(weekDate))} – ${formatDisplayDate(
+    endOfWeek(weekDate),
+  )}`;
+
+  function openDetail(row) {
+    setDetailTarget({
+      employee: row,
+      params: { ...periodParams },
+      label: view.label || "",
+    });
+  }
+
+  return (
+    <div className="aw-tab">
+      {/* ---- period mode + selectors ---- */}
+      <div className="aw-toolbar aw-period-bar">
+        <div className="aw-field">
+          <span className="aw-field-label">Period</span>
+          <div
+            className="aw-segmented"
+            role="tablist"
+            aria-label="Summary period"
+          >
+            {PERIOD_MODES.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                role="tab"
+                aria-selected={mode === m.key}
+                className={`aw-segmented-btn ${
+                  mode === m.key ? "aw-segmented-btn-active" : ""
+                }`}
+                onClick={() => setMode(m.key)}
+              >
+                {m.label}
+              </button>
             ))}
           </div>
         </div>
+
+        {mode === "weekly" && (
+          <>
+            <div className="aw-field">
+              <span className="aw-field-label">Week (Mon – Sun)</span>
+              <div className="aw-week-picker">
+                <button
+                  type="button"
+                  className="aw-btn-outline aw-btn-sm"
+                  onClick={() => setWeekDate(addDays(weekDate, -7))}
+                  aria-label="Previous week"
+                >
+                  ‹
+                </button>
+                <input
+                  className="aw-input"
+                  type="date"
+                  value={weekDate}
+                  onChange={(e) =>
+                    e.target.value && setWeekDate(e.target.value)
+                  }
+                  aria-label="Any date within the week"
+                />
+                <button
+                  type="button"
+                  className="aw-btn-outline aw-btn-sm"
+                  onClick={() => setWeekDate(addDays(weekDate, 7))}
+                  aria-label="Next week"
+                >
+                  ›
+                </button>
+                <button
+                  type="button"
+                  className="aw-btn-outline aw-btn-sm"
+                  onClick={() => setWeekDate(todayISO())}
+                >
+                  This Week
+                </button>
+              </div>
+            </div>
+            <span className="aw-period-label">{weekLabel}</span>
+          </>
+        )}
+
+        {mode === "monthly" && (
+          <>
+            <label className="aw-field aw-field-inline">
+              <span className="aw-field-label">Month</span>
+              <select
+                className="aw-select"
+                value={month}
+                onChange={(e) => setMonth(Number(e.target.value))}
+              >
+                {MONTH_NAMES.map((name, i) => (
+                  <option key={name} value={i + 1}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="aw-field aw-field-inline">
+              <span className="aw-field-label">Year</span>
+              <select
+                className="aw-select"
+                value={monthYear}
+                onChange={(e) => setMonthYear(Number(e.target.value))}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+
+        {mode === "yearly" && (
+          <label className="aw-field aw-field-inline">
+            <span className="aw-field-label">Year</span>
+            <select
+              className="aw-select"
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      <EmployeeFilterBar
+        search={searchInput}
+        onSearch={setSearchInput}
+        department={department}
+        onDepartment={setDepartment}
+        onClear={() => {
+          setSearchInput("");
+          setDepartment("");
+        }}
+      />
+
+      {/* ---- company-wide cards for the selected period ---- */}
+      <div className="aw-summary-grid">
+        <SummaryCard
+          label="Total Employees"
+          value={card(totals.total_employees)}
+          sub={view.label || undefined}
+        />
+        <SummaryCard
+          label="Attendance Marked"
+          value={card(totals.employees_marked)}
+          sub="employees with records"
+        />
+        <SummaryCard
+          label="Total Normal Hours"
+          value={card(fmt2(totals.total_normal_hours))}
+        />
+        <SummaryCard
+          label="Total Approved OT"
+          value={card(fmt2(totals.total_ot_hours))}
+        />
+        <SummaryCard
+          label="Total Approved Hours"
+          value={card(fmt2(totals.total_hours))}
+        />
+      </div>
+
+      <RefreshIndicator show={refreshing} />
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center" }}>
+          <Loading />
+        </div>
+      ) : (
+        <>
+          {error && <QueryError error={error} onRetry={retry} stale={!!data} />}
+          {(!error || data) && (
+            <>
+              <div className="aw-table-wrap">
+                <table className="aw-table aw-summary-centered">
+                  <thead>
+                    <tr>
+                      <th className="aw-left">Employee</th>
+                      <th>Days Worked</th>
+                      <th>Normal Hours</th>
+                      <th>OT Hours</th>
+                      <th>Total Hours</th>
+                      <th>Missing Days</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="aw-empty-row">
+                          No employees match these filters.
+                        </td>
+                      </tr>
+                    )}
+                    {rows.map((r) => (
+                      <tr
+                        key={r.id}
+                        className="aw-row-click"
+                        tabIndex={0}
+                        onClick={() => openDetail(r)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") openDetail(r);
+                        }}
+                      >
+                        <td className="aw-left">
+                          <div className="aw-emp-cell">
+                            <strong>
+                              {r.employee_id} – {r.employee_name}
+                            </strong>
+                            <span className="aw-hint">
+                              {r.department || "—"}
+                            </span>
+                          </div>
+                        </td>
+                        {r.has_attendance ? (
+                          <>
+                            <td>{r.days_worked}</td>
+                            <td>{fmt2(r.normal_hours)}</td>
+                            <td>{fmt2(r.ot_hours)}</td>
+                            <td>
+                              <strong>{fmt2(r.total_hours)}</strong>
+                            </td>
+                          </>
+                        ) : (
+                          <td colSpan={4}>
+                            <StatusPill status="NOT_MARKED" />
+                          </td>
+                        )}
+                        <td>
+                          {r.missing_days > 0 ? (
+                            <span className="aw-missing-pill">
+                              {r.missing_days} missing
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="aw-link-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDetail(r);
+                            }}
+                          >
+                            View Details
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="aw-hint">
+                Hours are summed from each employee’s own saved records. Missing
+                days (no record up to today) are never counted as worked.
+              </p>
+
+              <Pagination
+                page={view.page || page}
+                totalPages={view.total_pages || 1}
+                count={view.count || 0}
+                pageSize={pageSize}
+                onPage={setPage}
+                onPageSize={setPageSize}
+              />
+            </>
+          )}
+        </>
       )}
 
-      {error && (
-        <div style={{ marginBottom: 12 }}>
-          <ErrorState onRetry={handleSave} />
-          <div style={{ marginTop: 6, fontSize: 13, color: "#a52626" }}>
-            {error}
-          </div>
-        </div>
-      )}
-
-      {employeeId && (
-        <div className="aw-panel-actions">
-          <button
-            type="button"
-            className="aw-btn-primary"
-            onClick={handleSave}
-            disabled={saving || loading}
-          >
-            {saving ? "Saving…" : "Save Rate"}
-          </button>
-          {loading && <Loading />}
-          {savedFlash && <span className="aw-saved-flash">Saved</span>}
-        </div>
+      {detailTarget && (
+        <EmployeeHoursDetailModal
+          target={detailTarget}
+          onClose={() => setDetailTarget(null)}
+        />
       )}
     </div>
   );
 }
 
-/* Center every header and body cell in Weekly and Monthly summary tables. */
-const SUMMARY_TABLE_CENTER_STYLE = `
-  .aw-summary-centered th,
-  .aw-summary-centered td {
-    text-align: center !important;
-    vertical-align: middle;
-  }
-  .aw-summary-centered .aw-status-breakdown {
-    justify-content: center;
-  }
-`;
-
 /* ==========================================================================
-   PAGE SHELL
+   PAGE SHELL — exactly two tabs
    ========================================================================== */
 
 const TABS = [
-  { key: "daily", label: "Daily" },
-  { key: "weekly", label: "Weekly" },
-  { key: "monthly", label: "Monthly" },
-  { key: "employee", label: "Employee Summary" },
-  { key: "rates", label: "Wage Rates" },
+  { key: "add", label: "Add Attendance" },
+  { key: "summary", label: "Employee Summary" },
 ];
 
-// Restore the last selected tab after a browser refresh. Keep this helper
-// guarded because localStorage may be unavailable in restricted browser modes.
 const ATTENDANCE_ACTIVE_TAB_KEY = "hrAttendanceWages.activeTab";
 
 function getSavedAttendanceTab() {
   try {
-    const savedTab = window.localStorage.getItem(ATTENDANCE_ACTIVE_TAB_KEY);
-    return TABS.some((tab) => tab.key === savedTab) ? savedTab : "daily";
+    const saved = window.localStorage.getItem(ATTENDANCE_ACTIVE_TAB_KEY);
+    return TABS.some((tab) => tab.key === saved) ? saved : "add";
   } catch {
-    return "daily";
+    return "add";
   }
 }
 
 export default function AttendanceWages() {
   const [activeTab, setActiveTab] = useState(getSavedAttendanceTab);
-  // The restored tab must also be marked as visited so its content mounts.
-  // Tabs remain mounted after first visit, preserving their filters and dates.
+  // Tabs stay mounted after first visit so their filters and dates persist.
   const [visited, setVisited] = useState(() => ({
     [getSavedAttendanceTab()]: true,
   }));
   const [modal, setModal] = useState(null);
+  const [toast, setToast] = useState(null);
 
-  // ── Central refresh trigger ───────────────────────────────────────────
-  // Bumped ONLY after the backend confirmed a create / update / delete.
+  // Bumped ONLY after the backend confirmed a create / update.
   const [refreshKey, setRefreshKey] = useState(0);
   const bumpRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   const handleBack = () => window.history.back();
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   function selectTab(key) {
     if (!TABS.some((tab) => tab.key === key)) return;
@@ -2536,39 +1976,33 @@ export default function AttendanceWages() {
     try {
       window.localStorage.setItem(ATTENDANCE_ACTIVE_TAB_KEY, key);
     } catch {
-      // The tab still works for this session if storage is blocked.
+      // Tab still works for this session if storage is blocked.
     }
   }
 
-  function openAdd(presetEmployeeId, presetDate) {
-    setModal({ editRecord: null, presetEmployeeId, presetDate });
-  }
-  function openEdit(record) {
-    setModal({ editRecord: record });
-  }
-  function closeModal() {
+  const openAdd = useCallback((employee, date) => {
+    setModal({ employee, editRecord: null, presetDate: date });
+  }, []);
+  const openEdit = useCallback((employee, record) => {
+    setModal({ employee, editRecord: record, presetDate: record.date });
+  }, []);
+  const closeModal = useCallback(() => setModal(null), []);
+
+  function handleSaved(info) {
     setModal(null);
-  }
-  function handleSaved() {
-    setModal(null);
-    bumpRefresh(); // Daily + Weekly + Monthly + Employee Summary refetch
-  }
-  function handleFixMissing(employeeId, date) {
-    setModal({
-      editRecord: null,
-      presetEmployeeId: employeeId,
-      presetDate: date,
-    });
+    bumpRefresh(); // Add Attendance + Employee Summary refetch
+    setToast(
+      `Attendance ${info.edited ? "updated" : "saved"} for ${info.employeeLabel} on ${formatDisplayDate(info.date)}.`,
+    );
   }
 
   return (
     <>
-      <style>{SUMMARY_TABLE_CENTER_STYLE}</style>
       <Header
         navLinks={[
           { label: "Employees", path: "/hr/employees" },
-          { label: "Attendance & Wages", path: "/hr/attendance" },
-          { label: "Salary", path: "/hr/salary" },
+          { label: "Attendance", path: "/hr/attendance" },
+          { label: "Advance", path: "/hr/salary" },
         ]}
       />
 
@@ -2596,23 +2030,25 @@ export default function AttendanceWages() {
               Back
             </button>
             <div className="aw-page-header-titles">
-              <h1>HR Attendance &amp; Wages</h1>
+              <h1>HR Attendance</h1>
               <p>
-                Log daily login/logout times, configure hourly rates, and feed
-                calculated wages into Salary.
+                Record attendance with hourly slots and review employee-wise
+                normal and overtime hours.
               </p>
             </div>
           </div>
           <div className="aw-page-header-actions">
-            <span className="aw-header-badge">v2.0</span>
+            <span className="aw-header-badge">v3.0</span>
           </div>
         </div>
 
-        <div className="aw-tabs">
+        <div className="aw-tabs" role="tablist">
           {TABS.map((t) => (
             <button
               key={t.key}
               type="button"
+              role="tab"
+              aria-selected={activeTab === t.key}
               className={`aw-tab-btn ${
                 activeTab === t.key ? "aw-tab-btn-active" : ""
               }`}
@@ -2623,79 +2059,37 @@ export default function AttendanceWages() {
           ))}
         </div>
 
-        {visited.daily && (
-          <div hidden={activeTab !== "daily"}>
-            <DailyTab
+        {visited.add && (
+          <div hidden={activeTab !== "add"}>
+            <AddAttendanceTab
+              refreshKey={refreshKey}
               onAdd={openAdd}
               onEdit={openEdit}
-              refreshKey={refreshKey}
-              onChanged={bumpRefresh}
             />
           </div>
         )}
-        {visited.weekly && (
-          <div hidden={activeTab !== "weekly"}>
-            <WeeklyTab refreshKey={refreshKey} />
-          </div>
-        )}
-        {visited.monthly && (
-          <div hidden={activeTab !== "monthly"}>
-            <MonthlyTab
-              onFixMissing={handleFixMissing}
-              refreshKey={refreshKey}
-            />
-          </div>
-        )}
-        {visited.employee && (
-          <div hidden={activeTab !== "employee"}>
+        {visited.summary && (
+          <div hidden={activeTab !== "summary"}>
             <EmployeeSummaryTab refreshKey={refreshKey} />
-          </div>
-        )}
-        {visited.rates && (
-          <div hidden={activeTab !== "rates"}>
-            <WageRatesPanel />
           </div>
         )}
 
         {modal && (
           <AttendanceFormModal
+            employee={modal.employee}
             editRecord={modal.editRecord}
-            presetEmployeeId={modal.presetEmployeeId}
             presetDate={modal.presetDate}
             onClose={closeModal}
             onSaved={handleSaved}
           />
         )}
+
+        {toast && (
+          <div className="aw-toast" role="status" aria-live="polite">
+            <span>✓</span> {toast}
+          </div>
+        )}
       </div>
     </>
   );
-}
-
-/* ==========================================================================
-   RE-EXPORTS for other modules (e.g. Payroll.jsx)
-   ========================================================================== */
-
-export function monthRange(monthStr) {
-  const [y, m] = monthStr.split("-").map(Number);
-  const start = `${monthStr}-01`;
-  const lastDay = new Date(y, m, 0).getDate();
-  const end = `${monthStr}-${String(lastDay).padStart(2, "0")}`;
-  return { start, end };
-}
-
-export function currentMonthStr() {
-  return todayISO().slice(0, 7);
-}
-
-export function startOfWeek(iso) {
-  const d = new Date(`${iso}T00:00:00`);
-  const diff = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - diff);
-  return d.toISOString().slice(0, 10);
-}
-
-export function endOfWeek(iso) {
-  const start = new Date(`${startOfWeek(iso)}T00:00:00`);
-  start.setDate(start.getDate() + 6);
-  return start.toISOString().slice(0, 10);
 }

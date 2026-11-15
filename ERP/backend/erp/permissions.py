@@ -132,3 +132,14 @@ class IsAccountsOrMaterialPlanning(BasePermission):
             User.UserType.ACCOUNTS,
             User.UserType.MATERIAL_PLANNING,
         )
+
+
+class IsHRorAdmin(BasePermission):
+    def has_permission(self, request, view):
+        user=request.user
+        return bool(user and user.is_authenticated and (user.is_superuser or user.groups.filter(name__in=['HR','Admin']).exists()))
+
+class IsAdminOnly(BasePermission):
+    def has_permission(self, request, view):
+        user=request.user
+        return bool(user and user.is_authenticated and (user.is_superuser or user.groups.filter(name='Admin').exists()))

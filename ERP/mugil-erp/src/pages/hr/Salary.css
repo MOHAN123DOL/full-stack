@@ -486,3 +486,568 @@ body {
 .sal-toolbar::-webkit-scrollbar-thumb:hover {
   background: var(--sal-text-light);
 }
+
+/* ============================================================
+   HR ADVANCES — styles matching the current Salary.jsx
+   Keeps the original teal theme and full-width layout.
+   ============================================================ */
+
+.sal-page .sal-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.sal-page .sal-heading h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--sal-text);
+}
+
+.sal-page .sal-heading p {
+  margin: 0;
+  color: var(--sal-text-muted);
+  font-size: 14px;
+}
+
+.sal-page .sal-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--sal-border);
+  margin-bottom: 20px;
+}
+
+.sal-page .sal-tabs button {
+  padding: 12px 18px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--sal-text-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color var(--sal-transition), border-color var(--sal-transition);
+}
+
+.sal-page .sal-tabs button:hover {
+  color: var(--sal-accent-dark);
+}
+
+.sal-page .sal-tabs button.active {
+  color: var(--sal-accent-dark);
+  border-bottom-color: var(--sal-accent);
+}
+
+.sal-page .sal-panel {
+  overflow: hidden;
+  background: var(--sal-bg-white);
+  border: 1px solid var(--sal-border);
+  border-radius: var(--sal-radius);
+  box-shadow: var(--sal-shadow);
+}
+
+/* Override the legacy floating toolbar with an embedded panel toolbar. */
+.sal-page .sal-panel .sal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 18px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--sal-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.sal-page .sal-search,
+.sal-page .sal-filter,
+.sal-page .sal-form input,
+.sal-page .sal-form textarea {
+  box-sizing: border-box;
+  min-height: 41px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--sal-radius-sm);
+  background: var(--sal-bg-white);
+  color: var(--sal-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.sal-page .sal-search {
+  flex: 1 1 260px;
+  min-width: 200px;
+}
+
+.sal-page .sal-filter {
+  width: 220px;
+}
+
+.sal-page .sal-search:focus,
+.sal-page .sal-filter:focus,
+.sal-page .sal-form input:focus,
+.sal-page .sal-form textarea:focus {
+  outline: none;
+  border-color: var(--sal-accent);
+  box-shadow: 0 0 0 3px var(--sal-accent-glow);
+}
+
+.sal-page .sal-btn,
+.sal-overlay .sal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 15px;
+  border: 1px solid transparent;
+  border-radius: var(--sal-radius-sm);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--sal-transition), border-color var(--sal-transition);
+}
+
+.sal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sal-btn-primary {
+  background: var(--sal-accent);
+  color: #fff;
+}
+
+.sal-btn-primary:hover:not(:disabled) {
+  background: var(--sal-accent-dark);
+}
+
+.sal-btn-secondary {
+  background: #fff;
+  color: var(--sal-text);
+  border-color: #cbd5e1;
+}
+
+.sal-btn-secondary:hover:not(:disabled) {
+  background: #f0fdfa;
+  border-color: var(--sal-accent-light);
+}
+
+.sal-btn-danger {
+  background: #fff;
+  color: var(--sal-danger);
+  border-color: #fecaca;
+}
+
+.sal-btn-danger:hover:not(:disabled) {
+  background: var(--sal-danger-light);
+}
+
+.sal-btn-small {
+  padding: 7px 11px;
+  font-size: 12px;
+}
+
+.sal-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.sal-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.sal-table th,
+.sal-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--sal-border-light);
+  vertical-align: top;
+}
+
+.sal-table th {
+  background: #f8fafc;
+  color: var(--sal-text-muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sal-table tbody tr:hover {
+  background: #f8fdfc;
+}
+
+.sal-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.sal-strong {
+  font-weight: 700;
+}
+
+.sal-money {
+  color: var(--sal-accent-dark);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.sal-empty {
+  padding: 42px 16px !important;
+  color: var(--sal-text-muted);
+  text-align: center;
+}
+
+.sal-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border-top: 1px solid var(--sal-border);
+  color: var(--sal-text-muted);
+  font-size: 13px;
+}
+
+.sal-pagination > div {
+  display: flex;
+  gap: 8px;
+}
+
+.sal-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px;
+  border-bottom: 1px solid var(--sal-border);
+}
+
+.sal-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  background: #f0fdfa;
+  border: 1px solid #ccfbf1;
+  border-radius: var(--sal-radius-sm);
+}
+
+.sal-stats span {
+  color: var(--sal-text-muted);
+  font-size: 12px;
+}
+
+.sal-stats strong {
+  color: var(--sal-accent-dark);
+  font-size: 23px;
+  font-weight: 800;
+}
+
+.sal-alert {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: var(--sal-radius-sm);
+  font-size: 13px;
+}
+
+.sal-alert button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sal-alert-error {
+  background: var(--sal-danger-light);
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.sal-alert-success {
+  background: var(--sal-success-light);
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.sal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.56);
+}
+
+.sal-modal {
+  width: min(100%, 570px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: var(--sal-shadow-lg);
+  color: #0f172a;
+  --sal-accent: #0f766e;
+  --sal-accent-dark: #0b5c56;
+  --sal-accent-glow: rgba(15, 118, 110, 0.15);
+  --sal-danger: #dc2626;
+  --sal-danger-light: #fef2f2;
+  --sal-text: #0f172a;
+  --sal-text-muted: #64748b;
+  --sal-radius-sm: 8px;
+  --sal-transition: 0.2s ease;
+}
+
+.sal-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid #e9edf4;
+}
+
+.sal-modal-header h2 {
+  margin: 0 0 6px;
+  font-size: 21px;
+}
+
+.sal-modal-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.sal-icon-btn {
+  border: 0;
+  background: none;
+  color: #64748b;
+  font-size: 27px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sal-form {
+  padding: 24px;
+}
+
+.sal-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.sal-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.sal-form label span {
+  color: var(--sal-danger);
+}
+
+.sal-form .sal-wide {
+  grid-column: 1 / -1;
+}
+
+.sal-form textarea {
+  resize: vertical;
+}
+
+.sal-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.sal-form .sal-alert {
+  margin: 16px 0 0;
+}
+
+.sal-detail-list {
+  min-width: 300px;
+  max-width: 460px;
+  margin-top: 12px;
+}
+
+.sal-detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px solid #e9edf4;
+  border-radius: 9px;
+}
+
+.sal-detail-item > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sal-detail-item span,
+.sal-detail-item small {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.sal-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sal-page button:focus-visible,
+.sal-overlay button:focus-visible {
+  outline: 2px solid var(--sal-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  .sal-page .sal-heading h1 {
+    font-size: 22px;
+  }
+
+  .sal-page .sal-panel .sal-toolbar {
+    padding: 14px;
+  }
+
+  .sal-page .sal-filter {
+    width: 100%;
+  }
+
+  .sal-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .sal-table {
+    min-width: 650px;
+  }
+}
+
+@media (max-width: 650px) {
+  .sal-page .sal-tabs button {
+    flex: 1;
+    padding: 11px 10px;
+    font-size: 12px;
+  }
+
+  .sal-page .sal-search {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .sal-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sal-modal-header,
+  .sal-form {
+    padding: 18px;
+  }
+
+  .sal-detail-list {
+    min-width: 220px;
+  }
+
+  .sal-detail-item {
+    flex-wrap: wrap;
+  }
+}
+/* ============================================
+   ADD ADVANCE MODAL — INPUT DESIGN FIX
+   ============================================ */
+
+.sal-overlay .sal-form input,
+.sal-overlay .sal-form textarea,
+.sal-overlay .sal-form select {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+
+  padding: 11px 14px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 9px;
+
+  background: #ffffff;
+  color: #0f172a;
+
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sal-overlay .sal-form input:hover,
+.sal-overlay .sal-form textarea:hover,
+.sal-overlay .sal-form select:hover {
+  border-color: #94a3b8;
+}
+
+.sal-overlay .sal-form input:focus,
+.sal-overlay .sal-form textarea:focus,
+.sal-overlay .sal-form select:focus {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.sal-overlay .sal-form input::placeholder,
+.sal-overlay .sal-form textarea::placeholder {
+  color: #94a3b8;
+}
+
+.sal-overlay .sal-form textarea {
+  min-height: 90px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.sal-overlay .sal-form input[type="date"] {
+  color-scheme: light;
+  cursor: pointer;
+}
+
+.sal-overlay .sal-form input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fix required (*) symbol */
+.sal-overlay .sal-form label span {
+  color: #dc2626;
+}
+
+/* Mobile responsive */
+@media (max-width: 650px) {
+  .sal-overlay .sal-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sal-overlay .sal-form input,
+  .sal-overlay .sal-form textarea {
+    font-size: 16px;
+  }
+}

@@ -412,13 +412,8 @@ export default function EmployeeForm({ employeeId, onClose, onSaved }) {
   }
 
   return (
-    <div className="emp-modal-overlay" onClick={onClose}>
-      <div
-        className="emp-modal emp-modal-form"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-      >
+    <div className="emp-modal-overlay">
+      <div className="emp-modal emp-modal-form" role="dialog" aria-modal="true">
         <div className="emp-modal-form-head">
           <h2>{isEdit ? "Edit Employee" : "New Employee"}</h2>
 

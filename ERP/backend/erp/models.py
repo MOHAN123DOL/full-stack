@@ -2101,15 +2101,31 @@ class EmployeeCodeSettings(models.Model):
 # salary and advance
 
 
-from django.db import models
-from django.core.validators import MinValueValidator
 
+from decimal import Decimal
+
+from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import models
+from django.db.models import Q, F
+
+
+# ============================================================
+# SALARY PAYMENT
+# Admin Salary Management
+# ============================================================
 
 class SalaryPayment(models.Model):
+
     PAYMENT_STATUS_CHOICES = [
         ("PENDING", "Pending"),
         ("PAID", "Paid"),
         ("PARTIALLY_PAID", "Partially Paid"),
+    ]
+
+    PAYROLL_STATUS_CHOICES = [
+        ("DRAFT", "Draft"),
+        ("CONFIRMED", "Confirmed"),
     ]
 
     employee = models.ForeignKey(
@@ -2118,84 +2134,116 @@ class SalaryPayment(models.Model):
         related_name="salary_payments",
     )
 
+    # Always store the first date of the salary month.
+    # Example: November 2026 -> 2026-11-01
     salary_month = models.DateField()
+
     salary_year = models.PositiveIntegerField()
 
+    # --------------------------------------------------------
+    # CALCULATION PERIOD
+    # --------------------------------------------------------
+
+    period_start = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    period_end = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    # --------------------------------------------------------
+    # EARNINGS
+    # --------------------------------------------------------
+
+    # Retained for compatibility with existing payroll.
+    # For DAILY wage employees, the new calculation service
+    # should use attendance_wage + overtime + allowances,
+    # without adding base_salary again.
     base_salary = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
+    # Earnings from normal attendance hours.
     attendance_wage = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     allowances = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
+    # Earnings from approved overtime hours.
     overtime = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     gross_earnings = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
+
+    # --------------------------------------------------------
+    # DEDUCTIONS
+    # --------------------------------------------------------
 
     pf = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     esi = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     tax = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     other_deductions = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
+    # Sum of the installments assigned to this payroll.
     advance_deduction = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     total_deductions = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     net_salary = models.DecimalField(
@@ -2204,6 +2252,17 @@ class SalaryPayment(models.Model):
         default=0,
     )
 
+    # --------------------------------------------------------
+    # PAYROLL WORKFLOW
+    # --------------------------------------------------------
+
+    payroll_status = models.CharField(
+        max_length=20,
+        choices=PAYROLL_STATUS_CHOICES,
+        default="DRAFT",
+    )
+
+    # Actual salary disbursement status.
     payment_status = models.CharField(
         max_length=20,
         choices=PAYMENT_STATUS_CHOICES,
@@ -2215,30 +2274,103 @@ class SalaryPayment(models.Model):
         blank=True,
     )
 
+    # --------------------------------------------------------
+    # CALCULATION AUDIT
+    # --------------------------------------------------------
+
+    # Stores the day-wise calculation used for payroll.
+    # Example:
+    # {
+    #     "days": [
+    #         {
+    #             "date": "2026-11-02",
+    #             "normal_hours": "8.00",
+    #             "ot_hours": "2.00",
+    #             "daily_rate": "1000.00",
+    #             "normal_wage": "1000.00",
+    #             "ot_wage": "250.00"
+    #         }
+    #     ]
+    # }
+    calculation_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    calculated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    calculated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="calculated_salary_payments",
+    )
+
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="confirmed_salary_payments",
+    )
+
     remarks = models.TextField(
         blank=True,
         default="",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
 
     class Meta:
         db_table = "salary_payment"
+
         constraints = [
             models.UniqueConstraint(
                 fields=["employee", "salary_month"],
                 name="unique_employee_salary_month",
-            )
+            ),
+            models.CheckConstraint(
+                condition=Q(net_salary__gte=0),
+                name="salary_net_nonnegative",
+            ),
         ]
-        ordering = ["-salary_month", "-created_at"]
+
+        ordering = [
+            "-salary_month",
+            "-created_at",
+        ]
 
     def __str__(self):
-        return f"{self.employee} - {self.salary_month}"
+        return (
+            f"{self.employee} - "
+            f"{self.salary_month} - "
+            f"{self.payroll_status}"
+        )
 
 
+# ============================================================
+# ADVANCE
+# HR creates advances.
+# Admin manages salary-linked repayments.
+# ============================================================
 
 class Advance(models.Model):
+
     STATUS_CHOICES = [
         ("OUTSTANDING", "Outstanding"),
         ("PARTIALLY_REPAID", "Partially Repaid"),
@@ -2256,22 +2388,35 @@ class Advance(models.Model):
     amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[
+            MinValueValidator(Decimal("0.01")),
+        ],
     )
 
     total_repaid = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+        ],
     )
 
     outstanding_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(0)],
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+        ],
     )
+    installment_count = models.PositiveSmallIntegerField(
+         null=True, blank=True,
+         validators=[MinValueValidator(1), MaxValueValidator(120)],
+     )
+    installment_amount = models.DecimalField(
+         max_digits=12, decimal_places=2, null=True, blank=True,
+     )
 
     reason = models.TextField(
         blank=True,
@@ -2289,19 +2434,52 @@ class Advance(models.Model):
         default="OUTSTANDING",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
 
     class Meta:
         db_table = "advance"
-        ordering = ["-advance_date", "-created_at"]
+
+        ordering = [
+            "-advance_date",
+            "-created_at",
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="advance_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_repaid__gte=0),
+                name="advance_repaid_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(outstanding_amount__gte=0),
+                name="advance_outstanding_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_repaid__lte=F("amount")),
+                name="advance_repaid_lte_amount",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.employee} - ₹{self.amount}"
 
 
+# ============================================================
+# ADVANCE REPAYMENT
+# One record for each confirmed installment.
+# ============================================================
 
 class AdvanceRepayment(models.Model):
+
     advance = models.ForeignKey(
         Advance,
         on_delete=models.PROTECT,
@@ -2317,9 +2495,12 @@ class AdvanceRepayment(models.Model):
     amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[
+            MinValueValidator(Decimal("0.01")),
+        ],
     )
 
+    # Nullable for compatibility with existing manual repayments.
     salary_payment = models.ForeignKey(
         SalaryPayment,
         on_delete=models.PROTECT,
@@ -2330,29 +2511,52 @@ class AdvanceRepayment(models.Model):
 
     date = models.DateField()
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
 
     class Meta:
         db_table = "advance_repayment"
-        ordering = ["-date", "-created_at"]
+
+        ordering = [
+            "-date",
+            "-created_at",
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="advance_repayment_positive",
+            ),
+            # One installment per advance per salary payment.
+            # Multiple different advances may still be deducted
+            # from the same salary payment.
+            models.UniqueConstraint(
+                fields=["advance", "salary_payment"],
+                condition=Q(salary_payment__isnull=False),
+                name="unique_advance_salary_installment",
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.employee} - ₹{self.amount}"
+        return (
+            f"{self.employee} - "
+            f"₹{self.amount} - "
+            f"{self.date}"
+        )
 
 
-
-
-
-from decimal import Decimal
-
-from django.db import models
-from django.core.validators import MinValueValidator
-
+# ============================================================
+# WAGE CONFIGURATION
+# Admin configures employee salary rates.
+# ============================================================
 
 class WageConfig(models.Model):
+
     SALARY_TYPE_CHOICES = [
         ("HOURLY", "Hourly Wage"),
         ("MONTHLY", "Monthly Salary"),
+        ("DAILY", "Daily Wage"),
     ]
 
     LEAVE_POLICY_CHOICES = [
@@ -2372,12 +2576,41 @@ class WageConfig(models.Model):
         default="HOURLY",
     )
 
+    # --------------------------------------------------------
+    # ADMIN DAILY RATE
+    # --------------------------------------------------------
+
+    # Example:
+    # daily_rate = 1000
+    #
+    # Monday-Saturday:
+    # 1000 / 8 = 125 per hour
+    #
+    # Sunday:
+    # 1000 / 6 = 166.666... per hour
+    #
+    # The salary service must calculate with Decimal
+    # precision and round final monetary amounts.
+    daily_rate = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+        ],
+    )
+
+    # --------------------------------------------------------
+    # EXISTING SALARY FIELDS
+    # Retained for backward compatibility.
+    # --------------------------------------------------------
+
     hourly_rate = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
         validators=[
-            MinValueValidator(Decimal("0"))
+            MinValueValidator(Decimal("0.00")),
         ],
     )
 
@@ -2386,7 +2619,7 @@ class WageConfig(models.Model):
         decimal_places=2,
         default=0,
         validators=[
-            MinValueValidator(Decimal("0"))
+            MinValueValidator(Decimal("0.00")),
         ],
     )
 
@@ -2395,9 +2628,13 @@ class WageConfig(models.Model):
         decimal_places=2,
         default=8,
         validators=[
-            MinValueValidator(Decimal("0"))
+            MinValueValidator(Decimal("0.00")),
         ],
     )
+
+    # --------------------------------------------------------
+    # PAID / UNPAID POLICIES
+    # --------------------------------------------------------
 
     paid_leave_policy = models.CharField(
         max_length=20,
@@ -2418,11 +2655,11 @@ class WageConfig(models.Model):
     )
 
     updated_at = models.DateTimeField(
-        auto_now=True
+        auto_now=True,
     )
 
     created_at = models.DateTimeField(
-        auto_now_add=True
+        auto_now_add=True,
     )
 
     class Meta:
@@ -2434,6 +2671,11 @@ class WageConfig(models.Model):
             f"{self.salary_type}"
         )
 
+
+# ============================================================
+# ATTENDANCE
+# HR Attendance — Existing functionality preserved.
+# ============================================================
 
 class Attendance(models.Model):
 
@@ -2471,12 +2713,75 @@ class Attendance(models.Model):
         blank=True,
     )
 
+    # --------------------------------------------------------
+    # HOURLY SLOT ATTENDANCE
+    # --------------------------------------------------------
+
+    # Checked slot start hours.
+    # Example: [9, 10, 11, 12, 14, 15, 16, 17]
+    #
+    # None indicates a legacy record.
+    selected_slots = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+    )
+
+    normal_hours = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+        ],
+    )
+
+    suggested_ot_hours = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+        ],
+    )
+
+    approved_ot_hours = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+        ],
+    )
+
+    total_hours = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=0,
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+        ],
+    )
+
+    ot_manually_edited = models.BooleanField(
+        default=False,
+    )
+
+    # --------------------------------------------------------
+    # LEGACY PAYROLL COLUMNS
+    # Kept for compatibility.
+    #
+    # HR Attendance API must not expose these fields.
+    # New Admin Salary calculations should use:
+    # normal_hours + approved_ot_hours + WageConfig.daily_rate.
+    # --------------------------------------------------------
+
     break_hours = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         default=0,
         validators=[
-            MinValueValidator(Decimal("0"))
+            MinValueValidator(Decimal("0.00")),
         ],
     )
 
@@ -2485,7 +2790,7 @@ class Attendance(models.Model):
         decimal_places=2,
         default=0,
         validators=[
-            MinValueValidator(Decimal("0"))
+            MinValueValidator(Decimal("0.00")),
         ],
     )
 
@@ -2494,7 +2799,7 @@ class Attendance(models.Model):
         decimal_places=2,
         default=0,
         validators=[
-            MinValueValidator(Decimal("0"))
+            MinValueValidator(Decimal("0.00")),
         ],
     )
 
@@ -2503,7 +2808,7 @@ class Attendance(models.Model):
         decimal_places=2,
         default=0,
         validators=[
-            MinValueValidator(Decimal("0"))
+            MinValueValidator(Decimal("0.00")),
         ],
     )
 
@@ -2513,11 +2818,11 @@ class Attendance(models.Model):
     )
 
     created_at = models.DateTimeField(
-        auto_now_add=True
+        auto_now_add=True,
     )
 
     updated_at = models.DateTimeField(
-        auto_now=True
+        auto_now=True,
     )
 
     class Meta:
@@ -2525,30 +2830,33 @@ class Attendance(models.Model):
 
         constraints = [
             models.UniqueConstraint(
-                fields=[
-                    "employee",
-                    "date",
-                ],
+                fields=["employee", "date"],
                 name="unique_employee_attendance_date",
-            )
+            ),
         ]
 
         indexes = [
             models.Index(
-                fields=[
-                    "employee",
-                    "date",
-                ]
+                fields=["employee", "date"],
             ),
             models.Index(
-                fields=["date"]
+                fields=["date"],
             ),
             models.Index(
-                fields=["status"]
+                fields=["status"],
             ),
-            models.Index(fields=["date", "status"], name="att_date_status_idx"),  # ← add
-            models.Index(fields=["employee", "status"], name="att_emp_status_idx"),  # ← add
-            models.Index(fields=["-date"], name="att_date_desc_idx"),  # ← add
+            models.Index(
+                fields=["date", "status"],
+                name="att_date_status_idx",
+            ),
+            models.Index(
+                fields=["employee", "status"],
+                name="att_emp_status_idx",
+            ),
+            models.Index(
+                fields=["-date"],
+                name="att_date_desc_idx",
+            ),
         ]
 
         ordering = [
@@ -2562,8 +2870,6 @@ class Attendance(models.Model):
             f"{self.date} - "
             f"{self.status}"
         )
-
-
 
 
 # for purchase order description

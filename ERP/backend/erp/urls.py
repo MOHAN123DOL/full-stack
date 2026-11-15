@@ -1,13 +1,13 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminAttendanceDailyCountsAPIView,  AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdminProjectStatusDetailAPIView, AdvanceDetailAPIView, AdvanceListCreateAPIView, AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminAttendanceDailyCountsAPIView,  AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdminProjectStatusDetailAPIView,   AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
                     LoginAPIView ,InventoryAPIView, LoginVerifyOTPView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceDetailAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
-                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView,  SalaryEmployeeListAPIView, SalaryPaymentDetailAPIView, SalaryPaymentListCreateAPIView, SendPasswordChangeOTPView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceDetailAPIView, TaxInvoiceNextNumberAPIView, TwoStepSendOTPView, TwoStepVerifyOTPView, UserProfileDetailAPIView, 
+                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView, SalaryCalculateAPIView, SalaryConfirmAPIView, SalaryPaymentStatusAPIView,  SendPasswordChangeOTPView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceDetailAPIView, TaxInvoiceNextNumberAPIView, TwoStepSendOTPView, TwoStepVerifyOTPView, UserProfileDetailAPIView, 
                           UserProfileListCreateAPIView, AttendanceEmployeeView,
     AttendanceViewSet,
-    WageConfigViewSet,
+    
     ConsumableStockAPIView,
     ConsumableIssueStockAPIView,
     ConsumableIssueCreateAPIView,
@@ -34,7 +34,11 @@ from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsRepo
     ScrapDashboardAPIView,
     AdminAssemblyStageDetailAPIView,
     AdminStatisticsAPIView,
-    DeliveryChallanDetailAPIView
+    DeliveryChallanDetailAPIView,
+    SalaryEmployeeListAPIView, AdvanceListCreateAPIView, AdvanceDetailAPIView,
+    OutstandingAdvanceAPIView, AdvanceRepaymentListCreateAPIView,
+    SalaryPaymentListCreateAPIView, SalaryPaymentDetailAPIView,
+    WageConfigListCreateAPIView, WageConfigDetailAPIView,
     
     )
 
@@ -265,50 +269,7 @@ urlpatterns = [
 
     #employer salaryy
      # Employee search for salary page
-    path(
-        "salary/employees/",
-        SalaryEmployeeListAPIView.as_view(),
-        name="salary-employees",
-    ),
-
-    # -----------------------------------------
-    # SALARY
-    # -----------------------------------------
-
-    path(
-        "salary-payments/",
-        SalaryPaymentListCreateAPIView.as_view(),
-        name="salary-payment-list-create",
-    ),
-
-    path(
-        "salary-payments/<int:pk>/",
-        SalaryPaymentDetailAPIView.as_view(),
-        name="salary-payment-detail",
-    ),
-
-    # -----------------------------------------
-    # ADVANCE
-    # -----------------------------------------
-
-    path(
-        "advances/",
-        AdvanceListCreateAPIView.as_view(),
-        name="advance-list-create",
-    ),
-
-    path(
-        "advances/<int:pk>/",
-        AdvanceDetailAPIView.as_view(),
-        name="advance-detail",
-    ),
-
-
-     path(
-        "attendance/employees/",
-        AttendanceEmployeeView.as_view(),
-        name="attendance-employees",
-    ),
+   
 
 
     # ========================================================
@@ -323,7 +284,7 @@ urlpatterns = [
         }),
         name="attendance-list",
     ),
-
+ 
     path(
         "attendance/<int:pk>/",
         AttendanceViewSet.as_view({
@@ -334,83 +295,120 @@ urlpatterns = [
         }),
         name="attendance-detail",
     ),
-
-
-    # ========================================================
-    # ATTENDANCE DAILY SUMMARY
-    # ========================================================
-
+ 
+    # Add Attendance page: every active employee + attendance for one date
     path(
-        "attendance/daily-summary/",
-        AttendanceViewSet.as_view({
-            "get": "daily_summary",
-        }),
-        name="attendance-daily-summary",
+        "attendance/daily-roster/",
+        AttendanceViewSet.as_view({"get": "daily_roster"}),
+        name="attendance-daily-roster",
     ),
-
-
-    # ========================================================
-    # ATTENDANCE WEEKLY SUMMARY
-    # ========================================================
-
+ 
+    # Employee Summary page: weekly / monthly / yearly employee-wise hours
     path(
-        "attendance/weekly-summary/",
-        AttendanceViewSet.as_view({
-            "get": "weekly_summary",
-        }),
-        name="attendance-weekly-summary",
+        "attendance/employee-hours-summary/",
+        AttendanceViewSet.as_view({"get": "employee_hours_summary"}),
+        name="attendance-employee-hours-summary",
     ),
-
-
-    # ========================================================
-    # ATTENDANCE MONTHLY SUMMARY
-    # ========================================================
-
+ 
+    # Employee Summary detail modal: one employee's daily breakdown
     path(
-        "attendance/monthly-summary/",
-        AttendanceViewSet.as_view({
-            "get": "monthly_summary",
-        }),
-        name="attendance-monthly-summary",
+        "attendance/employee-hours-detail/",
+        AttendanceViewSet.as_view({"get": "employee_hours_detail"}),
+        name="attendance-employee-hours-detail",
     ),
+    
+# ============================================================
+# ADVANCE AND SALARY MANAGEMENT
+# ============================================================
 
+# Employee list - HR and Admin
+path(
+    "salary/employees/",
+    SalaryEmployeeListAPIView.as_view(),
+    name="salary-employees",
+),
 
-    # ========================================================
-    # EMPLOYEE ATTENDANCE SUMMARY
-    # ========================================================
+# ------------------------------------------------------------
+# HR ADVANCE MANAGEMENT
+# ------------------------------------------------------------
 
-    path(
-        "attendance/employee-summary/",
-        AttendanceViewSet.as_view({
-            "get": "employee_summary",
-        }),
-        name="attendance-employee-summary",
-    ),
+path(
+    "advances/",
+    AdvanceListCreateAPIView.as_view(),
+    name="advance-list-create",
+),
 
+path(
+    "advances/outstanding/",
+    OutstandingAdvanceAPIView.as_view(),
+    name="advance-outstanding",
+),
 
-    # ========================================================
-    # WAGE CONFIG
-    # ========================================================
+path(
+    "advances/repayments/",
+    AdvanceRepaymentListCreateAPIView.as_view(),
+    name="advance-repayments",
+),
 
-    path(
-        "wage-config/",
-        WageConfigViewSet.as_view({
-            "get": "list",
-            "post": "create",
-        }),
-        name="wage-config-list",
-    ),
+path(
+    "advances/<int:pk>/",
+    AdvanceDetailAPIView.as_view(),
+    name="advance-detail",
+),
 
-    path(
-        "wage-config/<int:pk>/",
-        WageConfigViewSet.as_view({
-            "get": "retrieve",
-            "put": "update",
-            "patch": "partial_update",
-            "delete": "destroy",
-        }),
-        name="wage-config-detail",
-    ),
+# ------------------------------------------------------------
+# ADMIN SALARY MANAGEMENT
+# ------------------------------------------------------------
+
+# Existing salary payment endpoints
+path(
+    "salary-payments/",
+    SalaryPaymentListCreateAPIView.as_view(),
+    name="salary-payment-list-create",
+),
+
+path(
+    "salary-payments/<int:pk>/",
+    SalaryPaymentDetailAPIView.as_view(),
+    name="salary-payment-detail",
+),
+
+# New: Calculate salary preview
+path(
+    "admin/salary/calculate/",
+    SalaryCalculateAPIView.as_view(),
+    name="admin-salary-calculate",
+),
+
+# New: Confirm salary and deduct advance installments
+path(
+    "admin/salary/<int:pk>/confirm/",
+    SalaryConfirmAPIView.as_view(),
+    name="admin-salary-confirm",
+),
+
+# New: Update salary payment status
+path(
+    "admin/salary/<int:pk>/mark-paid/",
+    SalaryPaymentStatusAPIView.as_view(),
+    name="admin-salary-mark-paid",
+),
+
+# ------------------------------------------------------------
+# ADMIN WAGE CONFIGURATION
+# ------------------------------------------------------------
+
+path(
+    "wage-config/",
+    WageConfigListCreateAPIView.as_view(),
+    name="wage-config-list",
+),
+
+path(
+    "wage-config/<int:pk>/",
+    WageConfigDetailAPIView.as_view(),
+    name="wage-config-detail",
+),
 
 
 

@@ -1547,3 +1547,307 @@
     font-size: 11px;
   }
 }
+
+/* ============================================================
+   NXT GENZ — SALARY & ADVANCE MANAGEMENT
+   Scoped with the `nx-` prefix. Modals render in a portal, so the
+   design tokens live on both .nx-pane and .nx-backdrop.
+   ============================================================ */
+
+/* Top-level tabs (Attendance | Salary Management | Advance Management) */
+.salary-main-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.salary-main-tabs button {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 17px; border: 1px solid #dcd5ef; border-radius: 11px;
+  background: rgba(255, 255, 255, 0.8); color: #475569;
+  font-weight: 700; cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.salary-main-tabs button:hover { transform: translateY(-1px); }
+.salary-main-tabs button.active {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(135deg, #7c3aed, #0891b2);
+  box-shadow: 0 6px 18px rgba(124, 58, 237, 0.2);
+}
+
+.nx-pane, .nx-backdrop {
+  --nx-navy: #0b1f3a;
+  --nx-ink: #1e293b;
+  --nx-muted: #64748b;
+  --nx-line: #e2e8f0;
+  --nx-soft: #f1f5f9;
+  --nx-bg: #f8fafc;
+  --nx-teal: #0d9488;
+  --nx-teal-dark: #0f766e;
+  --nx-cyan: #0891b2;
+  --nx-radius: 16px;
+  font-family: inherit;
+  color: var(--nx-ink);
+}
+.nx-pane *, .nx-backdrop * { box-sizing: border-box; }
+
+.nx-pane { padding: 2px 0 28px; animation: nx-fade .25s ease both; }
+@keyframes nx-fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Header */
+.nx-pane-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 14px; flex-wrap: wrap; margin: 6px 0 18px;
+}
+.nx-pane-head h2 {
+  display: flex; align-items: center; gap: 10px; margin: 0;
+  color: var(--nx-navy); font-size: 23px; font-weight: 800;
+}
+.nx-pane-head h2 svg { color: var(--nx-teal); }
+.nx-pane-head p { margin: 4px 0 0; color: var(--nx-muted); font-size: 12.5px; }
+.nx-pane-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* Summary cards */
+.nx-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.nx-cards--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.nx-card {
+  display: flex; align-items: center; gap: 12px; padding: 16px;
+  background: #fff; border: 1px solid var(--nx-line); border-radius: var(--nx-radius);
+  box-shadow: 0 6px 18px rgba(11, 31, 58, 0.06);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.nx-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(11, 31, 58, 0.1); }
+.nx-card small { display: block; color: var(--nx-muted); font-size: 11.5px; font-weight: 700; letter-spacing: .02em; }
+.nx-card strong { display: block; margin-top: 3px; color: var(--nx-navy); font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.nx-card-icon { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 12px; }
+.nx-card--navy .nx-card-icon { background: #e0e7f1; color: var(--nx-navy); }
+.nx-card--teal .nx-card-icon { background: #ccfbf1; color: var(--nx-teal-dark); }
+.nx-card--cyan .nx-card-icon { background: #cffafe; color: #0e7490; }
+.nx-card--amber .nx-card-icon { background: #fef3c7; color: #b45309; }
+.nx-card--green .nx-card-icon { background: #d1fae5; color: #047857; }
+
+/* Toolbar + fields */
+.nx-toolbar {
+  display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end;
+  padding: 16px; margin-bottom: 14px;
+  background: #fff; border: 1px solid var(--nx-line); border-radius: var(--nx-radius);
+}
+.nx-field { display: flex; flex-direction: column; gap: 6px; min-width: 150px; font-size: 12px; font-weight: 700; color: #475569; }
+.nx-field--grow { flex: 1 1 240px; }
+.nx-field--full { grid-column: 1 / -1; }
+.nx-field input, .nx-field select, .nx-field textarea, .nx-input-inline {
+  width: 100%; min-width: 0; padding: 10px 12px;
+  border: 1px solid #cbd5e1; border-radius: 10px; background: #fff;
+  color: var(--nx-ink); font: inherit; font-size: 13px; font-weight: 500; outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.nx-field input:focus, .nx-field select:focus, .nx-field textarea:focus, .nx-input-inline:focus {
+  border-color: var(--nx-teal); box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+}
+.nx-field input[readonly] { background: var(--nx-soft); color: #475569; }
+.nx-field input:disabled, .nx-field select:disabled, .nx-field textarea:disabled, .nx-input-inline:disabled { background: var(--nx-soft); color: #94a3b8; cursor: not-allowed; }
+.nx-search { position: relative; display: block; }
+.nx-search > svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none; }
+.nx-search input { padding-left: 34px; }
+.nx-input-inline { max-width: 150px; text-align: right; padding: 7px 10px; }
+
+.nx-grid { display: grid; gap: 14px; margin: 14px 0; }
+.nx-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.nx-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Buttons */
+.nx-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 10px 16px; border: 1px solid transparent; border-radius: 10px;
+  font: inherit; font-size: 12.5px; font-weight: 800; line-height: 1.2; white-space: nowrap; cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease, opacity .12s ease;
+}
+.nx-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.nx-btn:disabled { opacity: .5; cursor: not-allowed; }
+.nx-btn:focus-visible, .nx-icon-btn:focus-visible { outline: 3px solid rgba(8, 145, 178, .4); outline-offset: 2px; }
+.nx-btn--sm { padding: 7px 11px; font-size: 11.5px; border-radius: 8px; }
+.nx-btn--primary { color: #fff; background: linear-gradient(135deg, var(--nx-teal), var(--nx-cyan)); box-shadow: 0 6px 14px rgba(13, 148, 136, .25); }
+.nx-btn--outline { color: var(--nx-teal-dark); background: #fff; border-color: #99d6cf; }
+.nx-btn--outline:hover:not(:disabled) { background: #f0fdfa; }
+.nx-btn--ghost { color: #475569; background: transparent; border-color: var(--nx-line); }
+.nx-btn--success { color: #fff; background: #059669; }
+.nx-btn--danger { color: #b91c1c; background: #fff; border-color: #fecaca; }
+.nx-btn--danger:hover:not(:disabled) { background: #fef2f2; }
+.nx-icon-btn {
+  display: inline-grid; place-items: center; width: 34px; height: 34px;
+  border: 1px solid var(--nx-line); border-radius: 10px; background: #fff; color: #475569; cursor: pointer;
+}
+.nx-icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+.nx-link { border: 0; background: none; color: var(--nx-teal-dark); font-weight: 800; font-size: 12px; text-decoration: underline; cursor: pointer; }
+
+/* Alerts */
+.nx-alert { padding: 11px 14px; margin: 0 0 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.5; }
+.nx-alert--error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.nx-alert--success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.nx-alert--info { background: #ecfeff; color: #155e75; border: 1px solid #a5f3fc; }
+.nx-hint { padding: 12px 14px; border-radius: 10px; background: #f0fdfa; color: var(--nx-teal-dark); font-size: 12.5px; }
+.nx-muted { color: var(--nx-muted); font-size: 12px; line-height: 1.55; }
+
+/* Table panel */
+.nx-panel { background: #fff; border: 1px solid var(--nx-line); border-radius: var(--nx-radius); box-shadow: 0 8px 22px rgba(11, 31, 58, .06); overflow: hidden; }
+.nx-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.nx-table { width: 100%; min-width: 820px; border-collapse: collapse; font-size: 13px; }
+.nx-table--compact { min-width: 480px; font-size: 12.5px; }
+.nx-table th {
+  padding: 13px 14px; text-align: left; white-space: nowrap;
+  background: var(--nx-bg); color: var(--nx-navy); border-bottom: 1px solid var(--nx-line);
+  font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+}
+.nx-table td { padding: 13px 14px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
+.nx-table tbody tr { transition: background .12s ease; }
+.nx-table tbody tr:hover { background: #f7fcfc; }
+.nx-table tfoot td { padding: 12px 14px; background: var(--nx-bg); font-weight: 700; }
+.nx-right { text-align: right !important; font-variant-numeric: tabular-nums; }
+.nx-mono { font-variant-numeric: tabular-nums; color: #475569; font-weight: 700; }
+.nx-sub { display: block; margin-top: 2px; color: var(--nx-muted); font-size: 11.5px; font-weight: 500; }
+.nx-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.nx-empty { padding: 34px 14px !important; text-align: center; color: var(--nx-muted); }
+
+/* Badges */
+.nx-badge { display: inline-block; padding: 5px 11px; border-radius: 99px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.nx-badge--neutral { background: #e2e8f0; color: #475569; }
+.nx-badge--warning { background: #fef3c7; color: #92400e; }
+.nx-badge--info { background: #cffafe; color: #0e7490; }
+.nx-badge--success { background: #d1fae5; color: #065f46; }
+
+/* States */
+.nx-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 44px 16px; color: var(--nx-muted); font-size: 13px; text-align: center; }
+.nx-state--error p { margin: 0; color: #991b1b; }
+.nx-spinner { display: inline-block; width: 22px; height: 22px; border: 3px solid #cbd5e1; border-top-color: var(--nx-teal); border-radius: 50%; animation: nx-spin .8s linear infinite; }
+@keyframes nx-spin { to { transform: rotate(360deg); } }
+
+/* Pager */
+.nx-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--nx-line); color: var(--nx-muted); font-size: 12px; }
+.nx-pager > div { display: flex; align-items: center; gap: 10px; }
+.nx-pager strong { color: var(--nx-navy); font-variant-numeric: tabular-nums; }
+
+/* Modal / drawer */
+.nx-backdrop {
+  position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 20px;
+  background: rgba(11, 31, 58, .5); backdrop-filter: blur(3px); animation: nx-backdrop-in .18s ease both;
+}
+.nx-backdrop--drawer { place-items: stretch end; padding: 0; }
+@keyframes nx-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+.nx-dialog {
+  display: flex; flex-direction: column; width: min(520px, 100%); max-height: calc(100vh - 40px);
+  background: #fff; border-radius: 18px; box-shadow: 0 30px 70px rgba(11, 31, 58, .35);
+  animation: nx-pop .22s ease both; overflow: hidden;
+}
+.nx-dialog--wide { width: min(760px, 100%); }
+.nx-dialog--drawer { width: min(820px, 100%); max-height: 100vh; height: 100vh; border-radius: 18px 0 0 18px; animation: nx-slide .25s ease both; }
+@keyframes nx-pop { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes nx-slide { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+.nx-dialog-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 18px 22px;
+  color: #fff; background: linear-gradient(135deg, var(--nx-navy), #0e4a6b 60%, var(--nx-teal));
+}
+.nx-dialog-head h2 { margin: 0; font-size: 18px; font-weight: 800; }
+.nx-dialog-head p { margin: 4px 0 0; color: rgba(255, 255, 255, .8); font-size: 12px; }
+.nx-dialog-head .nx-icon-btn { background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .25); color: #fff; }
+.nx-dialog-body { flex: 1 1 auto; padding: 20px 22px; overflow-y: auto; background: #fff; }
+.nx-dialog-foot { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; padding: 14px 22px; border-top: 1px solid var(--nx-line); background: var(--nx-bg); }
+
+/* Salary drawer content */
+.nx-section { margin-bottom: 18px; padding: 16px; border: 1px solid var(--nx-line); border-radius: 14px; background: #fff; }
+.nx-section h3, .nx-subhead { margin: 0 0 12px; color: var(--nx-navy); font-size: 14px; font-weight: 800; }
+.nx-subhead { margin-top: 18px; }
+.nx-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.nx-facts--spaced { margin-bottom: 16px; }
+.nx-facts > div { padding: 11px 12px; border-radius: 10px; background: var(--nx-bg); border: 1px solid #eef2f7; }
+.nx-facts span { display: block; color: var(--nx-muted); font-size: 11px; font-weight: 700; }
+.nx-facts strong { display: block; margin-top: 3px; color: var(--nx-navy); font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.nx-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+.nx-breakdown > div { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px solid #eef2f7; font-size: 12.5px; }
+.nx-breakdown strong { font-variant-numeric: tabular-nums; }
+.nx-breakdown-strong { font-weight: 800; color: var(--nx-navy); }
+.nx-breakdown-net { grid-column: 1 / -1; margin-top: 6px; padding: 12px 14px !important; border: 0 !important; border-radius: 10px; background: #ecfdf5; color: #047857; font-size: 15px !important; font-weight: 800; }
+.nx-formula { margin: 12px 0 4px; color: var(--nx-teal-dark); font-size: 12px; font-weight: 700; }
+
+/* Workflow steps */
+.nx-workflow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.nx-step { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 99px; font-size: 12px; font-weight: 800; background: var(--nx-soft); color: #94a3b8; }
+.nx-step i { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #cbd5e1; color: #fff; font-style: normal; font-size: 11px; }
+.nx-step--done { background: #d1fae5; color: #047857; }
+.nx-step--done i { background: #059669; }
+.nx-step--current { background: linear-gradient(135deg, var(--nx-teal), var(--nx-cyan)); color: #fff; }
+.nx-step--current i { background: rgba(255, 255, 255, .3); }
+
+/* Employee picker (Add Advance) */
+.nx-picked { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #99d6cf; border-radius: 10px; background: #f0fdfa; font-weight: 500; }
+.nx-picked small { color: var(--nx-muted); }
+.nx-picklist { list-style: none; margin: 0; padding: 4px; max-height: 190px; overflow-y: auto; border: 1px solid var(--nx-line); border-radius: 10px; }
+.nx-picklist button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; text-align: left; cursor: pointer; font: inherit; color: var(--nx-ink); }
+.nx-picklist button:hover, .nx-picklist button:focus-visible { background: #f0fdfa; outline: none; }
+.nx-picklist small { color: var(--nx-muted); font-size: 11.5px; font-weight: 500; }
+.nx-picklist-empty { padding: 10px; }
+
+/* Responsive */
+@media (max-width: 1100px) { .nx-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .nx-cards, .nx-cards--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nx-grid--3, .nx-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nx-breakdown { grid-template-columns: 1fr; }
+  .nx-pane-actions { width: 100%; }
+  .nx-pane-actions .nx-btn { flex: 1 1 auto; }
+  .nx-dialog--drawer { border-radius: 0; }
+}
+@media (max-width: 520px) {
+  .nx-cards, .nx-cards--3, .nx-grid--2, .nx-grid--3, .nx-facts { grid-template-columns: 1fr; }
+  .nx-pane-head h2 { font-size: 19px; }
+  .nx-backdrop { padding: 0; place-items: end stretch; }
+  .nx-dialog, .nx-dialog--wide { width: 100%; max-height: 94vh; border-radius: 18px 18px 0 0; }
+  .nx-dialog--drawer { height: 100vh; max-height: 100vh; border-radius: 0; }
+  .nx-dialog-foot .nx-btn { flex: 1 1 auto; }
+  .nx-toolbar .nx-field { flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-pane, .nx-backdrop, .nx-dialog, .nx-card, .nx-btn, .nx-spinner { animation: none !important; transition: none !important; }
+}
+
+/* Repayment movement panel + salary drawer repayment hint */
+.nx-panel--gap { margin-top: 16px; }
+.nx-panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; padding: 16px 16px 4px; }
+.nx-panel-head h3 { margin: 0; color: var(--nx-navy); font-size: 15px; font-weight: 800; }
+.nx-gap { margin: 0 0 12px; }
+
+.nx-quickfill { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
+.nx-link--inline { margin-left: 8px; }
+.nx-link:disabled { opacity: .5; cursor: not-allowed; }
+
+
+/* =====================================================
+   NXT GENZ ERP — PAGE SCROLL FIX
+   ===================================================== */
+
+.admin-attendance-page {
+  height: auto;
+  min-height: 100%;
+  max-height: none;
+  overflow-y: visible;
+  overflow-x: clip;
+}
+
+/* Keep salary and advance sections expandable */
+.admin-attendance-page .nx-pane {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* Preserve horizontal scrolling for wide tables */
+.admin-attendance-page .nx-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Keep modal scrolling separate from page scrolling */
+.nx-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.nx-dialog {
+  min-height: 0;
+}

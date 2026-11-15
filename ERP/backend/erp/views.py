@@ -1,4 +1,39 @@
 from xml.dom.minidom import DocumentType
+from .services import (
+    calculate_salary,
+    save_salary_draft,
+    confirm_salary,
+    standard_hours,
+    month_bounds,
+    money,
+)
+from datetime import datetime
+from decimal import Decimal
+
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
+from django.db.models import Q, Sum
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Employee, Advance, AdvanceRepayment, SalaryPayment, WageConfig
+from .serializers import (
+    SalaryEmployeeSerializer,
+    AdvanceSerializer,
+    AdvanceRepaymentSerializer,
+    SalaryPaymentSerializer,
+    WageConfigSerializer,
+    SalaryCalculationInputSerializer,
+)
+from .services import calculate_salary, save_salary_draft, confirm_salary, month_bounds, money
+
+from .services import max_normal_hours
 
 from django.db import models
 from django.shortcuts import render
@@ -31,8 +66,8 @@ from .models import (
     MaterialGRN,
     MaterialGRNNumberSettings,
 )
-from .serializers import AdminSecuritySettingsSerializer, AssemblyExecutionSerializer, AssemblySerializer, AssemblyStageExecutionSerializer, DispatchCreateSerializer, DispatchReadyAssemblySerializer, DispatchTransactionSerializer, JobWorkReceiveSerializer, MaterialGRNSerializer, ProductionIssueSerializer
-from .permissions import IsMaterialPlanning
+from .serializers import AdminSecuritySettingsSerializer, AdvanceRepaymentSerializer, AssemblyExecutionSerializer, AssemblySerializer, AssemblyStageExecutionSerializer, DispatchCreateSerializer, DispatchReadyAssemblySerializer, DispatchTransactionSerializer, JobWorkReceiveSerializer, MaterialGRNSerializer, ProductionIssueSerializer
+from .permissions import IsMaterialPlanning , IsHRorAdmin
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -7074,570 +7109,6 @@ class EmployeeArchiveAPIView(APIView):
 
 
 
-#salary
-from datetime import datetime
-
-from django.db.models import Q
-from django.shortcuts import get_object_or_404
-
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
-
-from .models import (
-    Employee,
-    SalaryPayment,
-    Advance,
-)
-
-from .serializers import (
-    SalaryEmployeeSerializer,
-    SalaryPaymentSerializer,
-    AdvanceSerializer,
-)
-
-
-# =========================================================
-# COMMON EMPLOYEE FILTER
-# =========================================================
-
-def filter_employees(request):
-    search = request.query_params.get(
-        "search", ""
-    ).strip()
-
-    department = request.query_params.get(
-        "department", ""
-    ).strip()
-
-    branch = request.query_params.get(
-        "branch", ""
-    ).strip()
-
-    employment_type = request.query_params.get(
-        "employment_type", ""
-    ).strip()
-
-    work_location = request.query_params.get(
-        "work_location", ""
-    ).strip()
-
-    employees = Employee.objects.filter(
-    archived=False,
-    employment_status="Active",
-)
-
-    if search:
-        employees = employees.filter(
-            Q(employee_id__icontains=search)
-            | Q(employee_code__icontains=search)
-            | Q(first_name__icontains=search)
-            | Q(last_name__icontains=search)
-            | Q(mobile__icontains=search)
-            | Q(email__icontains=search)
-        )
-
-    if department:
-        employees = employees.filter(
-            department__iexact=department
-        )
-
-    if branch:
-        employees = employees.filter(
-            branch__icontains=branch
-        )
-
-    if employment_type:
-        employees = employees.filter(
-            employment_type__iexact=employment_type
-        )
-
-    if work_location:
-        employees = employees.filter(
-            work_location__icontains=work_location
-        )
-
-    return employees.order_by("employee_id")
-
-
-# =========================================================
-# EMPLOYEE SEARCH FOR SALARY ADD
-# =========================================================
-
-class SalaryEmployeeListAPIView(APIView):
-
-    permission_classes = [IsAuthenticated, IsHROrMaterialPlanning]
-
-    def get(self, request):
-
-        employees = filter_employees(request)
-
-        try:
-            page = int(request.query_params.get("page", 1))
-            page_size = int(request.query_params.get("page_size", 25))
-        except (TypeError, ValueError):
-            return Response(
-                {"detail": "page and page_size must be whole numbers."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if page < 1 or page_size < 1:
-            return Response(
-                {"detail": "page and page_size must be greater than zero."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        page_size = min(page_size, 100)
-
-        total = employees.count()
-
-        start = (page - 1) * page_size
-        end = start + page_size
-
-        employees = employees[start:end]
-
-        serializer = SalaryEmployeeSerializer(
-            employees,
-            many=True
-        )
-
-        return Response({
-            "count": total,
-            "page": page,
-            "page_size": page_size,
-            "total_pages": (
-                total + page_size - 1
-            ) // page_size,
-            "results": serializer.data,
-        })
-
-
-# =========================================================
-# SALARY LIST + CREATE
-# =========================================================
-
-class SalaryPaymentListCreateAPIView(APIView):
-
-    permission_classes = [IsAuthenticated, IsHR]
-
-    def get(self, request):
-
-        month = request.query_params.get(
-            "month"
-        )
-
-        payment_status = request.query_params.get(
-            "payment_status",
-            ""
-        ).strip()
-
-        employees = filter_employees(request)
-
-        salary_qs = SalaryPayment.objects.select_related(
-            "employee"
-        )
-
-        # -------------------------------------------------
-        # MONTH
-        # -------------------------------------------------
-
-        if month:
-
-            try:
-                salary_month = datetime.strptime(
-                    month,
-                    "%Y-%m"
-                ).date()
-
-                salary_month = salary_month.replace(
-                    day=1
-                )
-
-                salary_qs = salary_qs.filter(
-                    salary_month=salary_month
-                )
-
-            except ValueError:
-                return Response(
-                    {
-                        "detail": (
-                            "month must be in "
-                            "YYYY-MM format."
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        # -------------------------------------------------
-        # PAYMENT STATUS
-        # -------------------------------------------------
-
-        if payment_status:
-            salary_qs = salary_qs.filter(
-                payment_status=payment_status
-            )
-
-        # -------------------------------------------------
-        # EMPLOYEE FILTERS
-        # -------------------------------------------------
-
-        salary_qs = salary_qs.filter(
-            employee__in=employees
-        )
-
-        salary_qs = salary_qs.order_by(
-            "employee__employee_id"
-        )
-
-        # -------------------------------------------------
-        # MISSING SALARY
-        # -------------------------------------------------
-
-        if month:
-
-            saved_employee_ids = set(
-                salary_qs.values_list(
-                    "employee_id",
-                    flat=True
-                )
-            )
-
-            filtered_employees = employees
-
-            missing_employees = (
-                filtered_employees
-                .exclude(
-                    id__in=saved_employee_ids
-                )
-                .order_by("employee_id")
-            )
-
-        else:
-
-            saved_employee_ids = set(
-                salary_qs.values_list(
-                    "employee_id",
-                    flat=True
-                )
-            )
-
-            missing_employees = (
-                employees
-                .exclude(
-                    id__in=saved_employee_ids
-                )
-                .order_by("employee_id")
-            )
-
-        salary_serializer = SalaryPaymentSerializer(
-            salary_qs,
-            many=True
-        )
-
-        missing_serializer = SalaryEmployeeSerializer(
-            missing_employees,
-            many=True
-        )
-
-        return Response({
-            "month": month,
-
-            "total_employees": employees.count(),
-
-            "saved_entries": salary_qs.count(),
-
-            "missing_entries": missing_employees.count(),
-
-            "missing_employees": (
-                missing_serializer.data
-            ),
-
-            "salary_records": (
-                salary_serializer.data
-            ),
-        })
-
-    def post(self, request):
-
-        serializer = SalaryPaymentSerializer(
-            data=request.data
-        )
-
-        if serializer.is_valid():
-
-            salary = serializer.save()
-
-            return Response(
-                SalaryPaymentSerializer(
-                    salary
-                ).data,
-                status=status.HTTP_201_CREATED,
-            )
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-
-# =========================================================
-# SALARY DETAIL
-# =========================================================
-
-class SalaryPaymentDetailAPIView(APIView):
-
-    permission_classes = [IsAuthenticated, IsHR]
-
-    def get_object(self, pk):
-        return get_object_or_404(
-            SalaryPayment.objects.select_related(
-                "employee"
-            ),
-            pk=pk,
-        )
-
-    def get(self, request, pk):
-
-        salary = self.get_object(pk)
-
-        serializer = SalaryPaymentSerializer(
-            salary
-        )
-
-        return Response(
-            serializer.data
-        )
-
-    def put(self, request, pk):
-
-        salary = self.get_object(pk)
-
-        serializer = SalaryPaymentSerializer(
-            salary,
-            data=request.data
-        )
-
-        if serializer.is_valid():
-
-            salary = serializer.save()
-
-            return Response(
-                SalaryPaymentSerializer(
-                    salary
-                ).data
-            )
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    def patch(self, request, pk):
-
-        salary = self.get_object(pk)
-
-        serializer = SalaryPaymentSerializer(
-            salary,
-            data=request.data,
-            partial=True,
-        )
-
-        if serializer.is_valid():
-
-            salary = serializer.save()
-
-            return Response(
-                SalaryPaymentSerializer(
-                    salary
-                ).data
-            )
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    def delete(self, request, pk):
-
-        salary = self.get_object(pk)
-
-        salary.delete()
-
-        return Response(
-            {
-                "message": "Salary deleted successfully."
-            },
-            status=status.HTTP_204_NO_CONTENT,
-        )
-
-
-# =========================================================
-# ADVANCE LIST + CREATE
-# =========================================================
-
-class AdvanceListCreateAPIView(APIView):
-
-    permission_classes = [IsAuthenticated, IsHR]
-
-    def get(self, request):
-
-        employees = filter_employees(request)
-
-        status_filter = request.query_params.get(
-            "status",
-            ""
-        ).strip()
-
-        date_from = request.query_params.get(
-            "date_from",
-            ""
-        ).strip()
-
-        date_to = request.query_params.get(
-            "date_to",
-            ""
-        ).strip()
-
-        advances = Advance.objects.select_related(
-            "employee"
-        ).filter(
-            employee__in=employees
-        )
-
-        # -------------------------------------------------
-        # STATUS
-        # -------------------------------------------------
-
-        if status_filter:
-            advances = advances.filter(
-                status=status_filter
-            )
-
-        # -------------------------------------------------
-        # DATE FROM
-        # -------------------------------------------------
-
-        if date_from:
-            advances = advances.filter(
-                advance_date__gte=date_from
-            )
-
-        # -------------------------------------------------
-        # DATE TO
-        # -------------------------------------------------
-
-        if date_to:
-            advances = advances.filter(
-                advance_date__lte=date_to
-            )
-
-        advances = advances.order_by(
-            "-advance_date",
-            "employee__employee_id"
-        )
-
-        serializer = AdvanceSerializer(
-            advances,
-            many=True
-        )
-
-        return Response({
-            "count": advances.count(),
-            "results": serializer.data,
-        })
-
-    def post(self, request):
-
-        serializer = AdvanceSerializer(
-            data=request.data
-        )
-
-        if serializer.is_valid():
-
-            advance = serializer.save()
-
-            return Response(
-                AdvanceSerializer(
-                    advance
-                ).data,
-                status=status.HTTP_201_CREATED,
-            )
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-
-# =========================================================
-# ADVANCE DETAIL
-# =========================================================
-
-class AdvanceDetailAPIView(APIView):
-
-    permission_classes = [IsAuthenticated, IsHR]
-
-    def get_object(self, pk):
-
-        return get_object_or_404(
-            Advance.objects.select_related(
-                "employee"
-            ),
-            pk=pk,
-        )
-
-    def get(self, request, pk):
-
-        advance = self.get_object(pk)
-
-        serializer = AdvanceSerializer(
-            advance
-        )
-
-        return Response(
-            serializer.data
-        )
-
-    def patch(self, request, pk):
-
-        advance = self.get_object(pk)
-
-        serializer = AdvanceSerializer(
-            advance,
-            data=request.data,
-            partial=True,
-        )
-
-        if serializer.is_valid():
-
-            advance = serializer.save()
-
-            return Response(
-                AdvanceSerializer(
-                    advance
-                ).data
-            )
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    def delete(self, request, pk):
-
-        advance = self.get_object(pk)
-
-        advance.delete()
-
-        return Response(
-            {
-                "message": "Advance deleted successfully."
-            },
-            status=status.HTTP_204_NO_CONTENT,
-        )
-
-
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 
@@ -7658,11 +7129,7 @@ from .models import (
     Advance,
 )
 
-from .serializers import (
-    AttendanceEmployeeSerializer,
-    WageConfigSerializer,
-    AttendanceSerializer,
-)
+
 
 
 # ============================================================
@@ -7691,104 +7158,77 @@ class AttendancePagination(PageNumberPagination):
 # EMPLOYEE SEARCH
 # ============================================================
 
-class AttendanceEmployeeView(APIView):
+from django.db.models import Q
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
+
+from .models import Employee
+from .serializers import AttendanceEmployeeSerializer
+
+
+class AttendanceEmployeeView(APIView):
     permission_classes = [IsAuthenticated, IsHR]
 
     def get(self, request):
-
         queryset = Employee.objects.filter(
             archived=False,
             employment_status="Active",
         )
 
-        search = request.GET.get(
-            "search",
-            "",
+        search = request.query_params.get("search", "").strip()
+        department = request.query_params.get("department", "").strip()
+        branch = request.query_params.get("branch", "").strip()
+        employment_type = request.query_params.get(
+            "employment_type", ""
         ).strip()
-
-        department = request.GET.get(
-            "department",
-            "",
+        work_location = request.query_params.get(
+            "work_location", ""
         ).strip()
-
-        branch = request.GET.get(
-            "branch",
-            "",
-        ).strip()
-
-        employment_type = request.GET.get(
-            "employment_type",
-            "",
-        ).strip()
-
-        work_location = request.GET.get(
-            "work_location",
-            "",
-        ).strip()
-
-        # ----------------------------------------------------
-        # SEARCH
-        # ----------------------------------------------------
 
         if search:
-
             queryset = queryset.filter(
                 Q(employee_id__icontains=search)
-                |
-                Q(employee_code__icontains=search)
-                |
-                Q(first_name__icontains=search)
-                |
-                Q(last_name__icontains=search)
-                |
-                Q(mobile__icontains=search)
-                |
-                Q(email__icontains=search)
+                | Q(employee_code__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(mobile__icontains=search)
+                | Q(email__icontains=search)
             )
 
-        # ----------------------------------------------------
-        # FILTERS
-        # ----------------------------------------------------
-
         if department:
-
             queryset = queryset.filter(
-                department=department
+                department__iexact=department
             )
 
         if branch:
-
             queryset = queryset.filter(
-                branch=branch
+                branch__icontains=branch
             )
 
         if employment_type:
-
             queryset = queryset.filter(
-                employment_type=employment_type
+                employment_type__iexact=employment_type
             )
 
         if work_location:
-
             queryset = queryset.filter(
-                work_location=work_location
+                work_location__icontains=work_location
             )
 
-        queryset = queryset.order_by(
-            "employee_id"
-        )
+        queryset = queryset.order_by("employee_id")
 
         paginator = EmployeePagination()
-
         page = paginator.paginate_queryset(
-            queryset,
-            request,
+            queryset, request, view=self
         )
 
         serializer = AttendanceEmployeeSerializer(
             page,
             many=True,
+            context={"request": request},
         )
 
         return paginator.get_paginated_response(
@@ -7797,195 +7237,160 @@ class AttendanceEmployeeView(APIView):
 
 
 # ============================================================
-# WAGE CONFIG VIEWSET
+# ATTENDANCE VIEWSET
 # ============================================================
 
-class WageConfigViewSet(ModelViewSet):
+# ============================================================
+# ATTENDANCE VIEWSET
+# ============================================================
 
-    serializer_class = WageConfigSerializer
-    permission_classes = [IsAuthenticated, IsHR]
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 
-    def get_queryset(self):
+from django.core.paginator import Paginator
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Q, Sum
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.viewsets import ModelViewSet
 
-        queryset = (
-            WageConfig.objects
-            .select_related("employee")
-            .filter(
-                employee__archived=False,
-                employee__employment_status="Active",
-            )
-        )
+from .services import WORKED_STATUSES
+from .models import Attendance, Employee
+from .serializers import AttendanceSerializer
+# from .permissions import IsHR                 <- keep your existing import
+# from .pagination import AttendancePagination  <- keep your existing import
 
-        search = self.request.GET.get(
-            "search",
-            "",
-        ).strip()
 
-        employee_id = self.request.GET.get(
-            "employee_id",
-            "",
-        ).strip()
+DUPLICATE_MESSAGE = "Attendance already exists for this employee and date."
+ZERO = Decimal("0.00")
 
-        department = self.request.GET.get(
-            "department",
-            "",
-        ).strip()
 
-        branch = self.request.GET.get(
-            "branch",
-            "",
-        ).strip()
+# ============================================================
+# MODULE HELPERS
+# ============================================================
 
-        employment_type = self.request.GET.get(
-            "employment_type",
-            "",
-        ).strip()
+def parse_iso_date(value, field="date"):
+    value = (value or "").strip()
+    if not value:
+        raise ValidationError({"detail": f"{field} is required. Use YYYY-MM-DD."})
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise ValidationError({"detail": f"Invalid {field}. Use YYYY-MM-DD."})
 
-        work_location = self.request.GET.get(
-            "work_location",
-            "",
-        ).strip()
 
-        if employee_id:
+def positive_int(value, default, maximum=None):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    if number < 1:
+        return default
+    return min(number, maximum) if maximum else number
 
-            queryset = queryset.filter(
-                employee__employee_id=employee_id
-            )
 
-        if search:
+def resolve_period(params):
+    """
+    Returns (period, start_date, end_date, label) for
+      period=weekly  &date=YYYY-MM-DD   (Monday-Sunday containing the date)
+      period=monthly &month=YYYY-MM
+      period=yearly  &year=YYYY
+    Defaults to the current week / month / year when the value is omitted.
+    """
+    period = (params.get("period") or "monthly").strip().lower()
+    today = timezone.localdate()
 
-            queryset = queryset.filter(
-                Q(
-                    employee__employee_id__icontains=search
-                )
-                |
-                Q(
-                    employee__employee_code__icontains=search
-                )
-                |
-                Q(
-                    employee__first_name__icontains=search
-                )
-                |
-                Q(
-                    employee__last_name__icontains=search
-                )
-            )
+    if period == "weekly":
+        raw = (params.get("date") or "").strip()
+        selected = parse_iso_date(raw) if raw else today
+        start = selected - timedelta(days=selected.weekday())      # Monday
+        end = start + timedelta(days=6)                            # Sunday
+        label = f"{start:%d/%m/%Y} – {end:%d/%m/%Y}"
 
-        if department:
-
-            queryset = queryset.filter(
-                employee__department=department
-            )
-
-        if branch:
-
-            queryset = queryset.filter(
-                employee__branch=branch
-            )
-
-        if employment_type:
-
-            queryset = queryset.filter(
-                employee__employment_type=employment_type
-            )
-
-        if work_location:
-
-            queryset = queryset.filter(
-                employee__work_location=work_location
-            )
-
-        return queryset.order_by(
-            "employee__employee_id"
-        )
-
-    def create(
-        self,
-        request,
-        *args,
-        **kwargs,
-    ):
-
-        employee_id = request.data.get(
-            "employee"
-        )
-
-        if not employee_id:
-
-            return Response(
-                {
-                    "detail":
-                        "employee is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+    elif period == "monthly":
+        raw = (params.get("month") or "").strip() or today.strftime("%Y-%m")
         try:
+            first = datetime.strptime(raw, "%Y-%m").date()
+        except ValueError:
+            raise ValidationError({"detail": "Invalid month. Use YYYY-MM."})
+        next_first = (
+            date(first.year + 1, 1, 1)
+            if first.month == 12
+            else date(first.year, first.month + 1, 1)
+        )
+        start = first
+        end = next_first - timedelta(days=1)
+        label = first.strftime("%B %Y")
 
-            employee = Employee.objects.get(
-                pk=employee_id,
-                archived=False,
-                employment_status="Active",
-            )
+    elif period == "yearly":
+        raw = (params.get("year") or "").strip() or str(today.year)
+        if not raw.isdigit() or not (1900 <= int(raw) <= 2200):
+            raise ValidationError({"detail": "Invalid year. Use YYYY."})
+        year = int(raw)
+        start = date(year, 1, 1)
+        end = date(year, 12, 31)
+        label = str(year)
 
-        except Employee.DoesNotExist:
-
-            return Response(
-                {
-                    "detail":
-                        "Employee not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        wage_config, created = (
-            WageConfig.objects.get_or_create(
-                employee=employee
-            )
+    else:
+        raise ValidationError(
+            {"detail": "Invalid period. Use weekly, monthly or yearly."}
         )
 
-        serializer = self.get_serializer(
-            wage_config,
-            data=request.data,
-            partial=True,
+    return period, start, end, label
+
+
+def active_employees():
+    return Employee.objects.filter(archived=False, employment_status="Active")
+
+
+def filter_employees(queryset, params):
+    """Employee ID / name search (every word must match) + optional filters."""
+    search = (params.get("search") or "").strip()
+    for token in search.split():
+        queryset = queryset.filter(
+            Q(employee_id__icontains=token)
+            | Q(employee_code__icontains=token)
+            | Q(first_name__icontains=token)
+            | Q(last_name__icontains=token)
         )
 
-        serializer.is_valid(
-            raise_exception=True
-        )
+    for field in ("department", "branch", "employment_type", "work_location"):
+        value = (params.get(field) or "").strip()
+        if value:
+            queryset = queryset.filter(**{field: value})
 
-        serializer.save(
-            employee=employee
-        )
+    return queryset
 
-        return Response(
-            serializer.data,
-            status=(
-                status.HTTP_201_CREATED
-                if created
-                else status.HTTP_200_OK
-            ),
-        )
+
+def fmt_time(value):
+    return value.strftime("%H:%M") if value else None
+
+
+def to_float(value):
+    return float(value or 0)
+
+
+
 
 
 # ============================================================
-# ATTENDANCE VIEWSET
-# ============================================================
-
-# ============================================================
-# ATTENDANCE VIEWSET
+# VIEWSET
 # ============================================================
 
 class AttendanceViewSet(ModelViewSet):
 
     serializer_class = AttendanceSerializer
     permission_classes = [IsAuthenticated, IsHR]
-
     pagination_class = AttendancePagination
 
+    # --------------------------------------------------------
+    # LIST / RETRIEVE QUERYSET
+    # --------------------------------------------------------
     def get_queryset(self):
-
         queryset = (
             Attendance.objects
             .select_related("employee")
@@ -7995,1136 +7400,834 @@ class AttendanceViewSet(ModelViewSet):
             )
         )
 
-        # ----------------------------------------------------
-        # FILTER PARAMETERS
-        # ----------------------------------------------------
-
-        attendance_date = self.request.GET.get(
-            "date",
-            "",
-        ).strip()
-
-        date_from = self.request.GET.get(
-            "date_from",
-            "",
-        ).strip()
-
-        date_to = self.request.GET.get(
-            "date_to",
-            "",
-        ).strip()
-
-        employee = self.request.GET.get(
-            "employee",
-            "",
-        ).strip()
-
-        employee_id = self.request.GET.get(
-            "employee_id",
-            "",
-        ).strip()
-
-        search = self.request.GET.get(
-            "search",
-            "",
-        ).strip()
-
-        department = self.request.GET.get(
-            "department",
-            "",
-        ).strip()
-
-        branch = self.request.GET.get(
-            "branch",
-            "",
-        ).strip()
-
-        employment_type = self.request.GET.get(
-            "employment_type",
-            "",
-        ).strip()
-
-        work_location = self.request.GET.get(
-            "work_location",
-            "",
-        ).strip()
-
-        attendance_status = self.request.GET.get(
-            "status",
-            "",
-        ).strip()
-
-        # ----------------------------------------------------
-        # DATE
-        # ----------------------------------------------------
+        params = self.request.GET
+        attendance_date = params.get("date", "").strip()
+        date_from = params.get("date_from", "").strip()
+        date_to = params.get("date_to", "").strip()
+        employee = params.get("employee", "").strip()
+        employee_code = params.get("employee_id", "").strip()
+        attendance_status = params.get("status", "").strip()
 
         if attendance_date:
-
-            queryset = queryset.filter(
-                date=attendance_date
-            )
-
+            queryset = queryset.filter(date=attendance_date)
         if date_from:
-
-            queryset = queryset.filter(
-                date__gte=date_from
-            )
-
+            queryset = queryset.filter(date__gte=date_from)
         if date_to:
-
-            queryset = queryset.filter(
-                date__lte=date_to
-            )
-
-        # ----------------------------------------------------
-        # EMPLOYEE
-        # ----------------------------------------------------
-
+            queryset = queryset.filter(date__lte=date_to)
         if employee:
-
-            queryset = queryset.filter(
-                employee_id=employee
-            )
-
-        if employee_id:
-
-            queryset = queryset.filter(
-                employee__employee_id=employee_id
-            )
-
-        # ----------------------------------------------------
-        # SEARCH
-        # ----------------------------------------------------
-
-        if search:
-
-            queryset = queryset.filter(
-                Q(
-                    employee__employee_id__icontains=search
-                )
-                |
-                Q(
-                    employee__employee_code__icontains=search
-                )
-                |
-                Q(
-                    employee__first_name__icontains=search
-                )
-                |
-                Q(
-                    employee__last_name__icontains=search
-                )
-                |
-                Q(
-                    employee__mobile__icontains=search
-                )
-            )
-
-        # ----------------------------------------------------
-        # FILTERS
-        # ----------------------------------------------------
-
-        if department:
-
-            queryset = queryset.filter(
-                employee__department=department
-            )
-
-        if branch:
-
-            queryset = queryset.filter(
-                employee__branch=branch
-            )
-
-        if employment_type:
-
-            queryset = queryset.filter(
-                employee__employment_type=employment_type
-            )
-
-        if work_location:
-
-            queryset = queryset.filter(
-                employee__work_location=work_location
-            )
-
+            queryset = queryset.filter(employee_id=employee)
+        if employee_code:
+            queryset = queryset.filter(employee__employee_id=employee_code)
         if attendance_status:
+            queryset = queryset.filter(status=attendance_status)
 
+        search = params.get("search", "").strip()
+        for token in search.split():
             queryset = queryset.filter(
-                status=attendance_status
+                Q(employee__employee_id__icontains=token)
+                | Q(employee__employee_code__icontains=token)
+                | Q(employee__first_name__icontains=token)
+                | Q(employee__last_name__icontains=token)
             )
 
-        return queryset.order_by(
-            "-date",
-            "employee__employee_id",
-        )
+        for field in ("department", "branch", "employment_type", "work_location"):
+            value = params.get(field, "").strip()
+            if value:
+                queryset = queryset.filter(**{f"employee__{field}": value})
 
-    # ========================================================
-    # CREATE
-    # ========================================================
+        return queryset.order_by("-date", "employee__employee_id")
 
-    def create(
-        self,
-        request,
-        *args,
-        **kwargs,
-    ):
+    # --------------------------------------------------------
+    # CREATE  (409 on duplicate employee + date)
+    # --------------------------------------------------------
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        employee_id = request.data.get(
-            "employee"
-        )
+        employee = serializer.validated_data["employee"]
+        att_date = serializer.validated_data["date"]
 
-        attendance_date = request.data.get(
-            "date"
-        )
-
-        if not employee_id:
-
+        existing = Attendance.objects.filter(employee=employee, date=att_date).first()
+        if existing:
             return Response(
-                {
-                    "detail":
-                        "employee is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not attendance_date:
-
-            return Response(
-                {
-                    "detail":
-                        "date is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+                {"detail": DUPLICATE_MESSAGE, "id": existing.id},
+                status=status.HTTP_409_CONFLICT,
             )
 
         try:
-
-            employee = Employee.objects.get(
-                pk=employee_id,
-                archived=False,
-                employment_status="Active",
-            )
-
-        except Employee.DoesNotExist:
-
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError:
+            # Two HR users saved the same employee/date at the same moment.
             return Response(
-                {
-                    "detail":
-                        "Employee not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        duplicate = Attendance.objects.filter(
-            employee=employee,
-            date=attendance_date,
-        ).first()
-
-        if duplicate:
-
-            return Response(
-                {
-                    "detail":
-                        "Attendance already exists for this employee and date.",
-
-                    "id":
-                        duplicate.id,
-                },
+                {"detail": DUPLICATE_MESSAGE},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        serializer = self.get_serializer(
-            data=request.data
-        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        serializer.save(
-            employee=employee
-        )
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_201_CREATED,
-        )
-
-    # ========================================================
-    # UPDATE
-    # ========================================================
-
-    def update(
-        self,
-        request,
-        *args,
-        **kwargs,
-    ):
-
+    # --------------------------------------------------------
+    # UPDATE / PARTIAL UPDATE
+    # --------------------------------------------------------
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
         instance = self.get_object()
 
-        employee_id = request.data.get(
-            "employee",
-            instance.employee_id,
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+
+        new_date = serializer.validated_data.get("date", instance.date)
+        clash = (
+            Attendance.objects
+            .filter(employee_id=instance.employee_id, date=new_date)
+            .exclude(pk=instance.pk)
+            .exists()
         )
-
-        attendance_date = request.data.get(
-            "date",
-            instance.date,
-        )
-
-        duplicate = Attendance.objects.filter(
-            employee_id=employee_id,
-            date=attendance_date,
-        ).exclude(
-            pk=instance.pk
-        ).exists()
-
-        if duplicate:
-
+        if clash:
             return Response(
-                {
-                    "detail":
-                        "Attendance already exists for this employee and date."
-                },
+                {"detail": DUPLICATE_MESSAGE},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        return super().update(
-            request,
-            *args,
-            **kwargs,
-        )
-
-    # ========================================================
-    # DAILY SUMMARY
-    # ========================================================
-
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="daily-summary",
-    )
-    def daily_summary(
-        self,
-        request,
-    ):
-
-        attendance_date = request.GET.get(
-            "date"
-        )
-
-        if not attendance_date:
-
+        try:
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError:
             return Response(
-                {
-                    "detail":
-                        "date is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+                {"detail": DUPLICATE_MESSAGE},
+                status=status.HTTP_409_CONFLICT,
             )
 
-        queryset = self.get_queryset().filter(
-            date=attendance_date
-        )
-
-        total_employees = Employee.objects.filter(
-            archived=False,
-            employment_status="Active",
-        ).count()
-
-        present_count = queryset.filter(
-            status__in=[
-                "PRESENT",
-                "HALF_DAY",
-                "WFH",
-            ]
-        ).count()
-
-        absent_count = queryset.filter(
-            status="ABSENT"
-        ).count()
-
-        serializer = self.get_serializer(
-            queryset,
-            many=True,
-        )
-
-        return Response({
-
-            "date":
-                attendance_date,
-
-            "total_employees":
-                total_employees,
-
-            "recorded":
-                queryset.count(),
-
-            "present":
-                present_count,
-
-            "absent":
-                absent_count,
-
-            "records":
-                serializer.data,
-        })
+        return Response(serializer.data)
 
     # ========================================================
-    # RANGE SUMMARY
+    # DAILY ROSTER  (Add Attendance page)
+    # GET /attendance/daily-roster/?date=2026-11-13&search=&department=&page=1&page_size=25
+    #
+    # Every active, non-archived employee appears — with or without a record
+    # for the selected date. Employees without a record come back with
+    # status = "NOT_MARKED" and attendance = null.
     # ========================================================
+    @action(detail=False, methods=["get"], url_path="daily-roster")
+    def daily_roster(self, request):
+        selected_date = parse_iso_date(request.GET.get("date"))
+        page_number = positive_int(request.GET.get("page"), 1)
+        page_size = positive_int(request.GET.get("page_size"), 25, maximum=100)
 
-    def build_range_summary(
-        self,
-        start_date,
-        end_date,
-        employee_id=None,
-    ):
-
-        employees = Employee.objects.filter(
-            archived=False,
-            employment_status="Active",
+        employees = (
+            filter_employees(active_employees(), request.GET)
+            .order_by("employee_id")
         )
 
-        if employee_id:
-
-            employees = employees.filter(
-                pk=employee_id
-            )
-
-        employees = list(
-            employees.order_by(
-                "employee_id"
-            )
-        )
-
-        # ----------------------------------------------------
-        # ATTENDANCE RECORDS
-        # ----------------------------------------------------
+        paginator = Paginator(employees, page_size)
+        page_obj = paginator.get_page(page_number)
+        page_employees = list(page_obj.object_list)
 
         records = (
             Attendance.objects
             .filter(
-                employee__in=employees,
-                date__gte=start_date,
-                date__lte=end_date,
+                date=selected_date,
+                employee_id__in=[e.id for e in page_employees],
             )
             .select_related("employee")
-            .order_by(
-                "employee__employee_id",
-                "date",
-            )
         )
+        record_map = {r.employee_id: self.get_serializer(r).data for r in records}
 
-        # ----------------------------------------------------
-        # OUTSTANDING ADVANCES
-        # ----------------------------------------------------
+        marked_count = Attendance.objects.filter(
+            date=selected_date,
+            employee__in=employees.values("pk"),
+        ).count()
 
-        advance_rows = (
-            Advance.objects
+        rows = []
+        for emp in page_employees:
+            record = record_map.get(emp.id)
+            rows.append({
+                "id": emp.id,                       # database primary key
+                "employee_id": emp.employee_id,     # display code (EMP001)
+                "employee_name": emp.full_name,
+                "department": emp.department,
+                "designation": emp.designation,
+                "status": record["status"] if record else "NOT_MARKED",
+                "is_marked": record is not None,
+                "attendance": record,
+            })
+
+        return Response({
+            "date": selected_date,
+            "count": paginator.count,
+            "page": page_obj.number,
+            "page_size": page_size,
+            "total_pages": paginator.num_pages,
+            "marked_count": marked_count,
+            "results": rows,
+        })
+
+    # ========================================================
+    # EMPLOYEE HOURS SUMMARY  (Employee Summary page)
+    # GET /attendance/employee-hours-summary/?period=monthly&month=2026-11
+    # GET /attendance/employee-hours-summary/?period=weekly&date=2026-11-09
+    # GET /attendance/employee-hours-summary/?period=yearly&year=2026
+    #
+    # Optional: search, department, page, page_size
+    #
+    # `totals` are company-wide for the period (all active employees, NOT
+    # narrowed by search / department). Each row is aggregated independently
+    # by the employee's database primary key.
+    # ========================================================
+    @action(detail=False, methods=["get"], url_path="employee-hours-summary")
+    def employee_hours_summary(self, request):
+        period, start, end, label = resolve_period(request.GET)
+        today = timezone.localdate()
+        page_number = positive_int(request.GET.get("page"), 1)
+        page_size = positive_int(request.GET.get("page_size"), 50, maximum=200)
+
+        # One grouped query for every active employee that has records in range.
+        grouped = (
+            Attendance.objects
             .filter(
-                employee__in=employees,
-                outstanding_amount__gt=0,
+                employee__archived=False,
+                employee__employment_status="Active",
+                date__gte=start,
+                date__lte=end,
             )
-            .values(
-                "employee_id"
-            )
+            .values("employee_id")
             .annotate(
-                total_outstanding=Sum(
-                    "outstanding_amount"
-                )
+                normal=Sum("normal_hours"),
+                ot=Sum("approved_ot_hours"),
+                records=Count("id"),
+                records_to_date=Count("id", filter=Q(date__lte=today)),
+                days_worked=Count(
+                    "date",
+                    filter=Q(status__in=WORKED_STATUSES),
+                    distinct=True,
+                ),
             )
+            .order_by()          # drop Meta.ordering so GROUP BY stays per employee
         )
+        stats = {row["employee_id"]: row for row in grouped}
 
-        advance_map = {
-            row["employee_id"]:
-                row["total_outstanding"]
-                or Decimal("0.00")
-            for row in advance_rows
+        total_normal = sum((s["normal"] or ZERO for s in stats.values()), ZERO)
+        total_ot = sum((s["ot"] or ZERO for s in stats.values()), ZERO)
+
+        totals = {
+            "total_employees": active_employees().count(),
+            "employees_marked": len(stats),
+            "total_normal_hours": to_float(total_normal),
+            "total_ot_hours": to_float(total_ot),
+            "total_hours": to_float(total_normal + total_ot),
         }
 
-        # ----------------------------------------------------
-        # INITIALIZE EVERY EMPLOYEE
-        # ----------------------------------------------------
+        employees = (
+            filter_employees(active_employees(), request.GET)
+            .order_by("employee_id")
+        )
+        paginator = Paginator(employees, page_size)
+        page_obj = paginator.get_page(page_number)
 
-        buckets = {}
+        rows = []
+        for emp in page_obj.object_list:
+            stat = stats.get(emp.id)
+            normal = (stat["normal"] if stat else None) or ZERO
+            ot = (stat["ot"] if stat else None) or ZERO
+            records = stat["records"] if stat else 0
+            records_to_date = stat["records_to_date"] if stat else 0
 
-        for employee in employees:
-
-            buckets[employee.id] = {
-
-                "employee_id":
-                    employee.employee_id,
-
-                "employee_name":
-                    employee.full_name,
-
-                "days_worked":
-                    0,
-
-                "total_hours":
-                    Decimal("0.00"),
-
-                "last_rate":
-                    Decimal("0.00"),
-
-                "total_wage":
-                    Decimal("0.00"),
-
-                "outstanding_advance":
-                    advance_map.get(
-                        employee.id,
-                        Decimal("0.00"),
-                    ),
-
-                "status_counts":
-                    {},
-
-                "missing_count":
-                    0,
-            }
-
-        # ----------------------------------------------------
-        # ADD ATTENDANCE
-        # ----------------------------------------------------
-
-        for record in records:
-
-            bucket = buckets[
-                record.employee_id
-            ]
-
-            # Hours
-
-            bucket["total_hours"] += (
-                record.working_hours
-                or Decimal("0.00")
+            effective_start = (
+                max(start, emp.joining_date) if emp.joining_date else start
             )
+            effective_end = min(end, today)
+            expected_days = max(0, (effective_end - effective_start).days + 1)
+            missing_days = max(0, expected_days - records_to_date)
 
-            # Wage
-
-            bucket["total_wage"] += (
-                record.daily_wage
-                or Decimal("0.00")
-            )
-
-            # Hourly rate
-
-            if record.hourly_rate is not None:
-
-                bucket["last_rate"] = (
-                    record.hourly_rate
-                )
-
-            # Days worked
-
-            if record.status in {
-                "PRESENT",
-                "HALF_DAY",
-                "WFH",
-            }:
-
-                bucket["days_worked"] += 1
-
-            # Status breakdown
-
-            bucket["status_counts"][
-                record.status
-            ] = (
-                bucket["status_counts"].get(
-                    record.status,
-                    0,
-                )
-                + 1
-            )
-
-        # ----------------------------------------------------
-        # MISSING ATTENDANCE
-        # ----------------------------------------------------
-
-        today = date.today()
-
-        effective_end = min(
-            end_date,
-            today,
-        )
-
-        if effective_end >= start_date:
-
-            existing_records = (
-                Attendance.objects
-                .filter(
-                    employee__in=employees,
-                    date__gte=start_date,
-                    date__lte=effective_end,
-                )
-                .values(
-                    "employee_id",
-                    "date",
-                )
-            )
-
-            existing_map = {}
-
-            for item in existing_records:
-
-                existing_map.setdefault(
-                    item["employee_id"],
-                    set(),
-                ).add(
-                    item["date"]
-                )
-
-            current_date = start_date
-
-            while current_date <= effective_end:
-
-                for employee in employees:
-
-                    # Before joining date
-                    if (
-                        employee.joining_date
-                        and current_date
-                        < employee.joining_date
-                    ):
-                        continue
-
-                    employee_records = (
-                        existing_map.get(
-                            employee.id,
-                            set(),
-                        )
-                    )
-
-                    if current_date not in employee_records:
-
-                        buckets[
-                            employee.id
-                        ]["missing_count"] += 1
-
-                current_date += timedelta(
-                    days=1
-                )
-
-        return list(
-            buckets.values()
-        )
-
-    # ========================================================
-    # WEEKLY SUMMARY
-    # ========================================================
-
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="weekly-summary",
-    )
-    def weekly_summary(
-        self,
-        request,
-    ):
-
-        selected_date = request.GET.get(
-            "date"
-        )
-
-        if not selected_date:
-
-            return Response(
-                {
-                    "detail":
-                        "date is required. Use YYYY-MM-DD."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-
-            selected_date = datetime.strptime(
-                selected_date,
-                "%Y-%m-%d",
-            ).date()
-
-        except ValueError:
-
-            return Response(
-                {
-                    "detail":
-                        "Invalid date. Use YYYY-MM-DD."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Monday
-        week_start = (
-            selected_date
-            - timedelta(
-                days=selected_date.weekday()
-            )
-        )
-
-        # Sunday
-        week_end = (
-            week_start
-            + timedelta(days=6)
-        )
-
-        employee_id = request.GET.get(
-            "employee"
-        )
-
-        data = self.build_range_summary(
-            week_start,
-            week_end,
-            employee_id,
-        )
-
-        total_hours = sum(
-            (
-                row["total_hours"]
-                for row in data
-            ),
-            Decimal("0.00"),
-        )
-
-        total_wage = sum(
-            (
-                row["total_wage"]
-                for row in data
-            ),
-            Decimal("0.00"),
-        )
+            rows.append({
+                "id": emp.id,
+                "employee_id": emp.employee_id,
+                "employee_name": emp.full_name,
+                "department": emp.department,
+                "designation": emp.designation,
+                "days_worked": stat["days_worked"] if stat else 0,
+                "normal_hours": to_float(normal),
+                "ot_hours": to_float(ot),
+                "total_hours": to_float(normal + ot),
+                "records_count": records,
+                "has_attendance": records > 0,
+                "attendance_state": "MARKED" if records > 0 else "NOT_MARKED",
+                "missing_days": missing_days,
+            })
 
         return Response({
-
-            "start_date":
-                week_start,
-
-            "end_date":
-                week_end,
-
-            "total_hours":
-                total_hours,
-
-            "total_wage":
-                total_wage,
-
-            "employees":
-                len(data),
-
-            "results":
-                data,
+            "period": period,
+            "start_date": start,
+            "end_date": end,
+            "label": label,
+            "totals": totals,
+            "count": paginator.count,
+            "page": page_obj.number,
+            "page_size": page_size,
+            "total_pages": paginator.num_pages,
+            "results": rows,
         })
 
     # ========================================================
-    # MONTHLY SUMMARY
+    # EMPLOYEE HOURS DETAIL  (daily breakdown modal)
+    # GET /attendance/employee-hours-detail/?employee=<pk>&period=monthly&month=2026-11
+    #
+    # `employee` is the database primary key (the `id` returned by the
+    # summary / roster endpoints), never the display code.
     # ========================================================
-
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="monthly-summary",
-    )
-    def monthly_summary(
-        self,
-        request,
-    ):
-
-        month = request.GET.get(
-            "month"
-        )
-
-        if not month:
-
+    @action(detail=False, methods=["get"], url_path="employee-hours-detail")
+    def employee_hours_detail(self, request):
+        raw_employee = (request.GET.get("employee") or "").strip()
+        if not raw_employee.isdigit():
             return Response(
-                {
-                    "detail":
-                        "month is required. Use YYYY-MM."
-                },
+                {"detail": "employee is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-
-            month_start = datetime.strptime(
-                month,
-                "%Y-%m",
-            ).date()
-
-        except ValueError:
-
-            return Response(
-                {
-                    "detail":
-                        "Invalid month. Use YYYY-MM."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ----------------------------------------------------
-        # FIRST DAY OF NEXT MONTH
-        # ----------------------------------------------------
-
-        if month_start.month == 12:
-
-            next_month = date(
-                month_start.year + 1,
-                1,
-                1,
-            )
-
-        else:
-
-            next_month = date(
-                month_start.year,
-                month_start.month + 1,
-                1,
-            )
-
-        month_end = (
-            next_month
-            - timedelta(days=1)
-        )
-
-        employee_id = request.GET.get(
-            "employee"
-        )
-
-        data = self.build_range_summary(
-            month_start,
-            month_end,
-            employee_id,
-        )
-
-        # ----------------------------------------------------
-        # TOP CARDS
-        # ----------------------------------------------------
-
-        total_working_days = sum(
-            (
-                row["days_worked"]
-                for row in data
-            ),
-            0,
-        )
-
-        total_working_hours = sum(
-            (
-                row["total_hours"]
-                for row in data
-            ),
-            Decimal("0.00"),
-        )
-
-        total_wage = sum(
-            (
-                row["total_wage"]
-                for row in data
-            ),
-            Decimal("0.00"),
-        )
-
-        total_missing = sum(
-            (
-                row["missing_count"]
-                for row in data
-            ),
-            0,
-        )
-
-        total_employees = (
-            Employee.objects
-            .filter(
-                archived=False,
-                employment_status="Active",
-            )
-            .count()
-        )
-
-        if employee_id:
-
-            total_employees = (
-                Employee.objects
-                .filter(
-                    pk=employee_id,
-                    archived=False,
-                    employment_status="Active",
-                )
-                .count()
-            )
-
-        return Response({
-
-            "month":
-                month,
-
-            "start_date":
-                month_start,
-
-            "end_date":
-                month_end,
-
-            "total_employees":
-                total_employees,
-
-            "total_working_days":
-                total_working_days,
-
-            "total_working_hours":
-                total_working_hours,
-
-            "total_wage":
-                total_wage,
-
-            "missing_attendance_count":
-                total_missing,
-
-            "results":
-                data,
-        })
-
-    # ========================================================
-    # EMPLOYEE SUMMARY
-    # ========================================================
-
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="employee-summary",
-    )
-    def employee_summary(
-        self,
-        request,
-    ):
-
-        employee_id = request.GET.get(
-            "employee"
-        )
-
-        if not employee_id:
-
-            return Response(
-                {
-                    "detail":
-                        "employee is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-
-            employee = Employee.objects.get(
-                pk=employee_id,
-                archived=False,
-                employment_status="Active",
-            )
-
+            employee = active_employees().get(pk=int(raw_employee))
         except Employee.DoesNotExist:
-
             return Response(
-                {
-                    "detail":
-                        "Employee not found."
-                },
+                {"detail": "Employee not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        today = date.today()
+        period, start, end, label = resolve_period(request.GET)
+        today = timezone.localdate()
 
-        # ----------------------------------------------------
-        # CURRENT WEEK
-        # ----------------------------------------------------
-
-        week_start = (
-            today
-            - timedelta(
-                days=today.weekday()
-            )
-        )
-
-        week_end = (
-            week_start
-            + timedelta(days=6)
-        )
-
-        # ----------------------------------------------------
-        # CURRENT MONTH
-        # ----------------------------------------------------
-
-        month_start = date(
-            today.year,
-            today.month,
-            1,
-        )
-
-        if today.month == 12:
-
-            next_month = date(
-                today.year + 1,
-                1,
-                1,
-            )
-
-        else:
-
-            next_month = date(
-                today.year,
-                today.month + 1,
-                1,
-            )
-
-        month_end = (
-            next_month
-            - timedelta(days=1)
-        )
-
-        # ----------------------------------------------------
-        # DATA
-        # ----------------------------------------------------
-
-        week_data = self.build_range_summary(
-            week_start,
-            week_end,
-            employee.id,
-        )
-
-        month_data = self.build_range_summary(
-            month_start,
-            month_end,
-            employee.id,
-        )
-
-        # Individual attendance records for the selected employee
-        # within the current month. The summary above contains only
-        # aggregated totals, so the UI needs these serialized records
-        # separately to display each date, status, and time.
-        month_records = (
+        records = list(
             Attendance.objects
-            .filter(
-                employee=employee,
-                date__gte=month_start,
-                date__lte=min(month_end, today),
-            )
-            .select_related("employee")
-            .order_by("-date", "-id")
+            .filter(employee=employee, date__gte=start, date__lte=end)
+            .order_by("date")
         )
+        by_date = {r.date: r for r in records}
 
-        month_records_data = self.get_serializer(
-            month_records,
-            many=True,
-        ).data
+        # Calendar dates from the later of (period start, joining date) up to
+        # the earlier of (period end, today); future days are not "missing".
+        # Any saved record is always included, even outside that window.
+        range_start = max(start, employee.joining_date) if employee.joining_date else start
+        range_end = min(end, today)
+        dates = set(by_date.keys())
+        cursor = range_start
+        while cursor <= range_end:
+            dates.add(cursor)
+            cursor += timedelta(days=1)
 
-        # ----------------------------------------------------
-        # WAGE CONFIG
-        # ----------------------------------------------------
+        days = []
+        for day in sorted(dates):
+            record = by_date.get(day)
+            if record:
+                days.append({
+                    "id": record.id,
+                    "date": day,
+                    "day_name": day.strftime("%a"),
+                    "status": record.status,
+                    "is_marked": True,
+                    "login_time": fmt_time(record.login_time),
+                    "logout_time": fmt_time(record.logout_time),
+                    "normal_hours": to_float(record.normal_hours),
+                    "ot_hours": to_float(record.approved_ot_hours),
+                    "total_hours": to_float(record.normal_hours + record.approved_ot_hours),
+                    "remarks": record.remarks,
+                })
+            else:
+                days.append({
+                    "id": None,
+                    "date": day,
+                    "day_name": day.strftime("%a"),
+                    "status": "NOT_MARKED",
+                    "is_marked": False,
+                    "login_time": None,
+                    "logout_time": None,
+                    "normal_hours": None,
+                    "ot_hours": None,
+                    "total_hours": None,
+                    "remarks": "",
+                })
 
-        wage_config = (
-            WageConfig.objects
-            .filter(
-                employee=employee
-            )
-            .first()
-        )
-
-        wage_data = None
-
-        if wage_config:
-
-            wage_data = {
-
-                "salary_type":
-                    wage_config.salary_type,
-
-                "hourly_rate":
-                    wage_config.hourly_rate,
-
-                "monthly_salary":
-                    wage_config.monthly_salary,
-
-                "standard_hours_per_day":
-                    wage_config.standard_hours_per_day,
-
-                "paid_leave_policy":
-                    wage_config.paid_leave_policy,
-
-                "holiday_policy":
-                    wage_config.holiday_policy,
-
-                "weekly_off_policy":
-                    wage_config.weekly_off_policy,
-            }
+        normal = sum((r.normal_hours for r in records), ZERO)
+        ot = sum((r.approved_ot_hours for r in records), ZERO)
 
         return Response({
-
+            "period": period,
+            "start_date": start,
+            "end_date": end,
+            "label": label,
             "employee": {
-
-                "id":
-                    employee.id,
-
-                "employee_id":
-                    employee.employee_id,
-
-                "employee_name":
-                    employee.full_name,
-
-                "department":
-                    employee.department,
-
-                "designation":
-                    employee.designation,
-
-                "branch":
-                    employee.branch,
-
-                "employment_type":
-                    employee.employment_type,
-
-                "work_location":
-                    employee.work_location,
+                "id": employee.id,
+                "employee_id": employee.employee_id,
+                "employee_name": employee.full_name,
+                "department": employee.department,
+                "designation": employee.designation,
             },
-
-            "week": {
-
-                "start_date":
-                    week_start,
-
-                "end_date":
-                    week_end,
-
-                "summary":
-                    (
-                        week_data[0]
-                        if week_data
-                        else None
-                    ),
+            "summary": {
+                "days_worked": len({r.date for r in records if r.status in WORKED_STATUSES}),
+                "normal_hours": to_float(normal),
+                "ot_hours": to_float(ot),
+                "total_hours": to_float(normal + ot),
+                "marked_days": len(records),
+                "missing_days": sum(1 for d in days if not d["is_marked"]),
+                "has_attendance": len(records) > 0,
             },
-
-            "month": {
-
-                "start_date":
-                    month_start,
-
-                "end_date":
-                    month_end,
-
-                "summary":
-                    (
-                        month_data[0]
-                        if month_data
-                        else None
-                    ),
-
-                "records":
-                    month_records_data,
-            },
-
-            "wage_config":
-                wage_data,
+            "days": days,
         })
 
-#
+
+
+
+
+
+# IMPORTANT: Adjust group names if your existing Admin/HR permission system
+# uses different role identifiers. Never rely on frontend visibility alone.
+
+
+
+class StandardPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+def service_call(func, *args, **kwargs):
+    """Translate Django service validation into DRF HTTP 400 responses."""
+    try:
+        return func(*args, **kwargs)
+    except DjangoValidationError as exc:
+        if hasattr(exc, "message_dict"):
+            raise ValidationError(exc.message_dict) from exc
+        raise ValidationError({"detail": exc.messages}) from exc
+
+
+def filtered_employees(request, active_only=True):
+    qs = Employee.objects.filter(archived=False)
+    if active_only:
+        qs = qs.filter(employment_status="Active")
+    search = request.query_params.get("search", "").strip()
+    if search:
+        qs = qs.filter(
+            Q(employee_id__icontains=search)
+            | Q(first_name__icontains=search)
+            | Q(last_name__icontains=search)
+        )
+    for field in ("department", "employment_type"):
+        value = request.query_params.get(field, "").strip()
+        if value:
+            qs = qs.filter(**{f"{field}__iexact": value})
+    for field in ("branch", "work_location"):
+        value = request.query_params.get(field, "").strip()
+        if value:
+            qs = qs.filter(**{f"{field}__icontains": value})
+    return qs.order_by("employee_id")
+
+
+def salary_inputs(validated):
+    """Map serializer's `advance` objects to service's `advance_id` format."""
+    return {
+        "allowances": validated.get("allowances", Decimal("0.00")),
+        "pf": validated.get("pf", Decimal("0.00")),
+        "esi": validated.get("esi", Decimal("0.00")),
+        "tax": validated.get("tax", Decimal("0.00")),
+        "other_deductions": validated.get("other_deductions", Decimal("0.00")),
+        "installments": [
+            {"advance_id": item["advance"].pk, "amount": item["amount"]}
+            for item in validated.get("installments", [])
+        ],
+    }
+
+
+def json_ready(value):
+    """DRF Response JSON-safe representation of nested Decimal/date values."""
+    from datetime import date, datetime
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_ready(item) for item in value]
+    return value
+
+
+# ------------------------------------------------------------
+# EMPLOYEES — existing HR employee list compatibility
+# ------------------------------------------------------------
+class SalaryEmployeeListAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHRorAdmin]
+
+    def get(self, request):
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(filtered_employees(request), request)
+        return paginator.get_paginated_response(
+            SalaryEmployeeSerializer(page, many=True).data
+        )
+
+
+# ------------------------------------------------------------
+# HR ADVANCES — keep current HR workflows
+# ------------------------------------------------------------
+class AdvanceListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHRorAdmin]
+
+    def get(self, request):
+        qs = Advance.objects.select_related("employee").all()
+        search = request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(
+                Q(employee__employee_id__icontains=search)
+                | Q(employee__first_name__icontains=search)
+                | Q(employee__last_name__icontains=search)
+            )
+        status_filter = request.query_params.get("status", "").strip()
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        employee_id = request.query_params.get("employee", "").strip()
+        if employee_id:
+            qs = qs.filter(employee_id=employee_id)
+        for param, lookup in (
+            ("date_from", "advance_date__gte"),
+            ("date_to", "advance_date__lte"),
+        ):
+            value = request.query_params.get(param, "").strip()
+            if value:
+                qs = qs.filter(**{lookup: value})
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(AdvanceSerializer(page, many=True).data)
+
+    def post(self, request):
+        serializer = AdvanceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AdvanceDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHRorAdmin]
+
+    def get(self, request, pk):
+        advance = get_object_or_404(Advance, pk=pk)
+        return Response(AdvanceSerializer(advance).data)
+
+    @transaction.atomic
+    def patch(self, request, pk):
+        advance = get_object_or_404(Advance.objects.select_for_update(), pk=pk)
+        if advance.repayments.exists() or advance.total_repaid > 0:
+            return Response({"detail": "Cannot edit after first installment."}, status=409)
+        serializer = AdvanceSerializer(advance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @transaction.atomic
+    def delete(self, request, pk):
+        advance = get_object_or_404(Advance.objects.select_for_update(), pk=pk)
+        if advance.repayments.exists() or advance.total_repaid > 0:
+            return Response({"detail": "Cannot delete after first installment."}, status=409)
+        advance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class OutstandingAdvanceAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsHRorAdmin]
+
+    def get(self, request):
+        qs = Advance.objects.filter(outstanding_amount__gt=0)
+        search = request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(
+                Q(employee__employee_id__icontains=search)
+                | Q(employee__first_name__icontains=search)
+                | Q(employee__last_name__icontains=search)
+            )
+        employee_id = request.query_params.get("employee", "").strip()
+        if employee_id:
+            qs = qs.filter(employee_id=employee_id)
+        qs = (
+            qs.values(
+                "employee_id", "employee__employee_id",
+                "employee__first_name", "employee__last_name"
+            )
+            .annotate(
+                total_advance=Sum("amount"),
+                total_repaid=Sum("total_repaid"),
+                outstanding=Sum("outstanding_amount"),
+            )
+            .order_by("employee__employee_id")
+        )
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response([
+            {
+                "employee": row["employee_id"],
+                "employee_code": row["employee__employee_id"],
+                "employee_name": (
+                    f'{row["employee__first_name"]} {row["employee__last_name"]}'
+                ).strip(),
+                "total_advance": row["total_advance"],
+                "total_repaid": row["total_repaid"],
+                "outstanding_amount": row["outstanding"],
+            }
+            for row in page
+        ])
+
+
+# ------------------------------------------------------------
+# REPAYMENTS — Admin only
+# Salary-linked installments must use confirm_salary().
+# Standalone manual repayments remain possible, but cannot
+# attach directly to salary_payment to bypass payroll confirmation.
+# ------------------------------------------------------------
+class AdvanceRepaymentListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        qs = AdvanceRepayment.objects.select_related(
+            "advance", "employee", "salary_payment"
+        )
+        advance_id = request.query_params.get("advance")
+        if advance_id:
+            qs = qs.filter(advance_id=advance_id)
+        employee_id = request.query_params.get("employee")
+        if employee_id:
+            qs = qs.filter(employee_id=employee_id)
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(
+            AdvanceRepaymentSerializer(page, many=True).data
+        )
+
+    @transaction.atomic
+    def post(self, request):
+        # The repayment serializer is intentionally read-only.
+        # Explicitly validate the standalone repayment request here.
+        from rest_framework import serializers as drf_serializers
+
+        class ManualRepaymentInput(drf_serializers.Serializer):
+            advance = drf_serializers.PrimaryKeyRelatedField(
+                queryset=Advance.objects.all()
+            )
+            amount = drf_serializers.DecimalField(
+                max_digits=12, decimal_places=2,
+                min_value=Decimal("0.01")
+            )
+            date = drf_serializers.DateField(required=False)
+
+        if "salary_payment" in request.data:
+            raise ValidationError({
+                "salary_payment": "Salary-linked repayments must use payroll confirmation."
+            })
+        incoming = ManualRepaymentInput(data=request.data)
+        incoming.is_valid(raise_exception=True)
+        data = incoming.validated_data
+        advance = get_object_or_404(
+            Advance.objects.select_for_update(), pk=data["advance"].pk
+        )
+        amount = data["amount"]
+        if amount > advance.outstanding_amount:
+            raise ValidationError({"amount": "Repayment exceeds outstanding balance."})
+        repayment = AdvanceRepayment.objects.create(
+            advance=advance,
+            employee=advance.employee,
+            amount=amount,
+            date=data.get("date", timezone.localdate()),
+        )
+        advance.total_repaid += amount
+        advance.outstanding_amount = advance.amount - advance.total_repaid
+        advance.status = (
+            "FULLY_REPAID" if advance.outstanding_amount == 0
+            else "PARTIALLY_REPAID"
+        )
+        advance.save(update_fields=[
+            "total_repaid", "outstanding_amount", "status", "updated_at"
+        ])
+        return Response(
+            AdvanceRepaymentSerializer(repayment).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ------------------------------------------------------------
+# ADMIN SALARY — preview / draft / confirm / history
+# ------------------------------------------------------------
+class SalaryCalculateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def post(self, request):
+        serializer = SalaryCalculationInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        preview = service_call(
+            calculate_salary, data["employee"], data["salary_month"],
+            **salary_inputs(data),
+        )
+        return Response(json_ready(preview))
+
+
+class SalaryPaymentListCreateAPIView(APIView):
+    """GET history, POST save draft. Retains the existing class/URL mapping."""
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        qs = SalaryPayment.objects.select_related("employee").all()
+        month = request.query_params.get("month", "").strip()
+        if month:
+            try:
+                parsed = datetime.strptime(month, "%Y-%m")
+            except ValueError as exc:
+                raise ValidationError({"month": "Use YYYY-MM."}) from exc
+            qs = qs.filter(
+                salary_month__year=parsed.year,
+                salary_month__month=parsed.month,
+            )
+        employee_id = request.query_params.get("employee", "").strip()
+        if employee_id:
+            qs = qs.filter(employee_id=employee_id)
+        payroll_status = request.query_params.get("payroll_status", "").strip()
+        if payroll_status:
+            qs = qs.filter(payroll_status=payroll_status)
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(
+            SalaryPaymentSerializer(page, many=True).data
+        )
+
+    def post(self, request):
+        serializer = SalaryCalculationInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            salary = service_call(
+                save_salary_draft,
+                data["employee"], data["salary_month"],
+                user=request.user,
+                remarks=data.get("remarks", ""),
+                **salary_inputs(data),
+            )
+        except IntegrityError as exc:
+            raise ValidationError({"detail": "A payroll already exists for this month."}) from exc
+        return Response(SalaryPaymentSerializer(salary).data, status=201)
+
+
+class SalaryPaymentDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request, pk):
+        salary = get_object_or_404(SalaryPayment.objects.select_related("employee"), pk=pk)
+        return Response(SalaryPaymentSerializer(salary).data)
+
+    def patch(self, request, pk):
+        """Recalculate an existing draft. Employee/month cannot be changed."""
+        salary = get_object_or_404(SalaryPayment.objects.select_related("employee"), pk=pk)
+        if salary.payroll_status != "DRAFT":
+            return Response({"detail": "Confirmed salary cannot be edited."}, status=409)
+        incoming = request.data.copy()
+        incoming["employee"] = salary.employee_id
+        incoming["salary_month"] = salary.salary_month.isoformat()
+        serializer = SalaryCalculationInputSerializer(data=incoming)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        updated = service_call(
+            save_salary_draft,
+            salary.employee, salary.salary_month,
+            user=request.user,
+            remarks=data.get("remarks", salary.remarks),
+            **salary_inputs(data),
+        )
+        return Response(SalaryPaymentSerializer(updated).data)
+
+    def put(self, request, pk):
+        return self.patch(request, pk)
+
+    @transaction.atomic
+    def delete(self, request, pk):
+        salary = get_object_or_404(SalaryPayment.objects.select_for_update(), pk=pk)
+        if salary.payroll_status != "DRAFT":
+            return Response({"detail": "Confirmed salary cannot be deleted."}, status=409)
+        salary.delete()
+        return Response(status=204)
+
+
+class SalaryConfirmAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def post(self, request, pk):
+        salary = get_object_or_404(SalaryPayment, pk=pk)
+        confirmed = service_call(confirm_salary, salary.pk, user=request.user)
+        return Response(SalaryPaymentSerializer(confirmed).data)
+
+
+class SalaryPaymentStatusAPIView(APIView):
+    """Mark confirmed payroll paid. Partial payment needs a separate ledger."""
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        salary = get_object_or_404(SalaryPayment.objects.select_for_update(), pk=pk)
+        if salary.payroll_status != "CONFIRMED":
+            raise ValidationError({"detail": "Confirm payroll before marking paid."})
+        if salary.payment_status == "PAID":
+            return Response(SalaryPaymentSerializer(salary).data)
+        salary.payment_status = "PAID"
+        salary.paid_date = timezone.localdate()
+        salary.save(update_fields=["payment_status", "paid_date", "updated_at"])
+        return Response(SalaryPaymentSerializer(salary).data)
+
+
+# ------------------------------------------------------------
+# WAGE CONFIGURATION — Admin only
+# ------------------------------------------------------------
+class WageConfigListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        qs = WageConfig.objects.select_related("employee").all()
+        employee_id = request.query_params.get("employee", "").strip()
+        if employee_id:
+            qs = qs.filter(employee_id=employee_id)
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(
+            WageConfigSerializer(page, many=True).data
+        )
+
+    def post(self, request):
+        serializer = WageConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.save()
+        except IntegrityError as exc:
+            raise ValidationError({"employee": "Wage configuration already exists."}) from exc
+        return Response(serializer.data, status=201)
+
+
+class WageConfigDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request, pk):
+        return Response(WageConfigSerializer(get_object_or_404(WageConfig, pk=pk)).data)
+
+    def patch(self, request, pk):
+        instance = get_object_or_404(WageConfig, pk=pk)
+        serializer = WageConfigSerializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        instance = get_object_or_404(WageConfig, pk=pk)
+        serializer = WageConfigSerializer(instance, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, pk):
+        instance = get_object_or_404(WageConfig, pk=pk)
+        if SalaryPayment.objects.filter(employee_id=instance.employee_id).exists():
+            return Response({"detail": "Cannot remove wage configuration with payroll history."}, status=409)
+        instance.delete()
+        return Response(status=204)
+
 
 # for material planning module starts here 
 

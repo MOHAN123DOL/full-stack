@@ -1723,837 +1723,459 @@ class EmployeeArchiveSerializer(serializers.Serializer):
     archived = serializers.BooleanField()
 
 
-#for salary advance 
-from datetime import date
+# ============================================================
+# NXT GENZ ERP — serializers.py (Salary / Advance / Attendance)
+# Replace only the matching serializer section of your app.
+# Existing unrelated serializers should remain in place.
+# ============================================================
 
+from decimal import Decimal
 from rest_framework import serializers
-
 from .models import (
-    Employee,
-    SalaryPayment,
-    Advance,
+    Employee, SalaryPayment, Advance, AdvanceRepayment,
+    WageConfig, Attendance,
+)
+from .services import (
+    WORKED_STATUSES, AttendanceCalcError,
+    calculate_hours, empty_hours,
 )
 
 
 class SalaryEmployeeSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(
-        source="full_name",
-        read_only=True,
-    )
+    employee_name = serializers.CharField(source="full_name", read_only=True)
 
     class Meta:
         model = Employee
-        fields = [
-            "id",
-            "employee_id",
-            "employee_code",
-            "name",
-            "first_name",
-            "last_name",
-            "mobile",
-            "email",
-            "department",
-            "designation",
-            "branch",
-            "employment_type",
-            "employment_status",
-            "work_location",
-        ]
+        fields = ["id", "employee_id", "employee_name", "department"]
 
-
-class SalaryPaymentSerializer(serializers.ModelSerializer):
-    employee_name = serializers.CharField(
-        source="employee.full_name",
-        read_only=True,
-    )
-
-    employee_code = serializers.CharField(
-        source="employee.employee_id",
-        read_only=True,
-    )
-
-    class Meta:
-        model = SalaryPayment
-
-        fields = [
-            "id",
-            "employee",
-            "employee_name",
-            "employee_code",
-
-            "salary_month",
-            "salary_year",
-
-            "base_salary",
-            "attendance_wage",
-            "allowances",
-            "overtime",
-            "gross_earnings",
-
-            "pf",
-            "esi",
-            "tax",
-            "other_deductions",
-            "advance_deduction",
-            "total_deductions",
-
-            "net_salary",
-
-            "payment_status",
-            "paid_date",
-            "remarks",
-
-            "created_at",
-            "updated_at",
-        ]
-
-        read_only_fields = [
-            "salary_year",
-            "gross_earnings",
-            "total_deductions",
-            "net_salary",
-            "created_at",
-            "updated_at",
-        ]
-
-    def validate_salary_month(self, value):
-        """
-        Always normalize salary month to the first day.
-
-        2026-09-01
-        """
-
-        return value.replace(day=1)
-
-    def validate(self, attrs):
-        employee = attrs.get(
-            "employee",
-            getattr(self.instance, "employee", None)
-        )
-
-        salary_month = attrs.get(
-            "salary_month",
-            getattr(self.instance, "salary_month", None)
-        )
-
-        if not employee:
-            raise serializers.ValidationError({
-                "employee": "Employee is required."
-            })
-
-        if not salary_month:
-            raise serializers.ValidationError({
-                "salary_month": "Salary month is required."
-            })
-
-        salary_month = salary_month.replace(day=1)
-
-        qs = SalaryPayment.objects.filter(
-            employee=employee,
-            salary_month=salary_month,
-        )
-
-        if self.instance:
-            qs = qs.exclude(pk=self.instance.pk)
-
-        if qs.exists():
-            raise serializers.ValidationError({
-                "salary_month": (
-                    "Salary already exists for this employee "
-                    "for this month."
-                )
-            })
-
-        return attrs
-
-    def create(self, validated_data):
-        salary_month = validated_data["salary_month"].replace(day=1)
-
-        validated_data["salary_month"] = salary_month
-        validated_data["salary_year"] = salary_month.year
-
-        base_salary = validated_data.get(
-            "base_salary", 0
-        )
-
-        attendance_wage = validated_data.get(
-            "attendance_wage", 0
-        )
-
-        allowances = validated_data.get(
-            "allowances", 0
-        )
-
-        overtime = validated_data.get(
-            "overtime", 0
-        )
-
-        pf = validated_data.get("pf", 0)
-        esi = validated_data.get("esi", 0)
-        tax = validated_data.get("tax", 0)
-        other_deductions = validated_data.get(
-            "other_deductions", 0
-        )
-        advance_deduction = validated_data.get(
-            "advance_deduction", 0
-        )
-
-        gross = (
-            base_salary
-            + attendance_wage
-            + allowances
-            + overtime
-        )
-
-        total_deductions = (
-            pf
-            + esi
-            + tax
-            + other_deductions
-            + advance_deduction
-        )
-
-        net_salary = gross - total_deductions
-
-        validated_data["gross_earnings"] = gross
-        validated_data["total_deductions"] = total_deductions
-        validated_data["net_salary"] = net_salary
-
-        return SalaryPayment.objects.create(
-            **validated_data
-        )
-
-    def update(self, instance, validated_data):
-        if "salary_month" in validated_data:
-            salary_month = validated_data[
-                "salary_month"
-            ].replace(day=1)
-
-            validated_data["salary_month"] = salary_month
-            validated_data["salary_year"] = salary_month.year
-
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-
-        base_salary = instance.base_salary
-        attendance_wage = instance.attendance_wage
-        allowances = instance.allowances
-        overtime = instance.overtime
-
-        pf = instance.pf
-        esi = instance.esi
-        tax = instance.tax
-        other_deductions = instance.other_deductions
-        advance_deduction = instance.advance_deduction
-
-        instance.gross_earnings = (
-            base_salary
-            + attendance_wage
-            + allowances
-            + overtime
-        )
-
-        instance.total_deductions = (
-            pf
-            + esi
-            + tax
-            + other_deductions
-            + advance_deduction
-        )
-
-        instance.net_salary = (
-            instance.gross_earnings
-            - instance.total_deductions
-        )
-
-        instance.save()
-
-        return instance
-
-
+        
 class AdvanceSerializer(serializers.ModelSerializer):
-    employee_name = serializers.CharField(
-        source="employee.full_name",
-        read_only=True,
-    )
-
-    employee_code = serializers.CharField(
-        source="employee.employee_id",
-        read_only=True,
-    )
+    employee_name = serializers.CharField(source="employee.full_name", read_only=True)
+    employee_code = serializers.CharField(source="employee.employee_id", read_only=True)
+    can_edit = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
+    # Installments already taken through CONFIRMED salary (manual repayments
+    # do not consume an installment slot).
+    installments_paid = serializers.SerializerMethodField()
 
     class Meta:
         model = Advance
-
         fields = [
-            "id",
-            "employee",
-            "employee_name",
-            "employee_code",
-
-            "advance_date",
-            "amount",
-            "total_repaid",
-            "outstanding_amount",
-
-            "reason",
-            "remarks",
-            "status",
-
-            "created_at",
-            "updated_at",
+            "id", "employee", "employee_code", "employee_name",
+            "advance_date", "amount", "total_repaid", "outstanding_amount",
+            "installment_count", "installment_amount", "installments_paid",
+            "reason", "remarks", "status", "can_edit", "can_delete",
+            "created_at", "updated_at",
         ]
-
         read_only_fields = [
-            "total_repaid",
-            "outstanding_amount",
-            "status",
-            "created_at",
-            "updated_at",
+            "total_repaid", "outstanding_amount", "status",
+            "created_at", "updated_at",
         ]
+
+    def get_can_edit(self, obj):
+        return obj.total_repaid == 0 and not obj.repayments.exists()
+
+    def get_can_delete(self, obj):
+        return self.get_can_edit(obj)
+
+    def get_installments_paid(self, obj):
+        return obj.repayments.filter(salary_payment__isnull=False).count()
+
+    def validate_employee(self, value):
+        if value.archived or value.employment_status != "Active":
+            raise serializers.ValidationError("Select an active employee.")
+        return value
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+    def validate(self, attrs):
+        inst = self.instance
+        count = attrs.get("installment_count", getattr(inst, "installment_count", None))
+        each = attrs.get("installment_amount", getattr(inst, "installment_amount", None))
+        amount = attrs.get("amount", getattr(inst, "amount", None))
+        if (count is None) != (each is None):
+            raise serializers.ValidationError(
+                "Provide both the number of installments and the installment amount, or neither."
+            )
+        if each is not None:
+            if each <= 0:
+                raise serializers.ValidationError({"installment_amount": "Must be greater than zero."})
+            if amount is not None and each > amount:
+                raise serializers.ValidationError(
+                    {"installment_amount": "Installment cannot exceed the advance amount."}
+                )
+
+        if inst is not None:
+            if "employee" in attrs and attrs["employee"].pk != inst.employee_id:
+                raise serializers.ValidationError({"employee": "Employee cannot be changed."})
+            if inst.total_repaid > 0 or inst.repayments.exists():
+                raise serializers.ValidationError("Advance is locked after the first installment.")
+        return attrs
 
     def create(self, validated_data):
-        amount = validated_data["amount"]
-
-        validated_data["total_repaid"] = 0
-        validated_data["outstanding_amount"] = amount
+        validated_data["total_repaid"] = Decimal("0.00")
+        validated_data["outstanding_amount"] = validated_data["amount"]
         validated_data["status"] = "OUTSTANDING"
+        return super().create(validated_data)
 
-        return Advance.objects.create(
-            **validated_data
-        )
-
-
-# attendance
-
-from decimal import Decimal
-from datetime import datetime, date, timedelta
-
-from rest_framework import serializers
-
-from .models import (
-    Employee,
-    WageConfig,
-    Attendance,
-)
+    def update(self, instance, validated_data):
+        if "amount" in validated_data:
+            validated_data["outstanding_amount"] = validated_data["amount"]
+        return super().update(instance, validated_data)
 
 
-# ============================================================
-# EMPLOYEE SERIALIZER
-# ============================================================
-
-class AttendanceEmployeeSerializer(serializers.ModelSerializer):
-    full_name = serializers.SerializerMethodField()
+class AdvanceRepaymentSerializer(serializers.ModelSerializer):
+    # Read-only representation: repayments must be created by the
+    # transaction-safe Admin repayment/payroll service, not serializer.save().
+    employee_name = serializers.CharField(source="employee.full_name", read_only=True)
 
     class Meta:
-        model = Employee
-
+        model = AdvanceRepayment
         fields = [
-            "id",
-            "employee_id",
-            "employee_code",
-            "first_name",
-            "last_name",
-            "full_name",
-            "mobile",
-            "email",
-            "department",
-            "designation",
-            "branch",
-            "employment_type",
-            "employment_status",
-            "work_location",
-            "joining_date",
+            "id", "advance", "employee", "employee_name",
+            "amount", "salary_payment", "date", "created_at",
         ]
-
-    def get_full_name(self, obj):
-        return obj.full_name
+        read_only_fields = fields
 
 
-# ============================================================
-# WAGE CONFIG SERIALIZER
-# ============================================================
+class AdvanceInstallmentInputSerializer(serializers.Serializer):
+    # Admin selects an existing advance and enters an installment amount.
+    advance = serializers.PrimaryKeyRelatedField(queryset=Advance.objects.all())
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+
+
+class SalaryCalculationInputSerializer(serializers.Serializer):
+    employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all())
+    salary_month = serializers.DateField()
+    allowances = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False,
+        default=Decimal("0.00"), min_value=Decimal("0.00"),
+    )
+    pf = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False,
+        default=Decimal("0.00"), min_value=Decimal("0.00"),
+    )
+    esi = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False,
+        default=Decimal("0.00"), min_value=Decimal("0.00"),
+    )
+    tax = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False,
+        default=Decimal("0.00"), min_value=Decimal("0.00"),
+    )
+    other_deductions = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False,
+        default=Decimal("0.00"), min_value=Decimal("0.00"),
+    )
+    installments = AdvanceInstallmentInputSerializer(many=True, required=False, default=list)
+    remarks = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_employee(self, employee):
+        if employee.archived or employee.employment_status != "Active":
+            raise serializers.ValidationError("Select an active employee.")
+        return employee
+
+    def validate_salary_month(self, value):
+        if value.day != 1:
+            raise serializers.ValidationError("Use the first day of the salary month (YYYY-MM-01).")
+        return value
+
+    def validate(self, attrs):
+        employee = attrs["employee"]
+        cfg = WageConfig.objects.filter(employee=employee).first()
+        if cfg is None or cfg.salary_type != "DAILY" or cfg.daily_rate <= 0:
+            raise serializers.ValidationError({
+                "employee": "Admin must configure a positive DAILY wage rate before calculating salary."
+            })
+
+        seen = set()
+        for item in attrs.get("installments", []):
+            advance = item["advance"]
+            if advance.pk in seen:
+                raise serializers.ValidationError({"installments": "An advance may appear only once per payroll."})
+            seen.add(advance.pk)
+            if advance.employee_id != employee.pk:
+                raise serializers.ValidationError({"installments": "Advance belongs to another employee."})
+            if item["amount"] > advance.outstanding_amount:
+                raise serializers.ValidationError({
+                    "installments": f"Installment exceeds outstanding amount for advance {advance.pk}."
+                })
+        # The payroll service MUST revalidate outstanding balances under
+        # select_for_update() inside transaction.atomic() at confirmation.
+        return attrs
+
+
+class SalaryPaymentSerializer(serializers.ModelSerializer):
+    # Output serializer only. Do not allow arbitrary clients to write
+    # gross_earnings, net_salary, payroll_status, or deductions directly.
+    employee_name = serializers.CharField(source="employee.full_name", read_only=True)
+    employee_code = serializers.CharField(source="employee.employee_id", read_only=True)
+
+    class Meta:
+        model = SalaryPayment
+        fields = [
+            "id", "employee", "employee_name", "employee_code",
+            "salary_month", "salary_year", "period_start", "period_end",
+            "base_salary", "attendance_wage", "allowances", "overtime",
+            "gross_earnings", "pf", "esi", "tax", "other_deductions",
+            "advance_deduction", "total_deductions", "net_salary",
+            "payroll_status", "payment_status", "paid_date",
+            "calculation_snapshot", "calculated_at", "confirmed_at",
+            "calculated_by", "confirmed_by", "remarks",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
 
 class WageConfigSerializer(serializers.ModelSerializer):
-
-    employee_name = serializers.SerializerMethodField()
-
-    employee_code = serializers.CharField(
-        source="employee.employee_id",
-        read_only=True,
-    )
+    # Admin-only write access must be enforced by the view permission class.
+    employee_name = serializers.CharField(source="employee.full_name", read_only=True)
 
     class Meta:
         model = WageConfig
-
         fields = [
-            "id",
-
-            "employee",
-            "employee_code",
-            "employee_name",
-
-            "salary_type",
-            "hourly_rate",
-            "monthly_salary",
-            "standard_hours_per_day",
-
-            "paid_leave_policy",
-            "holiday_policy",
-            "weekly_off_policy",
-
-            "created_at",
-            "updated_at",
+            "id", "employee", "employee_name", "salary_type",
+            "daily_rate", "hourly_rate", "monthly_salary",
+            "standard_hours_per_day", "paid_leave_policy",
+            "holiday_policy", "weekly_off_policy", "created_at", "updated_at",
         ]
+        read_only_fields = ["id", "employee_name", "created_at", "updated_at"]
 
-        read_only_fields = [
-            "id",
-            "employee_code",
-            "employee_name",
-            "created_at",
-            "updated_at",
-        ]
+    def validate_employee(self, value):
+        if value.archived or value.employment_status != "Active":
+            raise serializers.ValidationError("Select an active employee.")
+        return value
 
-    def get_employee_name(self, obj):
-        return obj.employee.full_name
+    def validate(self, attrs):
+        salary_type = attrs.get(
+            "salary_type", getattr(self.instance, "salary_type", "HOURLY")
+        )
+        daily_rate = attrs.get(
+            "daily_rate", getattr(self.instance, "daily_rate", Decimal("0.00"))
+        )
+        if salary_type == "DAILY" and daily_rate <= 0:
+            raise serializers.ValidationError({"daily_rate": "Daily wage must be greater than zero."})
+        if self.instance and "employee" in attrs and attrs["employee"].pk != self.instance.employee_id:
+            raise serializers.ValidationError({"employee": "Employee cannot be changed."})
+        return attrs
 
 
 # ============================================================
-# ATTENDANCE SERIALIZER
+# EXISTING HR ATTENDANCE SERIALIZER — preserved
 # ============================================================
+
+TIME_INPUT_FORMATS = ["%H:%M", "%H:%M:%S"]
+
+# Internal payroll snapshot (NOT exposed by the API).
+# Payroll / Salary still read Attendance.hourly_rate and Attendance.daily_wage,
+# so they are filled server-side exactly as before. Set to False if Payroll now
+# computes wages itself from WageConfig x total_hours.
+SNAPSHOT_PAYROLL_FIELDS = True
+
+_PAID_POLICY_FIELD = {
+    "PAID_LEAVE": "paid_leave_policy",
+    "HOLIDAY": "holiday_policy",
+    "WEEKLY_OFF": "weekly_off_policy",
+}
+
+
+def payroll_snapshot(employee, att_status, total_hours, existing_rate=None):
+    """Return (hourly_rate, daily_wage) for the legacy payroll columns."""
+    zero = Decimal("0.00")
+    if not SNAPSHOT_PAYROLL_FIELDS:
+        return Decimal(existing_rate or 0), zero
+
+    cfg = WageConfig.objects.filter(employee=employee).first()
+
+    if existing_rate:
+        rate = Decimal(existing_rate)          # past records keep their stored rate
+    elif cfg and cfg.salary_type == "HOURLY":
+        rate = Decimal(cfg.hourly_rate)
+    # DAILY and MONTHLY wages are calculated by the Admin payroll service.
+    # Do not manufacture an hourly snapshot for those salary types.
+    else:
+        rate = zero
+
+    wage = zero
+    if att_status in WORKED_STATUSES:
+        wage = Decimal(total_hours) * rate
+    elif cfg and att_status in _PAID_POLICY_FIELD:
+        if getattr(cfg, _PAID_POLICY_FIELD[att_status]) == "FULL_DAY":
+            wage = Decimal(cfg.standard_hours_per_day) * rate
+
+    q = Decimal("0.01")
+    return rate.quantize(q), wage.quantize(q)
+
 
 class AttendanceSerializer(serializers.ModelSerializer):
+    """HR attendance serializer. Contains NO wage / salary / rupee fields."""
 
-    employee_name = serializers.SerializerMethodField()
-
-    employee_code = serializers.CharField(
-        source="employee.employee_id",
-        read_only=True,
+    employee = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.filter(archived=False, employment_status="Active")
     )
+    employee_code = serializers.CharField(source="employee.employee_id", read_only=True)
+    employee_name = serializers.CharField(source="employee.full_name", read_only=True)
+    department = serializers.CharField(source="employee.department", read_only=True)
+    day_name = serializers.SerializerMethodField()
+    has_slot_data = serializers.SerializerMethodField()
 
-    department = serializers.CharField(
-        source="employee.department",
-        read_only=True,
+    login_time = serializers.TimeField(
+        required=False, allow_null=True,
+        format="%H:%M", input_formats=TIME_INPUT_FORMATS,
     )
-
-    branch = serializers.CharField(
-        source="employee.branch",
-        read_only=True,
+    logout_time = serializers.TimeField(
+        required=False, allow_null=True,
+        format="%H:%M", input_formats=TIME_INPUT_FORMATS,
     )
-
-    employment_type = serializers.CharField(
-        source="employee.employment_type",
-        read_only=True,
+    selected_slots = serializers.ListField(
+        child=serializers.IntegerField(min_value=0, max_value=23),
+        required=False, allow_null=True,
     )
-
-    work_location = serializers.CharField(
-        source="employee.work_location",
-        read_only=True,
+    # Writable: HR-approved OT. Omitted / null => follows the suggested value.
+    approved_ot_hours = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, allow_null=True,
     )
 
     class Meta:
         model = Attendance
-
         fields = [
             "id",
-
             "employee",
             "employee_code",
             "employee_name",
-
             "department",
-            "branch",
-            "employment_type",
-            "work_location",
-
             "date",
+            "day_name",
             "status",
-
             "login_time",
             "logout_time",
-            "break_hours",
-
-            "working_hours",
-            "hourly_rate",
-            "daily_wage",
-
+            "selected_slots",
+            "has_slot_data",
+            "normal_hours",
+            "suggested_ot_hours",
+            "approved_ot_hours",
+            "total_hours",
+            "ot_manually_edited",
             "remarks",
-
-            "created_at",
-            "updated_at",
         ]
-
         read_only_fields = [
-            "id",
-
-            "employee_code",
-            "employee_name",
-
-            "department",
-            "branch",
-            "employment_type",
-            "work_location",
-
-            "working_hours",
-            "daily_wage",
-
-            "created_at",
-            "updated_at",
+            "normal_hours",
+            "suggested_ot_hours",
+            "total_hours",
+            "ot_manually_edited",
         ]
+        # Duplicate (employee, date) is handled in the viewset so it can
+        # return HTTP 409 instead of a generic 400.
+        validators = []
 
-    # --------------------------------------------------------
-    # VALIDATION
-    # --------------------------------------------------------
+    def get_day_name(self, obj):
+        return obj.date.strftime("%a")
 
+    def get_has_slot_data(self, obj):
+        return obj.selected_slots is not None
+
+    # ---------------------------------------------------------
     def validate(self, attrs):
-
         instance = self.instance
 
-        attendance_status = attrs.get(
-            "status",
-            getattr(
-                instance,
-                "status",
-                None,
-            ),
-        )
+        if (
+            instance is not None
+            and "employee" in attrs
+            and attrs["employee"].pk != instance.employee_id
+        ):
+            raise serializers.ValidationError(
+                {"employee": "Employee cannot be changed on an existing record."}
+            )
 
-        login_time = attrs.get(
-            "login_time",
-            getattr(
-                instance,
-                "login_time",
-                None,
-            ),
-        )
+        employee = attrs.get("employee") or (instance.employee if instance else None)
+        att_date = attrs.get("date") or (instance.date if instance else None)
+        att_status = attrs.get("status") or (instance.status if instance else None)
 
-        logout_time = attrs.get(
-            "logout_time",
-            getattr(
-                instance,
-                "logout_time",
-                None,
-            ),
-        )
+        if employee is None:
+            raise serializers.ValidationError({"employee": "Employee is required."})
+        if att_date is None:
+            raise serializers.ValidationError({"date": "Date is required."})
+        if att_status is None:
+            raise serializers.ValidationError({"status": "Status is required."})
 
-        break_hours = attrs.get(
-            "break_hours",
-            getattr(
-                instance,
-                "break_hours",
-                Decimal("0"),
-            ),
-        )
+        if att_status in WORKED_STATUSES:
+            login = attrs["login_time"] if "login_time" in attrs else getattr(instance, "login_time", None)
+            logout = attrs["logout_time"] if "logout_time" in attrs else getattr(instance, "logout_time", None)
+            slots = attrs["selected_slots"] if "selected_slots" in attrs else getattr(instance, "selected_slots", None)
 
-        if break_hours is None:
-            break_hours = Decimal("0")
+            errors = {}
+            if login is None:
+                errors["login_time"] = "In time is required for this status."
+            if logout is None:
+                errors["logout_time"] = "Out time is required for this status."
+            if errors:
+                raise serializers.ValidationError(errors)
 
-        if break_hours < Decimal("0"):
-            raise serializers.ValidationError({
-                "break_hours": "Break hours cannot be negative."
-            })
-
-        time_based_statuses = {
-            "PRESENT",
-            "HALF_DAY",
-            "WFH",
-        }
-
-        if attendance_status in time_based_statuses:
-
-            if not login_time:
+            if slots is None:
                 raise serializers.ValidationError({
-                    "login_time":
-                        "Login time is required for this status."
+                    "selected_slots": (
+                        "No hourly slots supplied. Select the worked slots and save."
+                    )
                 })
 
-            if not logout_time:
-                raise serializers.ValidationError({
-                    "logout_time":
-                        "Logout time is required for this status."
-                })
+            if "approved_ot_hours" in attrs:
+                approved_input = attrs["approved_ot_hours"]
+            elif instance is not None and instance.ot_manually_edited:
+                approved_input = instance.approved_ot_hours   # keep HR's edit on partial update
+            else:
+                approved_input = None
 
-            if login_time == logout_time:
-                raise serializers.ValidationError({
-                    "logout_time":
-                        "Logout time cannot be equal to login time."
-                })
+            try:
+                result = calculate_hours(att_date, login, logout, slots, approved_input)
+            except AttendanceCalcError as exc:
+                raise serializers.ValidationError({exc.field: exc.message})
+
+            attrs["login_time"] = login
+            attrs["logout_time"] = logout
+        else:
+            result = empty_hours()
+            attrs["login_time"] = None
+            attrs["logout_time"] = None
+
+        attrs.update(result)
+
+        # Legacy / payroll mirror columns (never returned by this serializer).
+        attrs["working_hours"] = result["total_hours"]
+        attrs["break_hours"] = Decimal("0.00")
+        rate, wage = payroll_snapshot(
+            employee,
+            att_status,
+            result["total_hours"],
+            existing_rate=instance.hourly_rate if instance else None,
+        )
+        attrs["hourly_rate"] = rate
+        attrs["daily_wage"] = wage
 
         return attrs
 
-    # --------------------------------------------------------
-    # CALCULATE WORKING HOURS
-    # --------------------------------------------------------
-    def get_employee_name(self, obj):
-        return obj.employee.full_name
-    def calculate_working_hours(
-        self,
-        login_time,
-        logout_time,
-        break_hours,
-    ):
+class AttendanceEmployeeSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(
+        source="full_name",
+        read_only=True
+    )
 
-        if not login_time or not logout_time:
-            return Decimal("0.00")
-
-        start = datetime.combine(
-            date.today(),
-            login_time,
-        )
-
-        end = datetime.combine(
-            date.today(),
-            logout_time,
-        )
-
-        # Overnight shift
-        if end < start:
-            end += timedelta(days=1)
-
-        total_seconds = (
-            end - start
-        ).total_seconds()
-
-        hours = (
-            Decimal(str(total_seconds / 3600))
-            - Decimal(str(break_hours or 0))
-        )
-
-        if hours < Decimal("0"):
-            hours = Decimal("0")
-
-        return hours.quantize(
-            Decimal("0.01")
-        )
-
-    # --------------------------------------------------------
-    # CALCULATE DAILY WAGE
-    # --------------------------------------------------------
-
-    def calculate_daily_wage(
-        self,
-        attendance_status,
-        working_hours,
-        hourly_rate,
-        wage_config,
-    ):
-
-        time_based_statuses = {
-            "PRESENT",
-            "HALF_DAY",
-            "WFH",
-        }
-
-        if attendance_status in time_based_statuses:
-
-            return (
-                working_hours * hourly_rate
-            ).quantize(
-                Decimal("0.01")
-            )
-
-        # Paid leave
-        if attendance_status == "PAID_LEAVE":
-
-            if wage_config.paid_leave_policy == "FULL_DAY":
-
-                return (
-                    wage_config.standard_hours_per_day
-                    * hourly_rate
-                ).quantize(
-                    Decimal("0.01")
-                )
-
-            return Decimal("0.00")
-
-        # Holiday
-        if attendance_status == "HOLIDAY":
-
-            if wage_config.holiday_policy == "FULL_DAY":
-
-                return (
-                    wage_config.standard_hours_per_day
-                    * hourly_rate
-                ).quantize(
-                    Decimal("0.01")
-                )
-
-            return Decimal("0.00")
-
-        # Weekly off
-        if attendance_status == "WEEKLY_OFF":
-
-            if wage_config.weekly_off_policy == "FULL_DAY":
-
-                return (
-                    wage_config.standard_hours_per_day
-                    * hourly_rate
-                ).quantize(
-                    Decimal("0.01")
-                )
-
-            return Decimal("0.00")
-
-        # ABSENT / UNPAID_LEAVE
-        return Decimal("0.00")
-
-    # --------------------------------------------------------
-    # CREATE
-    # --------------------------------------------------------
-
-    def create(self, validated_data):
-
-        employee = validated_data["employee"]
-
-        wage_config, _ = WageConfig.objects.get_or_create(
-            employee=employee
-        )
-
-        attendance_status = validated_data.get(
-            "status",
-            "PRESENT",
-        )
-
-        login_time = validated_data.get(
-            "login_time"
-        )
-
-        logout_time = validated_data.get(
-            "logout_time"
-        )
-
-        break_hours = validated_data.get(
-            "break_hours",
-            Decimal("0"),
-        )
-
-        hourly_rate = validated_data.get(
-            "hourly_rate"
-        )
-
-        if hourly_rate is None:
-            hourly_rate = wage_config.hourly_rate
-
-        working_hours = self.calculate_working_hours(
-            login_time,
-            logout_time,
-            break_hours,
-        )
-
-        daily_wage = self.calculate_daily_wage(
-            attendance_status,
-            working_hours,
-            hourly_rate,
-            wage_config,
-        )
-
-        # Non-time attendance
-        if attendance_status not in {
-            "PRESENT",
-            "HALF_DAY",
-            "WFH",
-        }:
-
-            login_time = None
-            logout_time = None
-            break_hours = Decimal("0")
-            working_hours = Decimal("0.00")
-
-        validated_data["login_time"] = login_time
-        validated_data["logout_time"] = logout_time
-        validated_data["break_hours"] = break_hours
-        validated_data["working_hours"] = working_hours
-        validated_data["hourly_rate"] = hourly_rate
-        validated_data["daily_wage"] = daily_wage
-
-        return super().create(
-            validated_data
-        )
-
-    # --------------------------------------------------------
-    # UPDATE
-    # --------------------------------------------------------
-
-    def update(
-        self,
-        instance,
-        validated_data,
-    ):
-
-        employee = validated_data.get(
-            "employee",
-            instance.employee,
-        )
-
-        wage_config, _ = WageConfig.objects.get_or_create(
-            employee=employee
-        )
-
-        attendance_status = validated_data.get(
-            "status",
-            instance.status,
-        )
-
-        login_time = validated_data.get(
-            "login_time",
-            instance.login_time,
-        )
-
-        logout_time = validated_data.get(
-            "logout_time",
-            instance.logout_time,
-        )
-
-        break_hours = validated_data.get(
-            "break_hours",
-            instance.break_hours,
-        )
-
-        hourly_rate = validated_data.get(
-            "hourly_rate",
-            instance.hourly_rate,
-        )
-
-        if hourly_rate is None:
-            hourly_rate = wage_config.hourly_rate
-
-        working_hours = self.calculate_working_hours(
-            login_time,
-            logout_time,
-            break_hours,
-        )
-
-        daily_wage = self.calculate_daily_wage(
-            attendance_status,
-            working_hours,
-            hourly_rate,
-            wage_config,
-        )
-
-        if attendance_status not in {
-            "PRESENT",
-            "HALF_DAY",
-            "WFH",
-        }:
-
-            login_time = None
-            logout_time = None
-            break_hours = Decimal("0")
-            working_hours = Decimal("0.00")
-
-        validated_data["login_time"] = login_time
-        validated_data["logout_time"] = logout_time
-        validated_data["break_hours"] = break_hours
-        validated_data["working_hours"] = working_hours
-        validated_data["hourly_rate"] = hourly_rate
-        validated_data["daily_wage"] = daily_wage
-
-        return super().update(
-            instance,
-            validated_data,
-        )
-
-
+    class Meta:
+        model = Employee
+        fields = [
+            "id",
+            "employee_id",
+            "employee_code",
+            "employee_name",
+            "first_name",
+            "last_name",
+            "department",
+            "branch",
+            "employment_type",
+            "work_location",
+        ]
 
 #for consumable
 from rest_framework import serializers

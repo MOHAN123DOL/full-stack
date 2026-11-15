@@ -2324,3 +2324,489 @@ def sync_purchase_order_items(purchase_order):
                 "thickness": _dim(item, "thickness"),
             },
         )
+
+
+
+"""Attendance-hour calculation for NXT GENZ ERP HR attendance.
+
+Mon–Sat: 09:00–18:00, 8 normal hours maximum. Lunch 13:00–14:00
+is unpaid by default but can be explicitly selected as worked.
+Sunday: 06:00–12:00, 6 normal hours maximum, no lunch break.
+
+Slots are integer START hours (0–23). Only checked slots are counted.
+The selected 13:00–14:00 slot on weekdays is eligible work. Checked
+in-shift time beyond the daily normal-hours limit becomes suggested OT.
+"""
+
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+WORKED_STATUSES = ("PRESENT", "HALF_DAY", "WFH")
+
+SHIFT_START_MIN = 9 * 60  # legacy weekday constant
+WEEKDAY_SHIFT_START_MIN = 9 * 60
+WEEKDAY_SHIFT_END_MIN = 18 * 60
+SUNDAY_SHIFT_START_MIN = 6 * 60
+SUNDAY_SHIFT_END_MIN = 12 * 60
+LUNCH_START_MIN = 13 * 60
+LUNCH_END_MIN = 14 * 60
+LUNCH_SLOT_HOUR = 13
+
+TWO_PLACES = Decimal("0.01")
+ZERO = Decimal("0.00")
+
+
+class AttendanceCalcError(Exception):
+    """Validation problem tied to one request field."""
+
+    def __init__(self, field, message):
+        super().__init__(message)
+        self.field = field
+        self.message = message
+
+
+def is_sunday(att_date):
+    return att_date.weekday() == 6
+
+
+def shift_start_minutes(att_date):
+    return SUNDAY_SHIFT_START_MIN if is_sunday(att_date) else WEEKDAY_SHIFT_START_MIN
+
+
+def shift_end_minutes(att_date):
+    return SUNDAY_SHIFT_END_MIN if is_sunday(att_date) else WEEKDAY_SHIFT_END_MIN
+
+
+def max_normal_hours(att_date):
+    """Maximum normal hours, never automatically credited."""
+    return Decimal("6.00") if is_sunday(att_date) else Decimal("8.00")
+
+
+def time_to_minutes(value):
+    return value.hour * 60 + value.minute
+
+
+def _overlap(a_start, a_end, b_start, b_end):
+    return max(0, min(a_end, b_end) - max(a_start, b_start))
+
+
+def _to_hours(minutes):
+    return (Decimal(minutes) / Decimal(60)).quantize(
+        TWO_PLACES, rounding=ROUND_HALF_UP
+    )
+
+
+def empty_hours():
+    """Result used for non-working statuses."""
+    return {
+        "selected_slots": [],
+        "normal_hours": ZERO,
+        "suggested_ot_hours": ZERO,
+        "approved_ot_hours": ZERO,
+        "total_hours": ZERO,
+        "ot_manually_edited": False,
+    }
+
+
+def calculate_hours(att_date, login_time, logout_time, selected_slots, approved_ot=None):
+    """Calculate normal and suggested OT from checked hourly slots only.
+
+    approved_ot=None follows the suggested OT. Otherwise HR may approve
+    a nonnegative value not greater than suggested OT.
+    """
+    if login_time is None or logout_time is None:
+        raise AttendanceCalcError(
+            "login_time", "Login time and logout time are required."
+        )
+    if not isinstance(selected_slots, list):
+        raise AttendanceCalcError("selected_slots", "Slots must be a list of hours.")
+
+    login_min = time_to_minutes(login_time)
+    logout_min = time_to_minutes(logout_time)
+    if logout_min <= login_min:
+        raise AttendanceCalcError(
+            "logout_time", "Logout time must be later than login time."
+        )
+
+    first_hour = login_min // 60
+    last_hour = (logout_min - 1) // 60
+    cleaned = set()
+    for raw in selected_slots:
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            raise AttendanceCalcError(
+                "selected_slots", "Slots must be whole-number start hours."
+            )
+        if raw < first_hour or raw > last_hour:
+            raise AttendanceCalcError(
+                "selected_slots",
+                f"Slot {raw:02d}:00 is outside the login/logout window.",
+            )
+        # Lunch is NOT skipped. It is only counted if HR checked slot 13.
+        cleaned.add(raw)
+
+    if not cleaned:
+        raise AttendanceCalcError("selected_slots", "Select at least one hourly slot.")
+
+    shift_start = shift_start_minutes(att_date)
+    shift_end = shift_end_minutes(att_date)
+    in_shift_minutes = 0
+    outside_shift_minutes = 0
+
+    for hour in sorted(cleaned):
+        seg_start = max(hour * 60, login_min)
+        seg_end = min(hour * 60 + 60, logout_min)
+        duration = seg_end - seg_start
+        normal_candidate = _overlap(seg_start, seg_end, shift_start, shift_end)
+        in_shift_minutes += normal_candidate
+        outside_shift_minutes += duration - normal_candidate
+
+    # A checked weekday lunch hour can take in-shift worked time above 8h.
+    # Such excess becomes suggested OT rather than a ninth normal hour.
+    max_normal_minutes = int(max_normal_hours(att_date) * 60)
+    excess_minutes = max(0, in_shift_minutes - max_normal_minutes)
+    normal = _to_hours(in_shift_minutes - excess_minutes)
+    suggested = _to_hours(outside_shift_minutes + excess_minutes)
+
+    if approved_ot is None:
+        approved = suggested
+        edited = False
+    else:
+        try:
+            approved = Decimal(str(approved_ot))
+        except (InvalidOperation, ValueError, TypeError):
+            raise AttendanceCalcError(
+                "approved_ot_hours", "Approved OT must be a valid number."
+            )
+        if not approved.is_finite():
+            raise AttendanceCalcError(
+                "approved_ot_hours", "Approved OT must be a finite number."
+            )
+        approved = approved.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+        if approved < ZERO:
+            raise AttendanceCalcError(
+                "approved_ot_hours", "Approved OT cannot be negative."
+            )
+        if approved > suggested:
+            raise AttendanceCalcError(
+                "approved_ot_hours",
+                f"Approved OT cannot exceed suggested OT ({suggested} hrs).",
+            )
+        edited = approved != suggested
+
+    return {
+        "selected_slots": sorted(cleaned),
+        "normal_hours": normal,
+        "suggested_ot_hours": suggested,
+        "approved_ot_hours": approved,
+        "total_hours": normal + approved,
+        "ot_manually_edited": edited,
+    }
+
+
+"""NXT GENZ ERP — Admin payroll calculation and confirmation service.
+
+Place beside models.py and the existing services.py (attendance calculations).
+Only Admin-authorized views should call the mutating functions here.
+
+Assumptions:
+- Updated SalaryPayment, WageConfig, Advance and AdvanceRepayment models are migrated.
+- DAILY employees are paid using their current WageConfig.daily_rate.
+- Paid leave/holiday/weekly-off policies apply when the corresponding attendance
+  status is explicitly recorded; no attendance row means no credited hours/pay.
+- One payroll per employee per calendar month.
+- Confirming payroll books advance installments (does not mark cash paid).
+- Historical rate changes require a separate effective-dated rate model if needed.
+"""
+
+from calendar import monthrange
+from datetime import date
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
+from .models import Advance, AdvanceRepayment, Attendance, SalaryPayment, WageConfig
+
+CENT = Decimal("0.01")
+ZERO = Decimal("0.00")
+WORKED = {"PRESENT", "HALF_DAY", "WFH"}
+POLICY_FIELDS = {
+    "PAID_LEAVE": "paid_leave_policy",
+    "HOLIDAY": "holiday_policy",
+    "WEEKLY_OFF": "weekly_off_policy",
+}
+DEDUCTION_FIELDS = ("pf", "esi", "tax", "other_deductions")
+
+
+def money(value, label="amount"):
+    """Convert a nonnegative finite value to currency precision."""
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValidationError({label: "Enter a valid amount."})
+    if not result.is_finite() or result < ZERO:
+        raise ValidationError({label: "Amount must be finite and nonnegative."})
+    result = result.quantize(CENT, rounding=ROUND_HALF_UP)
+    if result > Decimal("9999999999.99"):
+        raise ValidationError({label: "Amount exceeds the supported limit."})
+    return result
+
+
+def month_bounds(salary_month):
+    """Normalize date to first and last day of its calendar month."""
+    if isinstance(salary_month, str):
+        try:
+            salary_month = date.fromisoformat(salary_month)
+        except ValueError:
+            raise ValidationError({"salary_month": "Use YYYY-MM-DD."})
+    if not isinstance(salary_month, date):
+        raise ValidationError({"salary_month": "A valid date is required."})
+    first = salary_month.replace(day=1)
+    last = salary_month.replace(day=monthrange(first.year, first.month)[1])
+    return first, last
+
+
+def standard_hours(day):
+    return Decimal("6") if day.weekday() == 6 else Decimal("8")
+
+
+def _wage_config(employee):
+    try:
+        config = WageConfig.objects.get(employee=employee)
+    except WageConfig.DoesNotExist:
+        raise ValidationError({"employee": "Set the employee's daily wage first."})
+    if config.salary_type != "DAILY":
+        raise ValidationError({"employee": "Employee salary type must be DAILY."})
+    rate = money(config.daily_rate, "daily_rate")
+    if rate <= ZERO:
+        raise ValidationError({"daily_rate": "Set a daily rate greater than zero."})
+    return config, rate
+
+
+def calculate_salary(employee, salary_month, *, allowances=ZERO,
+                     pf=ZERO, esi=ZERO, tax=ZERO, other_deductions=ZERO,
+                     installments=None):
+    """Read-only payroll preview. Returns Decimal totals and a JSON-safe snapshot.
+
+    installments: [{"advance_id": int, "amount": decimal/string}, ...].
+    The preview validates current outstanding amounts; confirmation revalidates
+    under database locks because balances may change in between.
+    """
+    first, last = month_bounds(salary_month)
+    config, daily_rate = _wage_config(employee)
+    allowances = money(allowances, "allowances")
+    deductions = {key: money(value, key) for key, value in {
+        "pf": pf, "esi": esi, "tax": tax, "other_deductions": other_deductions
+    }.items()}
+
+    rows = Attendance.objects.filter(
+        employee=employee, date__range=(first, last)
+    ).order_by("date")
+
+    normal_total = ZERO
+    ot_total = ZERO
+    days = []
+    for att in rows:
+        normal_hours = Decimal(att.normal_hours or 0)
+        ot_hours = Decimal(att.approved_ot_hours or 0)
+        if normal_hours < 0 or ot_hours < 0:
+            raise ValidationError({"attendance": f"Negative hours on {att.date}."})
+        daily_standard = standard_hours(att.date)
+        if att.status in WORKED:
+            if normal_hours > daily_standard:
+                raise ValidationError({"attendance": f"Normal hours exceed shift limit on {att.date}."})
+            # Keep precision until each day's monetary components are rounded.
+            normal_wage = (normal_hours * daily_rate / daily_standard).quantize(
+                CENT, rounding=ROUND_HALF_UP
+            )
+            ot_wage = (ot_hours * daily_rate / daily_standard).quantize(
+                CENT, rounding=ROUND_HALF_UP
+            )
+        elif att.status in POLICY_FIELDS and getattr(config, POLICY_FIELDS[att.status]) == "FULL_DAY":
+            normal_wage, ot_wage = daily_rate, ZERO
+        else:
+            normal_wage, ot_wage = ZERO, ZERO
+        normal_total += normal_wage
+        ot_total += ot_wage
+        days.append({
+            "date": att.date.isoformat(),
+            "status": att.status,
+            "normal_hours": str(normal_hours if att.status in WORKED else ZERO),
+            "approved_ot_hours": str(ot_hours if att.status in WORKED else ZERO),
+            "standard_hours": str(daily_standard),
+            "daily_rate": str(daily_rate),
+            "normal_wage": str(normal_wage),
+            "ot_wage": str(ot_wage),
+        })
+
+    installments = installments or []
+    if not isinstance(installments, list):
+        raise ValidationError({"installments": "Expected a list."})
+    seen = set()
+    normalized_installments = []
+    advance_total = ZERO
+    for item in installments:
+        if not isinstance(item, dict) or "advance_id" not in item or "amount" not in item:
+            raise ValidationError({"installments": "Each installment needs advance_id and amount."})
+        try:
+            advance_id = int(item["advance_id"])
+        except (ValueError, TypeError):
+            raise ValidationError({"installments": "Invalid advance ID."})
+        if advance_id in seen:
+            raise ValidationError({"installments": "Only one installment per advance per month."})
+        seen.add(advance_id)
+        amount = money(item["amount"], "installment_amount")
+        if amount == ZERO:
+            raise ValidationError({"installments": "Installments must be greater than zero."})
+        try:
+            advance = Advance.objects.get(pk=advance_id, employee=employee)
+        except Advance.DoesNotExist:
+            raise ValidationError({"installments": f"Advance {advance_id} not found for employee."})
+        if amount > advance.outstanding_amount:
+            raise ValidationError({"installments": f"Installment exceeds advance {advance_id} outstanding balance."})
+        normalized_installments.append({"advance_id": advance_id, "amount": str(amount)})
+        advance_total += amount
+
+    gross = normal_total + ot_total + allowances
+    total_deductions = sum(deductions.values(), ZERO) + advance_total
+    net = gross - total_deductions
+    if net < ZERO:
+        raise ValidationError({"deductions": "Total deductions cannot exceed gross earnings."})
+
+    return {
+        "employee_id": employee.pk,
+        "salary_month": first,
+        "salary_year": first.year,
+        "period_start": first,
+        "period_end": last,
+        "base_salary": ZERO,
+        "attendance_wage": normal_total,
+        "overtime": ot_total,
+        "allowances": allowances,
+        "gross_earnings": gross,
+        **deductions,
+        "advance_deduction": advance_total,
+        "total_deductions": total_deductions,
+        "net_salary": net,
+        "installments": normalized_installments,
+        "calculation_snapshot": {
+            "salary_type": "DAILY",
+            "daily_rate": str(daily_rate),
+            "period_start": first.isoformat(),
+            "period_end": last.isoformat(),
+            "days": days,
+            "installments": normalized_installments,
+        },
+    }
+
+
+def _salary_fields(preview):
+    names = (
+        "salary_month", "salary_year", "period_start", "period_end",
+        "base_salary", "attendance_wage", "overtime", "allowances",
+        "gross_earnings", "pf", "esi", "tax", "other_deductions",
+        "advance_deduction", "total_deductions", "net_salary",
+        "calculation_snapshot",
+    )
+    return {name: preview[name] for name in names}
+
+
+@transaction.atomic
+def save_salary_draft(employee, salary_month, *, user=None, remarks=None, **inputs):
+    """Create or replace an unconfirmed draft; no repayments are created."""
+    first, _ = month_bounds(salary_month)
+    existing = SalaryPayment.objects.select_for_update().filter(
+        employee=employee, salary_month=first
+    ).first()
+    if existing and existing.payroll_status != "DRAFT":
+        raise ValidationError("Confirmed payroll cannot be edited as a draft.")
+    preview = calculate_salary(employee, first, **inputs)
+    values = _salary_fields(preview)
+    if existing:
+        salary = existing
+        for name, value in values.items():
+            setattr(salary, name, value)
+    else:
+        salary = SalaryPayment(employee=employee, **values)
+    salary.calculated_at = timezone.now()
+    salary.calculated_by = user if getattr(user, "is_authenticated", False) else None
+    if remarks is not None:
+        salary.remarks = remarks
+    salary.full_clean()
+    salary.save()
+    return salary
+
+
+@transaction.atomic
+def confirm_salary(salary_id, *, user=None):
+    """Finalize a draft and book each advance installment exactly once.
+
+    Recalculates attendance and deductions under transaction to reject stale
+    drafts; locks relevant advance rows before applying repayments. A second
+    confirmation is idempotent and returns the existing confirmed payroll.
+    """
+    salary = SalaryPayment.objects.select_for_update().select_related("employee").get(pk=salary_id)
+    if salary.payroll_status == "CONFIRMED":
+        return salary
+    if salary.payroll_status != "DRAFT":
+        raise ValidationError("Only draft payroll can be confirmed.")
+
+    snapshot = salary.calculation_snapshot or {}
+    installments = snapshot.get("installments", [])
+    # Lock the employee's advances in deterministic order before validation.
+    ids = sorted({int(item["advance_id"]) for item in installments})
+    locked = {
+        adv.pk: adv for adv in Advance.objects.select_for_update().filter(
+            employee=salary.employee, pk__in=ids
+        ).order_by("pk")
+    }
+    if len(locked) != len(ids):
+        raise ValidationError("One or more advances no longer exist for this employee.")
+
+    # Recalculate using current attendance, rate, policies and balances.
+    fresh = calculate_salary(
+        salary.employee,
+        salary.salary_month,
+        allowances=salary.allowances,
+        pf=salary.pf,
+        esi=salary.esi,
+        tax=salary.tax,
+        other_deductions=salary.other_deductions,
+        installments=installments,
+    )
+    if fresh["calculation_snapshot"] != snapshot:
+        raise ValidationError(
+            "Attendance, wage configuration or advance details changed. "
+            "Recalculate and save the salary draft before confirming."
+        )
+
+    for item in installments:
+        advance = locked[int(item["advance_id"])]
+        amount = money(item["amount"], "installment_amount")
+        if amount > advance.outstanding_amount:
+            raise ValidationError("Advance outstanding balance has changed.")
+        AdvanceRepayment.objects.create(
+            advance=advance,
+            employee=salary.employee,
+            salary_payment=salary,
+            amount=amount,
+            date=timezone.localdate(),
+        )
+        advance.total_repaid += amount
+        advance.outstanding_amount -= amount
+        advance.status = (
+            "FULLY_REPAID" if advance.outstanding_amount == ZERO
+            else "PARTIALLY_REPAID"
+        )
+        advance.save(update_fields=[
+            "total_repaid", "outstanding_amount", "status", "updated_at"
+        ])
+
+    salary.payroll_status = "CONFIRMED"
+    salary.confirmed_at = timezone.now()
+    salary.confirmed_by = user if getattr(user, "is_authenticated", False) else None
+    salary.full_clean()
+    salary.save(update_fields=[
+        "payroll_status", "confirmed_at", "confirmed_by", "updated_at"
+    ])
+    return salary
