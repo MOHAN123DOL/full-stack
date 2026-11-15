@@ -569,7 +569,7 @@ function toggleInArray(arr, value) {
 }
 
 export default function Employees() {
-  const { employees, archiveEmployee, isLoading, error, refresh } =
+  const { employees, archiveEmployee, unarchiveEmployee, isLoading, error, refresh } =
     useEmployees();
   const navigate = useNavigate();
   const location = useLocation();
@@ -704,6 +704,17 @@ export default function Employees() {
       showToast(GENERIC_ERROR);
     }
     setArchiveTarget(null);
+  }
+
+  async function handleUnarchive(emp) {
+    setOpenMenuId(null);
+    try {
+      await unarchiveEmployee(emp.id);
+      showToast(`${emp.firstName} ${emp.lastName} was restored successfully.`);
+    } catch (err) {
+      console.error("Failed to unarchive employee:", err);
+      showToast("Failed to restore employee.");
+    }
   }
 
   const FilterGroup = ({ label, group, options }) => (
@@ -890,7 +901,7 @@ export default function Employees() {
                         .toLowerCase()
                         .replace(/\s+/g, "-")}${
                         flippedIds.has(emp.id) ? " is-flipped" : ""
-                      }`}
+                      }${openMenuId === `${emp.id}:front` ? " emp-menu-open-front" : ""}${openMenuId === `${emp.id}:back` ? " emp-menu-open-back" : ""}`}
                       key={emp.id}
                     >
                       <div className="emp-card-flip">
@@ -904,13 +915,13 @@ export default function Employees() {
                                 aria-label="More actions"
                                 onClick={() =>
                                   setOpenMenuId(
-                                    openMenuId === emp.id ? null : emp.id,
+                                    openMenuId === `${emp.id}:front` ? null : `${emp.id}:front`,
                                   )
                                 }
                               >
                                 ⋮
                               </button>
-                              {openMenuId === emp.id && (
+                              {openMenuId === `${emp.id}:front` && (
                                 <div className="emp-menu">
                                   {!emp.archived ? (
                                     <button
@@ -923,15 +934,23 @@ export default function Employees() {
                                       Archive employee
                                     </button>
                                   ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setOpenMenuId(null);
-                                        navigate(`/hr/employees/${emp.id}`);
-                                      }}
-                                    >
-                                      View archived record
-                                    </button>
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUnarchive(emp)}
+                                      >
+                                        Unarchive employee
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setOpenMenuId(null);
+                                          navigate(`/hr/employees/${emp.id}`);
+                                        }}
+                                      >
+                                        View archived record
+                                      </button>
+                                    </>
                                   )}
                                 </div>
                               )}
@@ -995,9 +1014,59 @@ export default function Employees() {
                         </div>
 
                         <div className="emp-card-back">
-                          <p className="emp-card-back-eyebrow">
-                            Employee Details
-                          </p>
+                          <div className="emp-card-back-top">
+                            <p className="emp-card-back-eyebrow">Employee Details</p>
+                            <div className="emp-menu-wrap emp-menu-wrap-back">
+                              <button
+                                type="button"
+                                className="emp-icon-btn emp-back-menu-trigger"
+                                aria-label="More employee actions"
+                                aria-expanded={openMenuId === `${emp.id}:back`}
+                                onClick={() =>
+                                  setOpenMenuId(
+                                    openMenuId === `${emp.id}:back`
+                                      ? null
+                                      : `${emp.id}:back`,
+                                  )
+                                }
+                              >
+                                ⋮
+                              </button>
+                              {openMenuId === `${emp.id}:back` && (
+                                <div className="emp-menu emp-menu-back">
+                                  {!emp.archived ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenMenuId(null);
+                                        setArchiveTarget(emp);
+                                      }}
+                                    >
+                                      Archive employee
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUnarchive(emp)}
+                                      >
+                                        Unarchive employee
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setOpenMenuId(null);
+                                          navigate(`/hr/employees/${emp.id}`);
+                                        }}
+                                      >
+                                        View archived record
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                           <dl className="emp-card-detail-list">
                             <div>
                               <dt>Department</dt>

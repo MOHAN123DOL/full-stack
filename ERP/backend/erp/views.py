@@ -156,7 +156,7 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
 from .models import User
 from .serializers import ChangePasswordSerializer, LoginSerializer, ProfileSerializer
-from .permissions import IsERPAdmin, IsMaterialPlanning , IsAccounts, IsERPAdmin
+from .permissions import IsERPAdmin, IsMaterialPlanning , IsAccounts
 
 from .serializers import LoginSerializer
 from django.conf import settings
@@ -7096,6 +7096,7 @@ class EmployeePhotoAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+    
 # ============================================================
 # ARCHIVE / UNARCHIVE
 # ============================================================
@@ -7913,9 +7914,7 @@ class AttendanceViewSet(ModelViewSet):
 
 
 
-
-# IMPORTANT: Adjust group names if your existing Admin/HR permission system
-# uses different role identifiers. Never rely on frontend visibility alone.
+#for advance salary
 
 
 
@@ -8116,7 +8115,7 @@ class OutstandingAdvanceAPIView(APIView):
 # attach directly to salary_payment to bypass payroll confirmation.
 # ------------------------------------------------------------
 class AdvanceRepaymentListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsERPAdmin]
+    permission_classes = [IsAuthenticated,IsHRorAdmin]
 
     def get(self, request):
         qs = AdvanceRepayment.objects.select_related(
@@ -8364,6 +8363,697 @@ class WageConfigDetailAPIView(APIView):
             return Response({"detail": "Cannot remove wage configuration with payroll history."}, status=409)
         instance.delete()
         return Response(status=204)
+
+"""Read-only Admin Attendance custom salary report.
+
+Place in the same Django app as models.py (for example hr/admin_custom_salary_report.py).
+Uses saved Attendance.daily_wage, NOT monthly SalaryPayment and NOT a recalculation.
+Requires openpyxl only for XLSX exports: pip install openpyxl
+"""
+import csv
+from calendar import monthrange
+from datetime import date, timedelta
+from decimal import Decimal
+from io import BytesIO
+
+from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncMonth
+from django.http import HttpResponse
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Attendance, Employee
+# IMPORTANT: import your project's existing, verified ADMIN-ONLY permission.
+# Do not use IsHRorAdmin for this endpoint if HR users should not see the report.
+
+
+WORKED = ('PRESENT', 'HALF_DAY', 'WFH')
+ZERO = Decimal('0.00')
+
+
+class ReportPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+def report_filters(request):
+    params = request.query_params
+    today = timezone.localdate()
+    period = params.get('period', 'today').lower().strip()
+    if period == 'today':
+        start = end = today
+    elif period == 'week':
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=6)
+    elif period == 'month':
+        start = today.replace(day=1)
+        end = today.replace(day=monthrange(today.year, today.month)[1])
+    elif period == 'year':
+        start, end = today.replace(month=1, day=1), today.replace(month=12, day=31)
+    elif period == 'selected_date':
+        try:
+            start = end = date.fromisoformat(params['date'])
+        except (KeyError, ValueError):
+            raise ValidationError({'date': 'Select a valid date (YYYY-MM-DD).'})
+    elif period == 'custom':
+        try:
+            start = date.fromisoformat(params['date_from'])
+            end = date.fromisoformat(params['date_to'])
+        except (KeyError, ValueError):
+            raise ValidationError({'detail': 'Custom period requires valid date_from and date_to (YYYY-MM-DD).'})
+    else:
+        raise ValidationError({'period': 'Use today, week, month, year, selected_date, or custom.'})
+    # Preset ranges must not extend into the future; custom ranges remain strict.
+    if period != 'custom' and end > today:
+        end = today
+    if start > end:
+        raise ValidationError({'date_to': 'End date must be on or after start date.'})
+    if end > today:
+        raise ValidationError({'date_to': 'Future dates are not allowed in this report.'})
+    if (end - start).days > 3660:
+        raise ValidationError({'date_to': 'Maximum custom range is 10 years.'})
+
+    def boolean(name, default=True):
+        raw = params.get(name)
+        if raw is None:
+            return default
+        if raw.lower() in ('true', '1', 'yes'):
+            return True
+        if raw.lower() in ('false', '0', 'no'):
+            return False
+        raise ValidationError({name: 'Use true or false.'})
+
+    if period == 'year' and params.get('year'):
+        try:
+            year = int(params['year'])
+            if year < 2000 or year > today.year:
+                raise ValueError()
+            start = date(year, 1, 1)
+            end = min(date(year, 12, 31), today)
+        except ValueError:
+            raise ValidationError({'year': 'Choose a valid year not later than the current year.'})
+
+    return {
+        'period': period,
+        'year': params.get('year', '').strip(),
+        'date_from': start,
+        'date_to': end,
+        'search': params.get('search', '').strip(),
+        'department': params.get('department', '').strip(),
+        'employee_id': params.get('employee_id', '').strip(),
+        'employee_pk': params.get('employee_pk', '').strip(),
+        'status': params.get('status', '').strip().upper(),
+        'require_attendance': boolean('require_attendance'),
+        'require_wage': boolean('require_wage'),
+    }
+
+
+def report_queryset(filters):
+    # Attendance rows are the source of truth. No blank/unmarked calendar dates.
+    qs = Attendance.objects.select_related('employee').filter(
+        date__range=(filters['date_from'], filters['date_to']),
+        employee__archived=False,
+    )
+    if filters['search']:
+        term = filters['search']
+        qs = qs.filter(
+            Q(employee__employee_id__icontains=term) |
+            Q(employee__first_name__icontains=term) |
+            Q(employee__last_name__icontains=term) |
+            Q(employee__department__icontains=term)
+        )
+    if filters['department']:
+        qs = qs.filter(employee__department__iexact=filters['department'])
+    if filters.get('employee_pk'):
+        qs = qs.filter(employee_id=filters['employee_pk'])
+    if filters['employee_id']:
+        qs = qs.filter(employee__employee_id__iexact=filters['employee_id'])
+    if filters['status']:
+        if filters['status'] not in dict(Attendance.STATUS_CHOICES):
+            raise ValidationError({'status': 'Unknown attendance status.'})
+        qs = qs.filter(status=filters['status'])
+    if filters['require_attendance']:
+        qs = qs.filter(status__in=WORKED)
+    if filters['require_wage']:
+        qs = qs.filter(daily_wage__gt=0)
+    return qs
+
+
+def serialize_row(row):
+    person = row.employee
+    return {
+        'id': row.pk,
+        'employee': person.pk,
+        'employee_code': person.employee_id,
+        'employee_name': f'{person.first_name} {person.last_name}'.strip(),
+        'department': person.department or '',
+        'designation': person.designation or '',
+        'date': row.date.isoformat(),
+        'status': row.status,
+        'login_time': row.login_time.isoformat(timespec='minutes') if row.login_time else None,
+        'logout_time': row.logout_time.isoformat(timespec='minutes') if row.logout_time else None,
+        'working_hours': str(row.working_hours or ZERO),
+        'daily_wage': str(row.daily_wage or ZERO),
+    }
+
+
+COLUMNS = [
+    ('employee_code', 'Employee ID'), ('employee_name', 'Employee Name'),
+    ('department', 'Department'), ('designation', 'Designation'),
+    ('date', 'Attendance Date'), ('status', 'Attendance Status'),
+    ('login_time', 'Login Time'), ('logout_time', 'Logout Time'),
+    ('working_hours', 'Working Hours'), ('daily_wage', 'Daily Wage (INR)'),
+]
+
+
+def safe_excel_text(value):
+    value = '' if value is None else str(value)
+    if value.lstrip().startswith(('=', '+', '-', '@', '\t', '\r')):
+        return "'" + value
+    return value
+
+
+def export_report(qs, filters, file_format):
+    filename = f"NXT_GENZ_Custom_Salary_{filters['date_from']}_{filters['date_to']}"
+    if file_format == 'csv':
+        response = HttpResponse(content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = f'attachment; filename="{filename}.csv"'
+        response.write('\ufeff')
+        writer = csv.writer(response)
+        writer.writerow([title for _, title in COLUMNS])
+        for item in qs.iterator(chunk_size=1000):
+            data = serialize_row(item)
+            writer.writerow([safe_excel_text(data[key]) for key, _ in COLUMNS])
+        return response
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        from openpyxl.utils import get_column_letter
+    except ImportError as exc:
+        raise ValidationError({'detail': 'XLSX export needs openpyxl: pip install openpyxl'}) from exc
+
+    # Export one workbook with an overview and one named worksheet per employee.
+    # Excel limits: 31 characters per sheet name and 1,048,576 rows per sheet.
+    from collections import defaultdict
+    from openpyxl.styles import Alignment
+    from openpyxl.utils import get_column_letter
+    from openpyxl.workbook.child import INVALID_TITLE_REGEX
+
+    employee_data = defaultdict(list)
+    for item in qs.order_by('employee__employee_id', 'date', 'pk').iterator(chunk_size=1000):
+        record = serialize_row(item)
+        employee_data[(item.employee_id, record['employee_code'], record['employee_name'])].append(record)
+
+    wb = Workbook()
+    overview = wb.active
+    overview.title = 'Salary Summary'
+    overview.append(['NXT GENZ - Custom Salary Report'])
+    overview.append(['From', filters['date_from'].isoformat(), 'To', filters['date_to'].isoformat()])
+    overview.append(['Employees', len(employee_data)])
+    overview.append([])
+    overview.append(['Employee ID', 'Employee Name', 'Department', 'Worked Days', 'Working Hours', 'Total Wages (INR)', 'Worksheet'])
+    used_names = {'salary summary'}
+    total_days = 0
+    total_hours = Decimal('0')
+    total_wages = Decimal('0')
+
+    def worksheet_name(name, code):
+        import re
+        base = re.sub(r'[\\/*?:\[\]]', '', (name or code or 'Employee')).strip().strip("'") or 'Employee'
+        base = base[:31]
+        candidate = base
+        number = 2
+        while candidate.casefold() in used_names:
+            suffix = f' ({number})'
+            candidate = base[:31 - len(suffix)] + suffix
+            number += 1
+        used_names.add(candidate.casefold())
+        return candidate
+
+    def header_style(ws, row_num):
+        for cell in ws[row_num]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill('solid', fgColor='163B66')
+            cell.alignment = Alignment(wrap_text=True)
+
+    for (employee_pk, code, name), rows in employee_data.items():
+        if len(rows) > 1048500:
+            raise ValidationError({'detail': f'Too many records for employee {code}. Narrow the date range.'})
+        title = worksheet_name(name, code)
+        ws = wb.create_sheet(title)
+        worked_days = len(rows)
+        hours = sum((Decimal(str(r['working_hours'] or 0)) for r in rows), Decimal('0'))
+        wages = sum((Decimal(str(r['daily_wage'] or 0)) for r in rows), Decimal('0'))
+        total_days += worked_days
+        total_hours += hours
+        total_wages += wages
+        overview.append([safe_excel_text(code), safe_excel_text(name), safe_excel_text(rows[0]['department']), worked_days, float(hours), float(wages), title])
+
+        ws.append(['Employee Salary Details'])
+        ws.append(['Employee', safe_excel_text(name), 'Employee ID', safe_excel_text(code)])
+        ws.append(['Period', filters['date_from'].isoformat(), 'To', filters['date_to'].isoformat()])
+        ws.append(['Worked Days', worked_days, 'Working Hours', float(hours), 'Total Wages (INR)', float(wages)])
+        ws.append([])
+        ws.append(['MONTHLY TOTALS'])
+        ws.append(['Month', 'Worked Days', 'Working Hours', 'Total Wages (INR)'])
+        header_style(ws, 7)
+        months = defaultdict(list)
+        for r in rows:
+            months[r['date'][:7]].append(r)
+        for month, entries in sorted(months.items()):
+            ws.append([month, len(entries), float(sum((Decimal(str(r['working_hours'] or 0)) for r in entries), Decimal('0'))), float(sum((Decimal(str(r['daily_wage'] or 0)) for r in entries), Decimal('0')))])
+        ws.append([])
+        ws.append(['DAY-WISE ATTENDANCE AND WAGES'])
+        ws.append([heading for _, heading in COLUMNS])
+        header_style(ws, ws.max_row)
+        for r in rows:
+            ws.append([float(r[k]) if k in ('working_hours', 'daily_wage') else safe_excel_text(r[k]) for k, _ in COLUMNS])
+        ws.freeze_panes = 'A8'
+        ws.auto_filter.ref = f'A{ws.max_row - len(rows)}:J{ws.max_row}'
+        for col, width in {'A':19, 'B':25, 'C':19, 'D':21, 'E':18, 'F':20, 'G':18, 'H':18, 'I':18, 'J':22}.items():
+            ws.column_dimensions[col].width = width
+        for row in ws.iter_rows(min_row=1):
+            for cell in row:
+                if cell.column in (9, 10) and isinstance(cell.value, (float, int)):
+                    cell.number_format = '#,##0.00'
+
+    overview.append([])
+    overview.append(['GRAND TOTAL', '', '', total_days, float(total_hours), float(total_wages)])
+    header_style(overview, 5)
+    overview.freeze_panes = 'A6'
+    for col, width in {'A':22, 'B':30, 'C':22, 'D':17, 'E':20, 'F':23, 'G':30}.items():
+        overview.column_dimensions[col].width = width
+    for row in overview.iter_rows(min_row=6):
+        for cell in row:
+            if cell.column in (5, 6) and isinstance(cell.value, (float, int)):
+                cell.number_format = '#,##0.00'
+    if not employee_data:
+        overview.append(['No saved worked-attendance wages matched these filters.'])
+    output = BytesIO()
+    wb.save(output)
+    response = HttpResponse(output.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="{filename}.xlsx"'
+    return response
+
+
+class AdminCustomSalaryReportAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        filters = report_filters(request)
+        if filters.get('employee_pk') and not filters['employee_pk'].isdigit():
+            raise ValidationError({'employee_pk': 'Invalid employee identifier.'})
+        qs = report_queryset(filters)
+        file_format = request.query_params.get('export', '').strip().lower()
+        if file_format:
+            if file_format not in ('csv', 'xlsx'):
+                raise ValidationError({'export': 'Use csv or xlsx.'})
+            return export_report(qs.order_by('date', 'employee__employee_id', 'pk'), filters, file_format)
+
+        view = request.query_params.get('view', 'days').strip().lower()
+        if view not in ('days', 'employees', 'months'):
+            raise ValidationError({'view': 'Use employees, months, or days.'})
+        if view == 'months' and not filters.get('employee_pk'):
+            raise ValidationError({'employee_pk': 'Select an employee before opening monthly details.'})
+        if filters.get('employee_pk') and not filters['employee_pk'].isdigit():
+            raise ValidationError({'employee_pk': 'Invalid employee identifier.'})
+        if view == 'employees':
+            grouped = qs.values('employee_id', 'employee__employee_id', 'employee__first_name', 'employee__last_name', 'employee__department').annotate(
+                days=Count('pk'), hours=Sum('working_hours'), total_wage=Sum('daily_wage')
+            ).order_by('employee__first_name', 'employee__last_name', 'employee_id')
+            paginator = ReportPagination()
+            page = paginator.paginate_queryset(grouped, request)
+            response = paginator.get_paginated_response([{
+                'employee_pk': r['employee_id'], 'employee_code': r['employee__employee_id'],
+                'employee_name': f"{r['employee__first_name']} {r['employee__last_name']}".strip(),
+                'department': r['employee__department'] or '', 'days': r['days'],
+                'hours': str(r['hours'] or ZERO), 'total_wage': str(r['total_wage'] or ZERO),
+            } for r in page])
+        elif view == 'months':
+            grouped = qs.annotate(month=TruncMonth('date')).values('month').annotate(
+                days=Count('pk'), hours=Sum('working_hours'), total_wage=Sum('daily_wage')
+            ).order_by('month')
+            response = Response({'results': [{
+                'month': r['month'].strftime('%Y-%m'), 'days': r['days'],
+                'hours': str(r['hours'] or ZERO), 'total_wage': str(r['total_wage'] or ZERO),
+            } for r in grouped], 'count': grouped.count()})
+        else:
+            paginator = ReportPagination()
+            page = paginator.paginate_queryset(qs.order_by('-date', 'employee__employee_id', 'pk'), request)
+            response = paginator.get_paginated_response([serialize_row(row) for row in page])
+        totals = qs.aggregate(
+            record_count=Count('pk'),
+            total_working_hours=Sum('working_hours'),
+            total_wage=Sum('daily_wage'),
+        )
+        employees_count = qs.values('employee_id').distinct().count()
+        response.data['filters'] = {
+            'period': filters['period'],
+            'date_from': filters['date_from'].isoformat(),
+            'date_to': filters['date_to'].isoformat(),
+            'require_attendance': filters['require_attendance'],
+            'require_wage': filters['require_wage'],
+        }
+        response.data['summary'] = {
+            'records': totals['record_count'] or 0,
+            'employees': employees_count,
+            'total_working_hours': str(totals['total_working_hours'] or ZERO),
+            'total_wage': str(totals['total_wage'] or ZERO),
+        }
+        return response
+
+
+#FOR ADVANCE REPORT 
+
+import csv
+from datetime import date, timedelta
+from decimal import Decimal
+from io import BytesIO
+
+from django.http import HttpResponse
+from django.utils import timezone
+from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Advance, AdvanceRepayment
+
+
+
+
+def money(value):
+    return str(value if value is not None else Decimal("0.00"))
+
+
+def employee_name(employee):
+    return (getattr(employee, "full_name", None) or
+            " ".join(filter(None, [getattr(employee, "first_name", ""), getattr(employee, "last_name", "")])) or
+            str(employee))
+
+
+def employee_code(employee):
+    return getattr(employee, "employee_id", "") or getattr(employee, "employee_code", "")
+
+
+def period_bounds(params):
+    period = params.get("period", "month").lower()
+    today = timezone.localdate()
+    if period in ("all", "all_history"):
+        return "all", None, None
+    if period in ("today", "day"):
+        return "today", today, today
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+        return period, start, start + timedelta(days=6)
+    if period == "month":
+        return period, today.replace(day=1), (today.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    if period == "year":
+        return period, date(today.year, 1, 1), date(today.year, 12, 31)
+    if period == "custom":
+        try:
+            start = date.fromisoformat(params["date_from"])
+            end = date.fromisoformat(params["date_to"])
+        except (KeyError, ValueError, TypeError):
+            raise ValueError("Custom period requires date_from and date_to in YYYY-MM-DD format.")
+        if start > end:
+            raise ValueError("date_from must not be later than date_to.")
+        return period, start, end
+    raise ValueError("period must be today, week, month, year, custom, or all.")
+
+
+def filters(request):
+    period, start, end = period_bounds(request.query_params)
+    employee = request.query_params.get("employee")
+    if employee and (not employee.isdecimal() or int(employee) < 1):
+        raise ValueError("employee must be a positive numeric ID.")
+    return period, start, end, int(employee) if employee else None
+
+
+def response_or_export(request, rows, columns, filename, payload):
+    fmt = request.query_params.get("export", "").lower()
+    if not fmt:
+        return Response(payload)
+    if fmt not in ("csv", "xlsx"):
+        return Response({"detail": "export must be csv or xlsx."}, status=400)
+    if fmt == "csv":
+        resp = HttpResponse(content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
+        resp.write("\ufeff")
+        writer = csv.writer(resp)
+        writer.writerow([label for _, label in columns])
+        for row in rows:
+            writer.writerow([csv_safe(row.get(key, "")) for key, _ in columns])
+        return resp
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Advance Report"
+    ws.append([label for _, label in columns])
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="17365D")
+    for row in rows:
+        ws.append([excel_safe(row.get(key, "")) for key, _ in columns])
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for index, (_, label) in enumerate(columns, 1):
+        ws.column_dimensions[get_column_letter(index)].width = min(max(len(label) + 4, 16), 35)
+    stream = BytesIO()
+    wb.save(stream)
+    resp = HttpResponse(stream.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
+    return resp
+
+
+def csv_safe(value):
+    text = "" if value is None else str(value)
+    if text.lstrip().startswith(("=", "+", "-", "@", "\t", "\r", "\n")):
+        return "'" + text
+    return text
+
+
+def excel_safe(value):
+    return csv_safe(value)
+
+
+def advance_dict(a):
+    return {
+        "id": a.id, "employee": a.employee_id,
+        "employee_code": employee_code(a.employee),
+        "employee_name": employee_name(a.employee),
+        "department": getattr(a.employee, "department", ""),
+        "advance_date": a.advance_date.isoformat(),
+        "amount": money(a.amount),
+        "total_repaid": money(a.total_repaid),
+        "outstanding_amount": money(a.outstanding_amount),
+        "installment_count": a.installment_count,
+        "installment_amount": money(a.installment_amount) if a.installment_amount is not None else None,
+        "status": a.status,
+        "reason": a.reason,
+        "remarks": a.remarks,
+    }
+
+
+ADVANCE_COLUMNS = [
+    ("employee_code", "Employee ID"), ("employee_name", "Employee Name"),
+    ("department", "Department"), ("id", "Advance ID"),
+    ("advance_date", "Advance Date"), ("amount", "Advance Amount INR"),
+    ("total_repaid", "Repaid INR"), ("outstanding_amount", "Outstanding INR"),
+    ("installment_count", "Planned Installments"), ("installment_amount", "Planned Amount INR"),
+    ("completed_installments", "Completed Salary Installments"),
+    ("status", "Status"), ("reason", "Reason"),
+]
+
+REPAYMENT_COLUMNS = [
+    ("employee_code", "Employee ID"), ("employee_name", "Employee Name"),
+    ("advance_id", "Advance ID"), ("advance_date", "Advance Issued"),
+    ("date", "Repayment Date"), ("repayment_id", "Repayment ID"),
+    ("type", "Repayment Type"), ("installment_number", "Salary Installment Number"),
+    ("salary_month", "Salary Month"), ("amount", "Repaid INR"),
+    ("balance_after", "Balance After INR"),
+]
+
+
+def paginate(request, rows):
+    try:
+        page = int(request.query_params.get("page", 1))
+        size = int(request.query_params.get("page_size", 25))
+    except ValueError:
+        raise ValueError("page and page_size must be integers.")
+    if page < 1 or not 1 <= size <= 100:
+        raise ValueError("page must be >= 1 and page_size must be 1 to 100.")
+    return rows[(page - 1) * size:page * size], page, size
+
+
+class AdminAdvanceReportAPIView(APIView):
+    """Filter advances by *issue date*. all includes fully repaid historical advances."""
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        try:
+            period, start, end, employee = filters(request)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        qs = Advance.objects.select_related("employee").order_by("-advance_date", "-id")
+        if start is not None:
+            qs = qs.filter(advance_date__range=(start, end))
+        if employee is not None:
+            qs = qs.filter(employee_id=employee)
+        status_filter = request.query_params.get("status", "all").upper()
+        if status_filter not in ("ALL", "OUTSTANDING", "PARTIALLY_REPAID", "FULLY_REPAID"):
+            return Response({"detail": "Invalid advance status."}, status=400)
+        if status_filter != "ALL":
+            qs = qs.filter(status=status_filter)
+        rows = [advance_dict(a) for a in qs]
+        # Count actual salary-linked repayment records; manual payments are separate.
+        from django.db.models import Count
+        counts = dict(AdvanceRepayment.objects.filter(
+            advance_id__in=[r["id"] for r in rows], salary_payment__isnull=False
+        ).values("advance_id").annotate(n=Count("id")).values_list("advance_id", "n"))
+        for r in rows:
+            r["completed_installments"] = counts.get(r["id"], 0)
+        summary = {
+            "advance_count": len(rows),
+            "total_advanced": money(sum((Decimal(r["amount"]) for r in rows), Decimal("0"))),
+            "total_repaid_to_date": money(sum((Decimal(r["total_repaid"]) for r in rows), Decimal("0"))),
+            "total_outstanding": money(sum((Decimal(r["outstanding_amount"]) for r in rows), Decimal("0"))),
+        }
+        payload = {"success": True, "period": period,
+                   "date_from": start.isoformat() if start else None,
+                   "date_to": end.isoformat() if end else None,
+                   "summary": summary, "count": len(rows)}
+        if not request.query_params.get("export"):
+            try:
+                selected, page, size = paginate(request, rows)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=400)
+            payload.update({"page": page, "page_size": size, "results": selected})
+        return response_or_export(request, rows, ADVANCE_COLUMNS, "NXT_GENZ_Advance_Report", payload)
+
+
+def repayment_history(advances, start=None, end=None):
+    """Return chronological repayments with running balance based on ALL repayments."""
+    output = []
+    for a in advances:
+        balance = a.amount
+        installment_number = 0
+        repayments = sorted(a.repayments.all(), key=lambda r: (r.date, r.created_at, r.pk))
+        for r in repayments:
+            salary_linked = r.salary_payment_id is not None
+            if salary_linked:
+                installment_number += 1
+            balance -= r.amount
+            # Do not reset running balance when the report date window starts.
+            if start is not None and not start <= r.date <= end:
+                continue
+            output.append({
+                "repayment_id": r.id, "advance_id": a.id,
+                "employee": a.employee_id,
+                "employee_code": employee_code(a.employee),
+                "employee_name": employee_name(a.employee),
+                "advance_date": a.advance_date.isoformat(),
+                "date": r.date.isoformat(),
+                "amount": money(r.amount),
+                "type": "SALARY_INSTALLMENT" if salary_linked else "MANUAL",
+                "installment_number": installment_number if salary_linked else None,
+                "salary_payment_id": r.salary_payment_id,
+                "salary_month": r.salary_payment.salary_month.isoformat()[:7] if salary_linked else None,
+                "balance_after": money(balance),
+            })
+    return sorted(output, key=lambda x: (x["date"], x["repayment_id"]), reverse=True)
+
+
+class AdminAdvanceRepaymentHistoryAPIView(APIView):
+    """All repayments or repayments in date window (filter on repayment date)."""
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request):
+        try:
+            period, start, end, employee = filters(request)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        qs = Advance.objects.select_related("employee").prefetch_related("repayments__salary_payment")
+        if employee is not None:
+            qs = qs.filter(employee_id=employee)
+        advance_id = request.query_params.get("advance")
+        if advance_id:
+            if not advance_id.isdecimal() or int(advance_id) < 1:
+                return Response({"detail": "advance must be a positive numeric ID."}, status=400)
+            qs = qs.filter(pk=int(advance_id))
+        rows = repayment_history(qs, start, end)
+        payload = {"success": True, "period": period,
+                   "date_from": start.isoformat() if start else None,
+                   "date_to": end.isoformat() if end else None,
+                   "count": len(rows),
+                   "total_repaid_in_period": money(sum((Decimal(r["amount"]) for r in rows), Decimal("0")))}
+        if not request.query_params.get("export"):
+            try:
+                selected, page, size = paginate(request, rows)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=400)
+            payload.update({"page": page, "page_size": size, "results": selected})
+        return response_or_export(request, rows, REPAYMENT_COLUMNS, "NXT_GENZ_Advance_Repayment_History", payload)
+
+
+class AdminEmployeeAdvanceHistoryAPIView(APIView):
+    """Eye-button endpoint: full advances and installment timelines for one employee."""
+    permission_classes = [IsAuthenticated, IsERPAdmin]
+
+    def get(self, request, employee_id):
+        advances = list(Advance.objects.filter(employee_id=employee_id)
+                        .select_related("employee")
+                        .prefetch_related("repayments__salary_payment")
+                        .order_by("-advance_date", "-id"))
+        if not advances:
+            from .models import Employee
+            employee = Employee.objects.filter(pk=employee_id).first()
+            if employee is None:
+                return Response({"detail": "Employee not found."}, status=404)
+        else:
+            employee = advances[0].employee
+        result = []
+        for a in advances:
+            record = advance_dict(a)
+            timeline = repayment_history([a])
+            completed = sum(r["type"] == "SALARY_INSTALLMENT" for r in timeline)
+            record.update({
+                "completed_installments": completed,
+                "remaining_planned_installments": max(a.installment_count - completed, 0) if a.installment_count else None,
+                "repayment_history": sorted(timeline, key=lambda x: (x["date"], x["repayment_id"])),
+                "first_installment_completed_on": min(
+                    (r["date"] for r in timeline if r["type"] == "SALARY_INSTALLMENT"), default=None
+                ),
+                "last_repayment_on": max((r["date"] for r in timeline), default=None),
+            })
+            result.append(record)
+        return Response({
+            "success": True,
+            "employee": {"id": employee.id, "employee_code": employee_code(employee),
+                         "employee_name": employee_name(employee),
+                         "department": getattr(employee, "department", "")},
+            "summary": {
+                "total_advances": len(result),
+                "total_advanced": money(sum((a.amount for a in advances), Decimal("0"))),
+                "total_repaid": money(sum((a.total_repaid for a in advances), Decimal("0"))),
+                "total_outstanding": money(sum((a.outstanding_amount for a in advances), Decimal("0"))),
+            },
+            "advances": result,
+        })
+
+
+
+
+
+
+
 
 
 # for material planning module starts here 
@@ -19622,7 +20312,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Attendance, Employee
-from .permissions import IsERPAdmin  # ← keep whatever import path you already use
+
 
 
 # ------------------------------------------------------------
@@ -23099,7 +23789,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 
 from .models import ConsumableGRN, ConsumableIssue, ConsumableReturn
-from .permissions import IsERPAdmin
+
 
 
 class AdminBufferStockAPIView(APIView):
@@ -23526,7 +24216,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from .models import Attendance, Employee
-from .permissions import IsERPAdmin
+
 
 class AdminAttendanceDailyCountsAPIView(APIView):
     permission_classes = [IsAuthenticated, IsERPAdmin]

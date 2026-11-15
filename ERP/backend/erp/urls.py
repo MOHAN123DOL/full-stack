@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAttendanceAPIView, AdminAttendanceDailyCountsAPIView,  AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdminProjectStatusDetailAPIView,   AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeCodePreviewAPIView, EmployeeCodeSettingsAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAdvanceRepaymentHistoryAPIView, AdminAdvanceReportAPIView, AdminAttendanceAPIView, AdminAttendanceDailyCountsAPIView,  AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminCustomSalaryReportAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminEmployeeAdvanceHistoryAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdminProjectStatusDetailAPIView,   AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeCodePreviewAPIView, EmployeeCodeSettingsAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
                     LoginAPIView ,InventoryAPIView, LoginVerifyOTPView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
                       NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceDetailAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
@@ -419,9 +419,30 @@ path(
     WageConfigDetailAPIView.as_view(),
     name="wage-config-detail",
 ),
+ path(
+        "admin/salary/custom-report/",
+        AdminCustomSalaryReportAPIView.as_view(),
+        name="admin-custom-salary-report",
+    ),
+     path(
+        "admin/advances/report/",
+        AdminAdvanceReportAPIView.as_view(),
+        name="admin-advance-report",
+    ),
 
+    # All advance repayment and installment history
+    path(
+        "admin/advances/repayment-history/",
+        AdminAdvanceRepaymentHistoryAPIView.as_view(),
+        name="admin-advance-repayment-history",
+    ),
 
-
+    # Employee-wise complete advance history (Eye button)
+    path(
+        "admin/advances/employees/<int:employee_id>/history/",
+        AdminEmployeeAdvanceHistoryAPIView.as_view(),
+        name="admin-employee-advance-history",
+    ),
 
 
       # inventory

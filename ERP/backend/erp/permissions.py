@@ -134,12 +134,23 @@ class IsAccountsOrMaterialPlanning(BasePermission):
         )
 
 
-class IsHRorAdmin(BasePermission):
-    def has_permission(self, request, view):
-        user=request.user
-        return bool(user and user.is_authenticated and (user.is_superuser or user.groups.filter(name__in=['HR','Admin']).exists()))
 
-class IsAdminOnly(BasePermission):
+
+class IsHRorAdmin(BasePermission):
+    """
+    Allow HR and Admin users only.
+    No superuser check.
+    """
+
+    message = "HR or Admin access required."
+
     def has_permission(self, request, view):
-        user=request.user
-        return bool(user and user.is_authenticated and (user.is_superuser or user.groups.filter(name='Admin').exists()))
+        user = request.user
+
+        if not user or not user.is_authenticated:
+            return False
+
+        return user.user_type in [
+            User.UserType.HR,
+            User.UserType.ADMIN,
+        ]

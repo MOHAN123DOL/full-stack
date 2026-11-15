@@ -2371,3 +2371,39 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     padding: 14px;
   }
 }
+
+
+/* Employee card reverse-side action menu — keep the original 3D flip. */
+.emp-card-back-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  margin-bottom: 6px;
+}
+.emp-card-back-top .emp-card-back-eyebrow {
+  flex: 1;
+  margin: 8px 0 0;
+  text-align: center;
+}
+.emp-menu-wrap-back { z-index: 40; flex-shrink: 0; }
+.emp-card-back .emp-back-menu-trigger {
+  color: #fff;
+  background: rgba(255,255,255,.12);
+  border-radius: 8px;
+  min-width: 30px;
+  min-height: 30px;
+}
+.emp-card-back .emp-back-menu-trigger:hover,
+.emp-card-back .emp-back-menu-trigger:focus-visible {
+  color: #fff;
+  background: rgba(255,255,255,.24);
+}
+.emp-menu-back { top: calc(100% + 5px); right: 0; }
+.emp-card-container.emp-menu-open-front,
+.emp-card-container.emp-menu-open-back { z-index: 60; }
+.emp-card-container.emp-menu-open-front .emp-card-flip,
+.emp-card-container.emp-menu-open-front:hover .emp-card-flip { transform: rotateY(0deg); }
+.emp-card-container.emp-menu-open-back .emp-card-flip,
+.emp-card-container.emp-menu-open-back:hover .emp-card-flip { transform: rotateY(180deg); }

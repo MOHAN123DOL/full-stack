@@ -1851,3 +1851,47 @@
 .nx-dialog {
   min-height: 0;
 }
+/* Advance filtering, repayment history and employee timeline */
+.nx-advance-report { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border-color, #dfe6ef); }
+.nx-report-switch { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
+.nx-report-filters { flex-wrap: wrap; }
+.nx-report-filters .nx-field { min-width: 140px; }
+.nx-history-advance { padding: 16px 0; border-top: 1px solid #e2e8f0; }
+.nx-history-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.nx-history-metrics { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.nx-history-metrics > span { display: flex; flex-direction: column; gap: 4px; background: #f5f8fc; border: 1px solid #e4eaf2; border-radius: 10px; padding: 10px 14px; min-width: 110px; font-size: 12px; color: #516174; }
+.nx-history-metrics b { color: #172b4d; font-size: 15px; }
+.nx-report-pagination { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; font-size: 13px; color: #586779; }
+.nx-advance-report .nx-table { min-width: 900px; }
+@media (max-width: 640px) { .nx-history-metrics > span { flex: 1 1 40%; } .nx-report-pagination { align-items: flex-start; } }
+
+/* Keep attendance date visible while scrolling the employee day-wise salary table. */
+.nx-salary-day-scroll { overflow-x: auto; }
+.nx-salary-day-table th:first-child,
+.nx-salary-day-table td:first-child {
+  position: sticky; left: 0; z-index: 2; min-width: 125px; white-space: nowrap; background: #fff; box-shadow: 2px 0 5px rgba(0,0,0,.06);
+}
+.nx-salary-day-table thead th:first-child { z-index: 3; background: #f6f8fb; }
+
+/* ---- Custom Salary Report: drill-down navigation (employees > months > days) ---- */
+.nx-salary-detail { padding: 16px; }
+.nx-salary-detail-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 10px; }
+.nx-salary-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; color: var(--nx-muted); }
+.nx-salary-crumbs strong { color: var(--nx-navy); }
+.nx-link-btn { background: none; border: 0; padding: 0; color: #0e7490; font: inherit; font-weight: 700; cursor: pointer; }
+.nx-link-btn:hover { text-decoration: underline; }
+.nx-link-btn:focus-visible { outline: 3px solid rgba(8, 145, 178, .4); outline-offset: 2px; border-radius: 4px; }
+.nx-salary-detail-title { margin: 0 0 12px; color: var(--nx-navy); font-size: 15px; font-weight: 800; }
+.nx-salary-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.nx-salary-chips > span { display: flex; flex-direction: column; gap: 3px; min-width: 120px; padding: 9px 14px; background: #f5f8fc; border: 1px solid #e4eaf2; border-radius: 10px; font-size: 12px; color: #516174; }
+.nx-salary-chips b { color: #172b4d; font-size: 15px; }
+.nx-table--months { min-width: 560px; }
+.nx-salary-employee-table { min-width: 720px; }
+.nx-salary-day-table { min-width: 720px; }
+.nx-salary-day-table td.nx-salary-date { font-weight: 700; color: var(--nx-navy); }
+.nx-salary-filters .nx-field { min-width: 140px; }
+@media (max-width: 640px) {
+  .nx-salary-detail { padding: 12px; }
+  .nx-salary-detail-head .nx-pane-actions { width: 100%; }
+  .nx-salary-chips > span { flex: 1 1 40%; }
+}

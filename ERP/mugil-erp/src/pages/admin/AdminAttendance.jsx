@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import AdminCard from "./components/AdminCard";
 import AdminDataTable from "./components/AdminDataTable";
@@ -1834,11 +1841,929 @@ const WORKFLOW_TONE = {
   PAID: "success",
 };
 
+/* Custom Salary Report — kept in AdminAttendance.jsx; server filters and exports all rows. */
+/* ============================================================
+   CUSTOM SALARY REPORT
+   ------------------------------------------------------------
+   Navigation is ONE explicit state object (`nav`):
+     { view: "employees" | "months" | "days", employee, month }
+   Only one view can ever be active, and detail rows are rendered
+   only when they belong to the exact request that is currently
+   on screen (see `detailRequest.key`), so stale rows from a
+   previous level can never reach the wrong table.
+   ============================================================ */
+
+const SALARY_PERIODS = [
+  { value: "today", label: "Today" },
+  { value: "selected_date", label: "Specific Date" },
+  { value: "this_month", label: "This Month" },
+  { value: "selected_month", label: "Specific Month" },
+  { value: "this_year", label: "This Year" },
+  { value: "selected_year", label: "Specific Year" },
+  { value: "custom", label: "Custom Date Range" },
+];
+const SALARY_LIST_PAGE_SIZE = 25;
+const SALARY_DETAIL_PAGE_SIZE = 100;
+const INITIAL_SALARY_NAV = { view: "employees", employee: null, month: null };
+
+const isValidISODate = (value) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) &&
+  !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
+const isYearMonth = (value) => /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value || ""));
+const monthStartISO = (ym) => `${ym}-01`;
+const monthEndISO = (ym) => {
+  const last = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0);
+  return `${ym}-${String(last.getDate()).padStart(2, "0")}`;
+};
+const monthLabel = (ym) => {
+  const name = MONTHS_LONG[Number(String(ym || "").slice(5, 7)) - 1];
+  return name ? `${name} ${String(ym).slice(0, 4)}` : String(ym || "—");
+};
+const minISO = (a, b) => (a < b ? a : b);
+const maxISO = (a, b) => (a > b ? a : b);
+
+const readBlobError = async (blob) => {
+  try {
+    const text = await blob.text();
+    try {
+      const body = JSON.parse(text);
+      return body.detail || body.message || "Export failed.";
+    } catch {
+      return "The server returned an unexpected response.";
+    }
+  } catch {
+    return "Export failed.";
+  }
+};
+
+/* Catches render errors in the report, logs them (never swallowed)
+   and offers a recovery button instead of a blank page. */
+class SalaryReportBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Custom Salary Report crashed:", error, info?.componentStack);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="nx-pane">
+        <div className="nx-alert nx-alert--error" role="alert">
+          The salary report hit an unexpected error:{" "}
+          {String(this.state.error?.message || this.state.error)}
+        </div>
+        <button
+          type="button"
+          className="nx-btn nx-btn--primary"
+          onClick={() => this.setState({ error: null })}
+        >
+          <RefreshCw size={15} /> Reload report
+        </button>
+      </div>
+    );
+  }
+}
+
+function SalaryDayTable({ rows, showEmployee = true }) {
+  const safe = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  return (
+    <div className="nx-table-scroll nx-salary-day-scroll">
+      <table className="nx-table nx-salary-day-table">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            {showEmployee && <th>Employee</th>}
+            <th>Attendance</th>
+            <th>Login</th>
+            <th>Logout</th>
+            <th className="nx-right">Hours</th>
+            <th className="nx-right">Daily wage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {safe.map((r, i) => (
+            <tr key={r.id ?? `${r.employee_pk ?? "e"}-${r.date ?? "d"}-${i}`}>
+              <td className="nx-salary-date">{formatISODate(r.date)}</td>
+              {showEmployee && <td>{r.employee_name || "—"}</td>}
+              <td>
+                <AttendancePill code={r.status} />
+              </td>
+              <td>{r.login_time || "—"}</td>
+              <td>{r.logout_time || "—"}</td>
+              <td className="nx-right">{formatHours(r.working_hours)}</td>
+              <td className="nx-right">{moneyText(r.daily_wage)}</td>
+            </tr>
+          ))}
+          {!safe.length && (
+            <tr>
+              <td colSpan={showEmployee ? 7 : 6} className="nx-empty">
+                No saved attendance wages for this selection.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AdminCustomSalaryReport({ accessToken }) {
+  const today = todayISO();
+  const currentYear = today.slice(0, 4);
+  const [period, setPeriod] = useState("selected_date");
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedMonth, setSelectedMonth] = useState(today.slice(0, 7));
+  const [year, setYear] = useState(currentYear);
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
+  const [search, setSearch] = useState("");
+  const [department, setDepartment] = useState("");
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(1);
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const [exporting, setExporting] = useState("");
+  const [nav, setNav] = useState(INITIAL_SALARY_NAV);
+  const [detailState, setDetailState] = useState(null);
+  const [detailPage, setDetailPage] = useState(1);
+  const requestSeq = useRef(0);
+  const detailSeq = useRef(0);
+  const detailCache = useRef(new Map());
+  const auth = useMemo(
+    () => ({ headers: { Authorization: `Bearer ${accessToken}` } }),
+    [accessToken],
+  );
+
+  /* Normalise every period option into one API-ready range. Current periods
+     are clamped to today so future dates are never sent to the server. */
+  const range = useMemo(() => {
+    const invalid = (message) => ({
+      message,
+      from: "",
+      to: "",
+      isYear: false,
+      api: {},
+    });
+    const ok = (from, to, api, extra = {}) => ({
+      message: "",
+      from,
+      to,
+      isYear: false,
+      api,
+      ...extra,
+    });
+    const custom = (from, to) =>
+      ok(from, to, { period: "custom", date_from: from, date_to: to });
+    switch (period) {
+      case "today":
+        return custom(today, today);
+      case "selected_date":
+        if (!isValidISODate(selectedDate))
+          return invalid("Select an attendance date.");
+        if (selectedDate > today) return invalid("Future dates are not allowed.");
+        return ok(selectedDate, selectedDate, {
+          period: "selected_date",
+          date: selectedDate,
+        });
+      case "this_month":
+        return custom(monthStartISO(today.slice(0, 7)), today);
+      case "selected_month":
+        if (!isYearMonth(selectedMonth)) return invalid("Select a valid month.");
+        if (selectedMonth > today.slice(0, 7))
+          return invalid("Future months are not allowed.");
+        return custom(
+          monthStartISO(selectedMonth),
+          minISO(monthEndISO(selectedMonth), today),
+        );
+      case "this_year":
+      case "selected_year": {
+        const y = period === "this_year" ? currentYear : year;
+        if (!/^\d{4}$/.test(String(y)) || String(y) > currentYear)
+          return invalid("Select a valid year.");
+        return ok(
+          `${y}-01-01`,
+          String(y) === currentYear ? today : `${y}-12-31`,
+          { period: "year", year: String(y) },
+          { isYear: true, year: String(y) },
+        );
+      }
+      case "custom":
+        if (!isValidISODate(dateFrom) || !isValidISODate(dateTo))
+          return invalid("Select both dates.");
+        if (dateFrom > dateTo)
+          return invalid("From date must be before To date.");
+        if (dateTo > today) return invalid("Future dates are not allowed.");
+        return custom(dateFrom, dateTo);
+      default:
+        return invalid("Select a report type.");
+    }
+  }, [period, selectedDate, selectedMonth, year, dateFrom, dateTo, today, currentYear]);
+
+  const validationMessage = range.message;
+  const isDay = !range.isYear && !!range.from && range.from === range.to;
+  /* Year and multi-month ranges drill Employee → Months → Days.
+     A single month (or a single date) skips the pointless month screen. */
+  const hasMonthStep =
+    !isDay &&
+    !!range.from &&
+    (range.isYear || range.from.slice(0, 7) !== range.to.slice(0, 7));
+
+  const filterParams = useMemo(
+    () => ({
+      ...(department.trim() ? { department: department.trim() } : {}),
+      ...(status ? { status } : {}),
+      require_attendance: true,
+      require_wage: true,
+    }),
+    [department, status],
+  );
+  const params = useMemo(
+    () => ({
+      ...range.api,
+      ...(search.trim() ? { search: search.trim() } : {}),
+      ...filterParams,
+    }),
+    [range, search, filterParams],
+  );
+
+  /* Any filter/period change safely leaves drill-down. */
+  useEffect(() => {
+    setPage(1);
+    setNav(INITIAL_SALARY_NAV);
+    setDetailPage(1);
+    setDetailState(null);
+    detailCache.current.clear();
+  }, [params]);
+
+  /* Level 1 data: employee list (or day rows for a single date). */
+  useEffect(() => {
+    const seq = ++requestSeq.current;
+    if (!accessToken || validationMessage) {
+      setReport(null);
+      setLoading(false);
+      setError(!accessToken ? "Session expired. Please sign in again." : "");
+      return undefined;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    api
+      .get("/erp/admin/salary/custom-report/", {
+        ...auth,
+        params: {
+          ...params,
+          view: isDay ? "days" : "employees",
+          page,
+          page_size: SALARY_LIST_PAGE_SIZE,
+        },
+        signal: controller.signal,
+      })
+      .then(({ data }) => {
+        if (seq !== requestSeq.current) return;
+        if (!Array.isArray(data?.results))
+          throw new Error("Invalid report response from server.");
+        setReport(data);
+      })
+      .catch((err) => {
+        if (seq === requestSeq.current && !isAbortError(err)) {
+          setReport(null);
+          setError(salaryError(err));
+        }
+      })
+      .finally(() => {
+        if (seq === requestSeq.current) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [accessToken, auth, params, page, refresh, validationMessage, isDay]);
+
+  /* The exact request for the level currently on screen. */
+  const detailRequest = useMemo(() => {
+    const pk = nav.employee?.employee_pk;
+    if (nav.view === "employees" || pk == null || validationMessage) return null;
+    const base = { ...filterParams, employee_pk: pk };
+    let query;
+    if (nav.view === "months") {
+      query = {
+        ...range.api,
+        ...base,
+        view: "months",
+        page: 1,
+        page_size: SALARY_DETAIL_PAGE_SIZE,
+      };
+    } else if (nav.month && isYearMonth(nav.month)) {
+      const from = maxISO(monthStartISO(nav.month), range.from);
+      const to = minISO(minISO(monthEndISO(nav.month), range.to), today);
+      query = {
+        period: "custom",
+        date_from: from,
+        date_to: to,
+        ...base,
+        view: "days",
+        page: detailPage,
+        page_size: SALARY_DETAIL_PAGE_SIZE,
+      };
+    } else {
+      query = {
+        ...range.api,
+        ...base,
+        view: "days",
+        page: detailPage,
+        page_size: SALARY_DETAIL_PAGE_SIZE,
+      };
+    }
+    return { key: JSON.stringify(query), params: query };
+  }, [nav, range, filterParams, detailPage, validationMessage, today]);
+
+  /* Levels 2 and 3 data. Results are cached per request so going back
+     (Days → Months) is instant and never re-requests the server. */
+  useEffect(() => {
+    if (!detailRequest || !accessToken) return undefined;
+    const { key, params: query } = detailRequest;
+    const cached = detailCache.current.get(key);
+    if (cached) {
+      setDetailState({ key, data: cached, error: "" });
+      return undefined;
+    }
+    const seq = ++detailSeq.current;
+    const controller = new AbortController();
+    api
+      .get("/erp/admin/salary/custom-report/", {
+        ...auth,
+        params: query,
+        signal: controller.signal,
+      })
+      .then(({ data }) => {
+        if (seq !== detailSeq.current) return;
+        if (!Array.isArray(data?.results))
+          throw new Error("Invalid employee details response.");
+        detailCache.current.set(key, data);
+        setDetailState({ key, data, error: "" });
+      })
+      .catch((err) => {
+        if (seq === detailSeq.current && !isAbortError(err))
+          setDetailState({ key, data: null, error: salaryError(err) });
+      });
+    return () => controller.abort();
+  }, [detailRequest, accessToken, auth, refresh]);
+
+  const activeDetail =
+    detailRequest && detailState?.key === detailRequest.key ? detailState : null;
+  const detailLoading = !!detailRequest && !activeDetail;
+  const detailError = activeDetail?.error || "";
+  const detailData = activeDetail?.data || null;
+  const detailRows = Array.isArray(detailData?.results) ? detailData.results : [];
+  const monthRows =
+    nav.view === "months"
+      ? detailRows.filter((r) => r && isYearMonth(String(r.month || "")))
+      : [];
+  const dayRows = nav.view === "days" ? detailRows.filter(Boolean) : [];
+
+  const openEmployee = (row) => {
+    if (!row || row.employee_pk == null) return;
+    setDetailPage(1);
+    setNav({
+      view: hasMonthStep ? "months" : "days",
+      employee: row,
+      month: null,
+    });
+  };
+  const openMonth = (ym) => {
+    if (!isYearMonth(ym)) return;
+    setDetailPage(1);
+    setNav((n) => (n.employee ? { view: "days", employee: n.employee, month: ym } : n));
+  };
+  const backToMonths = () => {
+    setDetailPage(1);
+    setNav((n) =>
+      n.employee ? { view: "months", employee: n.employee, month: null } : INITIAL_SALARY_NAV,
+    );
+  };
+  const backToEmployees = () => {
+    setDetailPage(1);
+    setNav(INITIAL_SALARY_NAV);
+  };
+  const reload = () => {
+    detailCache.current.clear();
+    setDetailState(null);
+    setRefresh((v) => v + 1);
+  };
+
+  const periodLabel = range.from
+    ? range.isYear
+      ? range.year
+      : formatWindow(range.from, range.to)
+    : "—";
+
+  const exportFile = async (format) => {
+    if (validationMessage || !accessToken || exporting) return;
+    if (!isDay && !Number(report?.count || 0)) {
+      setError("There are no records to export for these filters.");
+      return;
+    }
+    setExporting(format);
+    setError("");
+    try {
+      /* No page/page_size: the server exports every matching record. */
+      const response = await api.get("/erp/admin/salary/custom-report/", {
+        ...auth,
+        params: { ...params, export: format },
+        responseType: "blob",
+      });
+      if (!(response.data instanceof Blob) || !response.data.size)
+        throw new Error("Empty export returned by server.");
+      if (/json|html/.test(response.data.type || ""))
+        throw new Error(await readBlobError(response.data));
+      const label = range.isYear
+        ? range.year
+        : isDay
+          ? range.from
+          : `${range.from}_to_${range.to}`;
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `NXT_GENZ_Salary_${label}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      if (err?.response?.data instanceof Blob)
+        setError(await readBlobError(err.response.data));
+      else setError(salaryError(err));
+    } finally {
+      setExporting("");
+    }
+  };
+
+  const records = Array.isArray(report?.results) ? report.results.filter(Boolean) : [];
+  const summary = report?.summary || {};
+  const total = Number(report?.count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / SALARY_LIST_PAGE_SIZE));
+
+  const detailTotals = (() => {
+    const rows = nav.view === "months" ? monthRows : dayRows;
+    const s = detailData?.summary || {};
+    return {
+      days:
+        s.records ??
+        rows.reduce((a, r) => a + (nav.view === "months" ? num(r.days) : 1), 0),
+      hours:
+        s.total_working_hours ??
+        rows.reduce(
+          (a, r) => a + num(nav.view === "months" ? r.hours : r.working_hours),
+          0,
+        ),
+      wage:
+        s.total_wage ??
+        rows.reduce(
+          (a, r) => a + num(nav.view === "months" ? r.total_wage : r.daily_wage),
+          0,
+        ),
+    };
+  })();
+
+  const crumb = nav.employee
+    ? `${nav.employee.employee_name || "Employee"}${nav.employee.employee_code ? ` (${nav.employee.employee_code})` : ""}`
+    : "";
+
+  return (
+    <div className="nx-pane">
+      <div className="nx-pane-head">
+        <div>
+          <h2>
+            <Banknote size={21} /> Custom Salary Report
+          </h2>
+          <p>
+            Pick a period, then use the eye icon to drill into an employee&apos;s
+            monthly and day-wise wages.
+          </p>
+        </div>
+        <div className="nx-pane-actions">
+          <button
+            type="button"
+            className="nx-btn nx-btn--outline"
+            disabled={!!validationMessage || loading || !!exporting}
+            onClick={() => exportFile("csv")}
+          >
+            <Download size={15} /> {exporting === "csv" ? "Exporting…" : "CSV"}
+          </button>
+          <button
+            type="button"
+            className="nx-btn nx-btn--primary"
+            disabled={!!validationMessage || loading || !!exporting}
+            onClick={() => exportFile("xlsx")}
+          >
+            <Download size={15} />{" "}
+            {exporting === "xlsx" ? "Exporting…" : "Excel - Employee Sheets"}
+          </button>
+          <button
+            type="button"
+            className="nx-btn nx-btn--outline"
+            disabled={loading}
+            onClick={reload}
+          >
+            <RefreshCw size={15} /> Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="nx-toolbar nx-salary-filters" style={{ flexWrap: "wrap" }}>
+        <label className="nx-field">
+          Report type
+          <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+            {SALARY_PERIODS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {period === "selected_date" && (
+          <label className="nx-field">
+            Choose date
+            <input
+              type="date"
+              max={today}
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+            />
+          </label>
+        )}
+        {period === "selected_month" && (
+          <label className="nx-field">
+            Choose month
+            <input
+              type="month"
+              max={today.slice(0, 7)}
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+            />
+          </label>
+        )}
+        {period === "selected_year" && (
+          <label className="nx-field">
+            Year
+            <select value={year} onChange={(e) => setYear(e.target.value)}>
+              {Array.from({ length: 10 }, (_, i) => Number(currentYear) - i).map(
+                (y) => (
+                  <option key={y} value={String(y)}>
+                    {y}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+        )}
+        {period === "custom" && (
+          <>
+            <label className="nx-field">
+              From
+              <input
+                type="date"
+                max={today}
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </label>
+            <label className="nx-field">
+              To
+              <input
+                type="date"
+                max={today}
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </label>
+          </>
+        )}
+        <label className="nx-field nx-field--grow">
+          Search employee
+          <span className="nx-search">
+            <Search size={15} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Employee name or ID"
+            />
+          </span>
+        </label>
+        <label className="nx-field">
+          Department
+          <input
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            placeholder="All departments"
+          />
+        </label>
+        <label className="nx-field">
+          Status
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All worked statuses</option>
+            <option value="PRESENT">Present</option>
+            <option value="HALF_DAY">Half Day</option>
+            <option value="WFH">Work From Home</option>
+          </select>
+        </label>
+      </div>
+
+      {validationMessage && (
+        <div className="nx-alert nx-alert--error" role="alert">
+          {validationMessage}
+        </div>
+      )}
+      {error && (
+        <div className="nx-alert nx-alert--error" role="alert">
+          {error}
+        </div>
+      )}
+
+      <div className="nx-cards">
+        <NxSummaryCard
+          tone="navy"
+          icon={<CalendarDays size={18} />}
+          label="Attendance days"
+          value={summary.records ?? total}
+        />
+        <NxSummaryCard
+          tone="teal"
+          icon={<Users size={18} />}
+          label="Employees"
+          value={summary.employees ?? "—"}
+        />
+        <NxSummaryCard
+          tone="cyan"
+          icon={<CalendarDays size={18} />}
+          label="Working hours"
+          value={`${num(summary.total_working_hours).toFixed(2)} h`}
+        />
+        <NxSummaryCard
+          tone="green"
+          icon={<Banknote size={18} />}
+          label="Total saved wages"
+          value={moneyText(summary.total_wage)}
+        />
+      </div>
+      {report?.filters ? (
+        <p className="nx-muted">
+          Report period:{" "}
+          {formatWindow(report.filters.date_from, report.filters.date_to)}
+        </p>
+      ) : (
+        !validationMessage && <p className="nx-muted">Report period: {periodLabel}</p>
+      )}
+
+      <div className="nx-panel">
+        {nav.view !== "employees" && nav.employee ? (
+          <div className="nx-salary-detail">
+            <div className="nx-salary-detail-head">
+              <nav className="nx-salary-crumbs" aria-label="Report location">
+                <button type="button" className="nx-link-btn" onClick={backToEmployees}>
+                  Employees
+                </button>
+                <span aria-hidden="true">›</span>
+                {nav.month ? (
+                  <>
+                    {hasMonthStep ? (
+                      <button type="button" className="nx-link-btn" onClick={backToMonths}>
+                        {crumb}
+                      </button>
+                    ) : (
+                      <span>{crumb}</span>
+                    )}
+                    <span aria-hidden="true">›</span>
+                    <strong>{monthLabel(nav.month)}</strong>
+                  </>
+                ) : (
+                  <strong>{crumb}</strong>
+                )}
+              </nav>
+              <div className="nx-pane-actions">
+                {nav.view === "days" && nav.month && hasMonthStep && (
+                  <button type="button" className="nx-btn nx-btn--outline" onClick={backToMonths}>
+                    <ChevronLeft size={15} /> Back to Months
+                  </button>
+                )}
+                <button type="button" className="nx-btn nx-btn--outline" onClick={backToEmployees}>
+                  <ChevronLeft size={15} /> Back to Employees
+                </button>
+              </div>
+            </div>
+            <h3 className="nx-salary-detail-title">
+              {nav.view === "months"
+                ? `Month-wise salary — ${periodLabel}`
+                : `${nav.month ? monthLabel(nav.month) : periodLabel} — Day-wise records`}
+            </h3>
+            {!detailLoading && !detailError && (
+              <div className="nx-salary-chips">
+                <span>
+                  {nav.view === "months" ? "Worked days" : "Records"}
+                  <b>{detailTotals.days}</b>
+                </span>
+                <span>
+                  Hours<b>{num(detailTotals.hours).toFixed(2)} h</b>
+                </span>
+                <span>
+                  Total wages<b>{moneyText(detailTotals.wage)}</b>
+                </span>
+              </div>
+            )}
+            {detailError && (
+              <div className="nx-state nx-state--error" role="alert">
+                <p>{detailError}</p>
+                <button type="button" className="nx-btn nx-btn--outline" onClick={reload}>
+                  <RefreshCw size={15} /> Retry
+                </button>
+              </div>
+            )}
+            {detailLoading ? (
+              <div className="nx-state">
+                <span className="nx-spinner" /> Loading employee history…
+              </div>
+            ) : detailError ? null : nav.view === "months" ? (
+              <div className="nx-table-scroll">
+                <table className="nx-table nx-table--months">
+                  <thead>
+                    <tr>
+                      <th>Month</th>
+                      <th className="nx-right">Worked days</th>
+                      <th className="nx-right">Hours</th>
+                      <th className="nx-right">Monthly salary</th>
+                      <th>Day-wise</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthRows.map((r) => (
+                      <tr key={r.month}>
+                        <td>{monthLabel(r.month)}</td>
+                        <td className="nx-right">{r.days ?? "—"}</td>
+                        <td className="nx-right">{formatHours(r.hours)}</td>
+                        <td className="nx-right">{moneyText(r.total_wage)}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="nx-icon-btn"
+                            title={`View ${monthLabel(r.month)} day-wise attendance`}
+                            aria-label={`View ${monthLabel(r.month)} day-wise attendance`}
+                            onClick={() => openMonth(r.month)}
+                          >
+                            <Eye size={17} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!monthRows.length && (
+                      <tr>
+                        <td colSpan={5} className="nx-empty">
+                          No monthly records found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <>
+                <SalaryDayTable rows={dayRows} showEmployee />
+                {Number(detailData?.count || 0) > SALARY_DETAIL_PAGE_SIZE && (
+                  <div className="nx-pager">
+                    <span>
+                      Page {detailPage} of{" "}
+                      {Math.ceil(Number(detailData.count) / SALARY_DETAIL_PAGE_SIZE)}
+                    </span>
+                    <div>
+                      <button
+                        type="button"
+                        className="nx-icon-btn"
+                        aria-label="Previous page"
+                        disabled={detailPage <= 1}
+                        onClick={() => setDetailPage((v) => Math.max(1, v - 1))}
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="nx-icon-btn"
+                        aria-label="Next page"
+                        disabled={
+                          detailPage >=
+                          Math.ceil(Number(detailData.count) / SALARY_DETAIL_PAGE_SIZE)
+                        }
+                        onClick={() => setDetailPage((v) => v + 1)}
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        ) : loading ? (
+          <div className="nx-state">
+            <span className="nx-spinner" /> Loading report…
+          </div>
+        ) : isDay ? (
+          <SalaryDayTable rows={records} showEmployee />
+        ) : (
+          <div className="nx-table-scroll">
+            <table className="nx-table nx-salary-employee-table">
+              <thead>
+                <tr>
+                  <th>Employee ID</th>
+                  <th>Employee</th>
+                  <th>Department</th>
+                  <th className="nx-right">Worked days</th>
+                  <th className="nx-right">Hours</th>
+                  <th className="nx-right">Total salary</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((r, i) => (
+                  <tr key={r.employee_pk ?? `${r.employee_code ?? "emp"}-${i}`}>
+                    <td className="nx-mono">{r.employee_code || "—"}</td>
+                    <td>
+                      <strong>{r.employee_name || "—"}</strong>
+                    </td>
+                    <td>{r.department || "—"}</td>
+                    <td className="nx-right">{r.days ?? "—"}</td>
+                    <td className="nx-right">{formatHours(r.hours)}</td>
+                    <td className="nx-right">{moneyText(r.total_wage)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="nx-icon-btn"
+                        disabled={r.employee_pk == null}
+                        title={`View ${r.employee_name || "employee"} salary details`}
+                        aria-label={`View ${r.employee_name || "employee"} salary details`}
+                        onClick={() => openEmployee(r)}
+                      >
+                        <Eye size={17} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!records.length && (
+                  <tr>
+                    <td colSpan={7} className="nx-empty">
+                      {error || validationMessage
+                        ? "Fix the issue above to see the report."
+                        : "No employee wages match these filters."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {nav.view === "employees" && !loading && totalPages > 1 && (
+          <div className="nx-pager">
+            <span>
+              {total} matching {isDay ? "records" : "employees"}
+            </span>
+            <div>
+              <button
+                type="button"
+                className="nx-icon-btn"
+                aria-label="Previous page"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <strong>
+                {page} / {totalPages}
+              </strong>
+              <button
+                type="button"
+                className="nx-icon-btn"
+                aria-label="Next page"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AdminSalaryManagement({
   accessToken,
   initialMonth,
   onAdvancesChanged,
 }) {
+  const [salarySubTab, setSalarySubTab] = useState("existing");
   const [month, setMonth] = useState(initialMonth);
   const [people, setPeople] = useState([]);
   const [configs, setConfigs] = useState([]);
@@ -2065,267 +2990,300 @@ function AdminSalaryManagement({
 
   return (
     <div className="nx-pane">
-      <div className="nx-pane-head">
-        <div>
-          <h2>
-            <Wallet size={21} /> Salary Management
-          </h2>
-          <p>
-            All active employees · Mon–Sat 8 h/day · Sunday 6 h/day · figures
-            calculated by the server
-          </p>
-        </div>
-        <div className="nx-pane-actions">
-          <button
-            type="button"
-            className="nx-btn nx-btn--primary"
-            onClick={downloadReport}
-            disabled={loading || exporting || !rows.length}
-          >
-            <Download size={15} />{" "}
-            {exporting ? "Preparing CSV…" : "Download Salary Report"}
-          </button>
-          <button
-            type="button"
-            className="nx-btn nx-btn--outline"
-            onClick={() => load()}
-            disabled={loading}
-          >
-            <RefreshCw size={15} /> Refresh
-          </button>
-        </div>
+      <div
+        className="nx-actions"
+        style={{ marginBottom: 18, display: "flex", gap: 10, flexWrap: "wrap" }}
+        role="tablist"
+        aria-label="Salary subsections"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={salarySubTab === "existing"}
+          className={`nx-btn ${salarySubTab === "existing" ? "nx-btn--primary" : "nx-btn--outline"}`}
+          onClick={() => setSalarySubTab("existing")}
+        >
+          Existing Salary
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={salarySubTab === "report"}
+          className={`nx-btn ${salarySubTab === "report" ? "nx-btn--primary" : "nx-btn--outline"}`}
+          onClick={() => setSalarySubTab("report")}
+        >
+          Custom Salary Report
+        </button>
       </div>
-
-      <div className="nx-cards">
-        <NxSummaryCard
-          tone="navy"
-          icon={<Users size={18} />}
-          label="Total employees"
-          value={summary.employees}
-        />
-        <NxSummaryCard
-          tone="teal"
-          icon={<Settings2 size={18} />}
-          label="Daily rates configured"
-          value={`${summary.rates} / ${summary.employees}`}
-        />
-        <NxSummaryCard
-          tone="amber"
-          icon={<CalendarDays size={18} />}
-          label="Salary drafts"
-          value={summary.drafts}
-        />
-        <NxSummaryCard
-          tone="cyan"
-          icon={<CheckCircle2 size={18} />}
-          label="Confirmed salaries"
-          value={summary.confirmed}
-        />
-        <NxSummaryCard
-          tone="green"
-          icon={<Banknote size={18} />}
-          label="Total net payroll"
-          value={moneyText(summary.net)}
-        />
-      </div>
-
-      <div className="nx-toolbar">
-        <label className="nx-field">
-          Salary month
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => e.target.value && setMonth(e.target.value)}
-          />
-        </label>
-        <label className="nx-field nx-field--grow">
-          Search employee
-          <span className="nx-search">
-            <Search size={15} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Name, employee ID or department"
-            />
-          </span>
-        </label>
-        <label className="nx-field">
-          Department
-          <select
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-          >
-            <option value="all">All departments</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="nx-field">
-          Salary status
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            {SALARY_FILTER_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {notice && (
-        <div className="nx-alert nx-alert--success" role="status">
-          {notice}
-        </div>
-      )}
-      {exportError && (
-        <div className="nx-alert nx-alert--error" role="alert">
-          {exportError}
-        </div>
-      )}
-
-      <div className="nx-panel">
-        {loadError ? (
-          <div className="nx-state nx-state--error">
-            <p>{loadError}</p>
-            <button
-              type="button"
-              className="nx-btn nx-btn--outline"
-              onClick={() => load()}
-            >
-              Retry
-            </button>
-          </div>
-        ) : loading && !rows.length ? (
-          <div className="nx-state">
-            <span className="nx-spinner" /> Loading employees…
-          </div>
-        ) : !rows.length ? (
-          <div className="nx-state">
-            No active employees were returned by the server.
-          </div>
-        ) : (
-          <>
-            <div className="nx-table-scroll">
-              <table className="nx-table">
-                <thead>
-                  <tr>
-                    <th>Employee ID</th>
-                    <th>Employee name</th>
-                    <th>Department</th>
-                    <th className="nx-right">Daily rate</th>
-                    <th>Salary status</th>
-                    <th className="nx-right">Net salary</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paging.slice.map((r) => {
-                    const hasRate =
-                      r.config?.salary_type === "DAILY" &&
-                      num(r.config?.daily_rate) > 0;
-                    return (
-                      <tr key={r.key}>
-                        <td className="nx-mono">
-                          {employeeCode(r.person) || "—"}
-                        </td>
-                        <td>
-                          <strong>{employeeLabel(r.person)}</strong>
-                          {r.person.designation && (
-                            <small className="nx-sub">
-                              {r.person.designation}
-                            </small>
-                          )}
-                        </td>
-                        <td>{r.person.department || "—"}</td>
-                        <td className="nx-right">
-                          {hasRate ? (
-                            moneyText(r.config.daily_rate)
-                          ) : (
-                            <span className="nx-muted">Not set</span>
-                          )}
-                        </td>
-                        <td>
-                          <NxStatus tone={WORKFLOW_TONE[r.workflow]}>
-                            {WORKFLOW_LABEL[r.workflow]}
-                          </NxStatus>
-                        </td>
-                        <td className="nx-right">
-                          {r.payment?.net_salary != null
-                            ? moneyText(r.payment.net_salary)
-                            : "—"}
-                        </td>
-                        <td>
-                          <div className="nx-actions">
-                            <button
-                              type="button"
-                              className="nx-btn nx-btn--sm nx-btn--outline"
-                              onClick={() => setRateTarget(r.key)}
-                            >
-                              {hasRate ? "Edit Rate" : "Set Rate"}
-                            </button>
-                            <button
-                              type="button"
-                              className="nx-btn nx-btn--sm nx-btn--primary"
-                              onClick={() => setSalaryTarget(r.key)}
-                            >
-                              {r.workflow === "NOT_GENERATED"
-                                ? "Add Salary"
-                                : r.workflow === "DRAFT"
-                                  ? "Manage Salary"
-                                  : "View Salary"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {!filtered.length && (
-                    <tr>
-                      <td colSpan={7} className="nx-empty">
-                        No employees match the current filters.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+      {salarySubTab === "report" ? (
+        <SalaryReportBoundary>
+          <AdminCustomSalaryReport accessToken={accessToken} />
+        </SalaryReportBoundary>
+      ) : (
+        <>
+          <div className="nx-pane-head">
+            <div>
+              <h2>
+                <Wallet size={21} /> Salary Management
+              </h2>
+              <p>
+                All active employees · Mon–Sat 8 h/day · Sunday 6 h/day ·
+                figures calculated by the server
+              </p>
             </div>
-            <NxPager
-              page={paging.page}
-              pageCount={paging.pageCount}
-              total={filtered.length}
-              onPage={paging.setPage}
-            />
-          </>
-        )}
-      </div>
+            <div className="nx-pane-actions">
+              <button
+                type="button"
+                className="nx-btn nx-btn--primary"
+                onClick={downloadReport}
+                disabled={loading || exporting || !rows.length}
+              >
+                <Download size={15} />{" "}
+                {exporting ? "Preparing CSV…" : "Download Salary Report"}
+              </button>
+              <button
+                type="button"
+                className="nx-btn nx-btn--outline"
+                onClick={() => load()}
+                disabled={loading}
+              >
+                <RefreshCw size={15} /> Refresh
+              </button>
+            </div>
+          </div>
 
-      {rateTarget && (
-        <RateModal
-          row={rowFor(rateTarget)}
-          auth={auth}
-          onClose={() => setRateTarget(null)}
-          onSaved={async (message) => {
-            setRateTarget(null);
-            setNotice(message);
-            await load();
-          }}
-        />
-      )}
-      {salaryTarget && (
-        <SalaryDrawer
-          rowFor={rowFor}
-          employeeKey={salaryTarget}
-          month={month}
-          auth={auth}
-          onClose={() => setSalaryTarget(null)}
-          onChanged={afterChange}
-        />
+          <div className="nx-cards">
+            <NxSummaryCard
+              tone="navy"
+              icon={<Users size={18} />}
+              label="Total employees"
+              value={summary.employees}
+            />
+            <NxSummaryCard
+              tone="teal"
+              icon={<Settings2 size={18} />}
+              label="Daily rates configured"
+              value={`${summary.rates} / ${summary.employees}`}
+            />
+            <NxSummaryCard
+              tone="amber"
+              icon={<CalendarDays size={18} />}
+              label="Salary drafts"
+              value={summary.drafts}
+            />
+            <NxSummaryCard
+              tone="cyan"
+              icon={<CheckCircle2 size={18} />}
+              label="Confirmed salaries"
+              value={summary.confirmed}
+            />
+            <NxSummaryCard
+              tone="green"
+              icon={<Banknote size={18} />}
+              label="Total net payroll"
+              value={moneyText(summary.net)}
+            />
+          </div>
+
+          <div className="nx-toolbar">
+            <label className="nx-field">
+              Salary month
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => e.target.value && setMonth(e.target.value)}
+              />
+            </label>
+            <label className="nx-field nx-field--grow">
+              Search employee
+              <span className="nx-search">
+                <Search size={15} />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Name, employee ID or department"
+                />
+              </span>
+            </label>
+            <label className="nx-field">
+              Department
+              <select
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+              >
+                <option value="all">All departments</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="nx-field">
+              Salary status
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                {SALARY_FILTER_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {notice && (
+            <div className="nx-alert nx-alert--success" role="status">
+              {notice}
+            </div>
+          )}
+          {exportError && (
+            <div className="nx-alert nx-alert--error" role="alert">
+              {exportError}
+            </div>
+          )}
+
+          <div className="nx-panel">
+            {loadError ? (
+              <div className="nx-state nx-state--error">
+                <p>{loadError}</p>
+                <button
+                  type="button"
+                  className="nx-btn nx-btn--outline"
+                  onClick={() => load()}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : loading && !rows.length ? (
+              <div className="nx-state">
+                <span className="nx-spinner" /> Loading employees…
+              </div>
+            ) : !rows.length ? (
+              <div className="nx-state">
+                No active employees were returned by the server.
+              </div>
+            ) : (
+              <>
+                <div className="nx-table-scroll">
+                  <table className="nx-table">
+                    <thead>
+                      <tr>
+                        <th>Employee ID</th>
+                        <th>Employee name</th>
+                        <th>Department</th>
+                        <th className="nx-right">Daily rate</th>
+                        <th>Salary status</th>
+                        <th className="nx-right">Net salary</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paging.slice.map((r) => {
+                        const hasRate =
+                          r.config?.salary_type === "DAILY" &&
+                          num(r.config?.daily_rate) > 0;
+                        return (
+                          <tr key={r.key}>
+                            <td className="nx-mono">
+                              {employeeCode(r.person) || "—"}
+                            </td>
+                            <td>
+                              <strong>{employeeLabel(r.person)}</strong>
+                              {r.person.designation && (
+                                <small className="nx-sub">
+                                  {r.person.designation}
+                                </small>
+                              )}
+                            </td>
+                            <td>{r.person.department || "—"}</td>
+                            <td className="nx-right">
+                              {hasRate ? (
+                                moneyText(r.config.daily_rate)
+                              ) : (
+                                <span className="nx-muted">Not set</span>
+                              )}
+                            </td>
+                            <td>
+                              <NxStatus tone={WORKFLOW_TONE[r.workflow]}>
+                                {WORKFLOW_LABEL[r.workflow]}
+                              </NxStatus>
+                            </td>
+                            <td className="nx-right">
+                              {r.payment?.net_salary != null
+                                ? moneyText(r.payment.net_salary)
+                                : "—"}
+                            </td>
+                            <td>
+                              <div className="nx-actions">
+                                <button
+                                  type="button"
+                                  className="nx-btn nx-btn--sm nx-btn--outline"
+                                  onClick={() => setRateTarget(r.key)}
+                                >
+                                  {hasRate ? "Edit Rate" : "Set Rate"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="nx-btn nx-btn--sm nx-btn--primary"
+                                  onClick={() => setSalaryTarget(r.key)}
+                                >
+                                  {r.workflow === "NOT_GENERATED"
+                                    ? "Add Salary"
+                                    : r.workflow === "DRAFT"
+                                      ? "Manage Salary"
+                                      : "View Salary"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {!filtered.length && (
+                        <tr>
+                          <td colSpan={7} className="nx-empty">
+                            No employees match the current filters.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <NxPager
+                  page={paging.page}
+                  pageCount={paging.pageCount}
+                  total={filtered.length}
+                  onPage={paging.setPage}
+                />
+              </>
+            )}
+          </div>
+
+          {rateTarget && (
+            <RateModal
+              row={rowFor(rateTarget)}
+              auth={auth}
+              onClose={() => setRateTarget(null)}
+              onSaved={async (message) => {
+                setRateTarget(null);
+                setNotice(message);
+                await load();
+              }}
+            />
+          )}
+          {salaryTarget && (
+            <SalaryDrawer
+              rowFor={rowFor}
+              employeeKey={salaryTarget}
+              month={month}
+              auth={auth}
+              onClose={() => setSalaryTarget(null)}
+              onChanged={afterChange}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -3494,7 +4452,597 @@ function AdminAdvanceManagement({ accessToken, version, onAdvancesChanged }) {
           onDelete={remove}
         />
       )}
+      <AdminAdvanceReports accessToken={accessToken} version={version} />
     </div>
+  );
+}
+
+/* ============================================================
+   ADVANCE REPORTS + EMPLOYEE EYE HISTORY — SAME JSX FILE
+   ============================================================ */
+const ADV_REPORT_API = {
+  advances: "/erp/admin/advances/report/",
+  repayments: "/erp/admin/advances/repayment-history/",
+  employee: (id) => `/erp/admin/advances/employees/${id}/history/`,
+};
+const ADV_REPORT_PERIODS = [
+  ["today", "Today"],
+  ["week", "This Week"],
+  ["month", "This Month"],
+  ["year", "This Year"],
+  ["custom", "Custom"],
+  ["all", "All History"],
+];
+const ADV_REPORT_STATUSES = [
+  ["all", "All statuses"],
+  ["OUTSTANDING", "Outstanding"],
+  ["PARTIALLY_REPAID", "Partially Repaid"],
+  ["FULLY_REPAID", "Fully Repaid"],
+];
+function AdvanceEmployeeHistory({ employeeId, auth, onClose }) {
+  const [payload, setPayload] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    api
+      .get(ADV_REPORT_API.employee(employeeId), {
+        ...auth,
+        signal: controller.signal,
+      })
+      .then((res) => setPayload(res.data))
+      .catch((err) => {
+        if (!isAbortError(err)) setError(salaryError(err));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [employeeId, auth]);
+  const advances = payload?.advances || [];
+  return (
+    <NxModal
+      title="Complete Employee Advance History"
+      subtitle={
+        payload?.employee
+          ? `${payload.employee.employee_name} · ${payload.employee.employee_code || ""}`
+          : `Employee #${employeeId}`
+      }
+      wide
+      onClose={onClose}
+    >
+      {loading ? (
+        <div className="nx-state">Loading full advance history…</div>
+      ) : error ? (
+        <div className="nx-alert nx-alert--error">{error}</div>
+      ) : (
+        <>
+          <div className="nx-cards nx-cards--3">
+            <NxSummaryCard
+              tone="navy"
+              icon={<Banknote size={17} />}
+              label="Total advanced"
+              value={moneyText(payload?.summary?.total_advanced)}
+            />
+            <NxSummaryCard
+              tone="green"
+              icon={<CheckCircle2 size={17} />}
+              label="Total repaid"
+              value={moneyText(payload?.summary?.total_repaid)}
+            />
+            <NxSummaryCard
+              tone="amber"
+              icon={<Wallet size={17} />}
+              label="Outstanding"
+              value={moneyText(payload?.summary?.total_outstanding)}
+            />
+          </div>
+          {advances.map((a) => (
+            <section className="nx-history-advance" key={a.id}>
+              <div className="nx-history-heading">
+                <div>
+                  <strong>{advRef(a)}</strong> · {formatISODate(a.advance_date)}
+                  <small className="nx-sub">
+                    {a.reason || "No reason entered"}
+                  </small>
+                </div>
+                <NxStatus
+                  tone={
+                    a.status === "FULLY_REPAID"
+                      ? "success"
+                      : a.status === "PARTIALLY_REPAID"
+                        ? "info"
+                        : "warning"
+                  }
+                >
+                  {String(a.status || "").replaceAll("_", " ")}
+                </NxStatus>
+              </div>
+              <div className="nx-history-metrics">
+                <span>
+                  Issued <b>{moneyText(a.amount)}</b>
+                </span>
+                <span>
+                  Repaid <b>{moneyText(a.total_repaid)}</b>
+                </span>
+                <span>
+                  Balance <b>{moneyText(a.outstanding_amount)}</b>
+                </span>
+                <span>
+                  Installments{" "}
+                  <b>
+                    {a.completed_installments ?? 0}
+                    {a.installment_count ? ` / ${a.installment_count}` : ""}
+                  </b>
+                </span>
+              </div>
+              {a.first_installment_completed_on && (
+                <p className="nx-muted">
+                  First salary installment completed:{" "}
+                  {formatISODate(a.first_installment_completed_on)}
+                </p>
+              )}
+              <div className="nx-table-scroll">
+                <table className="nx-table nx-table--compact">
+                  <thead>
+                    <tr>
+                      <th>Repayment date</th>
+                      <th>Type</th>
+                      <th>Installment</th>
+                      <th className="nx-right">Paid</th>
+                      <th className="nx-right">Balance after</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(a.repayment_history || []).map((r) => (
+                      <tr key={r.repayment_id}>
+                        <td>{formatISODate(r.date)}</td>
+                        <td>
+                          {r.type === "SALARY_INSTALLMENT"
+                            ? "Salary deduction"
+                            : "Manual repayment"}
+                        </td>
+                        <td>
+                          {r.installment_number
+                            ? `#${r.installment_number} completed`
+                            : "—"}
+                        </td>
+                        <td className="nx-right">{moneyText(r.amount)}</td>
+                        <td className="nx-right">
+                          {moneyText(r.balance_after)}
+                        </td>
+                      </tr>
+                    ))}
+                    {!a.repayment_history?.length && (
+                      <tr>
+                        <td colSpan={5} className="nx-empty">
+                          No repayments yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ))}
+          {!advances.length && (
+            <div className="nx-state">
+              This employee has no advance history.
+            </div>
+          )}
+        </>
+      )}
+    </NxModal>
+  );
+}
+function AdminAdvanceReports({ accessToken, version }) {
+  const [kind, setKind] = useState("advances");
+  const [period, setPeriod] = useState("all");
+  const [from, setFrom] = useState(todayISO());
+  const [to, setTo] = useState(todayISO());
+  const [status, setStatus] = useState("all");
+  const [search, setSearch] = useState("");
+  const [employee, setEmployee] = useState("");
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [exporting, setExporting] = useState("");
+  const [historyId, setHistoryId] = useState(null);
+  const auth = useMemo(
+    () => ({ headers: { Authorization: `Bearer ${accessToken}` } }),
+    [accessToken],
+  );
+  const endpoint =
+    kind === "advances" ? ADV_REPORT_API.advances : ADV_REPORT_API.repayments;
+  const params = useMemo(
+    () => ({
+      period,
+      ...(period === "custom" ? { date_from: from, date_to: to } : {}),
+      ...(employee ? { employee } : {}),
+      ...(kind === "advances" && status !== "all" ? { status } : {}),
+      page,
+      page_size: 50,
+    }),
+    [period, from, to, employee, status, kind, page],
+  );
+  const invalidDates = period === "custom" && (!from || !to || from > to);
+  useEffect(() => {
+    setPage(1);
+  }, [kind, period, from, to, status, employee]);
+  useEffect(() => {
+    if (!accessToken || invalidDates) return undefined;
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    api
+      .get(endpoint, { ...auth, params, signal: controller.signal })
+      .then((res) => setData(res.data))
+      .catch((err) => {
+        if (!isAbortError(err)) {
+          setData(null);
+          setError(salaryError(err));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [accessToken, endpoint, auth, params, invalidDates, version]);
+  const results = data?.results || [];
+  const visible = results.filter((r) =>
+    matchesQuery(
+      search,
+      r.employee_name,
+      r.employee_code,
+      r.reason,
+      r.id,
+      r.advance_id,
+    ),
+  );
+  const pages = Math.max(1, Math.ceil((data?.count || 0) / 50));
+  const exportReport = async (format) => {
+    if (exporting || invalidDates) return;
+    setExporting(format);
+    setError("");
+    try {
+      const response = await api.get(endpoint, {
+        ...auth,
+        params: {
+          ...params,
+          export: format,
+          page: undefined,
+          page_size: undefined,
+        },
+        responseType: "blob",
+      });
+      if (response.data?.type?.includes("json")) {
+        const message = JSON.parse(await response.data.text());
+        throw new Error(message.detail || "Export failed.");
+      }
+      const blob = new Blob([response.data], {
+        type:
+          format === "csv"
+            ? "text/csv;charset=utf-8"
+            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `NXT_GENZ_${kind === "advances" ? "Advance_Report" : "Repayment_History"}_${period}.${format}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setError(salaryError(err));
+    } finally {
+      setExporting("");
+    }
+  };
+  return (
+    <section className="nx-advance-report">
+      <div className="nx-pane-head">
+        <div>
+          <h2>
+            <CalendarDays size={20} /> Advance Filtering & History
+          </h2>
+          <p>
+            Issue-date reports and repayment-date history, including fully
+            repaid advances.
+          </p>
+        </div>
+        <div className="nx-pane-actions">
+          <button
+            className="nx-btn nx-btn--outline"
+            type="button"
+            disabled={Boolean(exporting) || invalidDates}
+            onClick={() => exportReport("csv")}
+          >
+            <Download size={15} /> CSV
+          </button>
+          <button
+            className="nx-btn nx-btn--primary"
+            type="button"
+            disabled={Boolean(exporting) || invalidDates}
+            onClick={() => exportReport("xlsx")}
+          >
+            <Download size={15} />{" "}
+            {exporting === "xlsx" ? "Exporting…" : "Excel"}
+          </button>
+        </div>
+      </div>
+      <div className="nx-report-switch">
+        <button
+          type="button"
+          className={`nx-btn ${kind === "advances" ? "nx-btn--primary" : "nx-btn--outline"}`}
+          onClick={() => setKind("advances")}
+        >
+          Advance Report
+        </button>
+        <button
+          type="button"
+          className={`nx-btn ${kind === "repayments" ? "nx-btn--primary" : "nx-btn--outline"}`}
+          onClick={() => setKind("repayments")}
+        >
+          Repayment / Installment History
+        </button>
+      </div>
+      <div className="nx-toolbar nx-report-filters">
+        <label className="nx-field">
+          Period
+          <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+            {ADV_REPORT_PERIODS.map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
+        {period === "custom" && (
+          <>
+            <label className="nx-field">
+              From
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </label>
+            <label className="nx-field">
+              To
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </label>
+          </>
+        )}
+        {kind === "advances" && (
+          <label className="nx-field">
+            Status
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {ADV_REPORT_STATUSES.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="nx-field">
+          Employee database ID
+          <input
+            type="number"
+            min="1"
+            value={employee}
+            placeholder="All employees"
+            onChange={(e) => setEmployee(e.target.value)}
+          />
+        </label>
+        <label className="nx-field nx-field--grow">
+          Search visible rows
+          <span className="nx-search">
+            <Search size={15} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Name, code, reference"
+            />
+          </span>
+        </label>
+      </div>
+      {invalidDates && (
+        <div className="nx-alert nx-alert--error">
+          Choose valid From and To dates.
+        </div>
+      )}
+      {error && (
+        <div className="nx-alert nx-alert--error" role="alert">
+          {error}
+        </div>
+      )}
+      {data && !loading && (
+        <div className="nx-history-metrics nx-report-totals">
+          <span>
+            Records <b>{data.count ?? 0}</b>
+          </span>
+          {kind === "advances" ? (
+            <>
+              <span>
+                Issued <b>{moneyText(data.summary?.total_advanced)}</b>
+              </span>
+              <span>
+                Repaid to date{" "}
+                <b>{moneyText(data.summary?.total_repaid_to_date)}</b>
+              </span>
+              <span>
+                Outstanding <b>{moneyText(data.summary?.total_outstanding)}</b>
+              </span>
+            </>
+          ) : (
+            <span>
+              Repaid in period <b>{moneyText(data.total_repaid_in_period)}</b>
+            </span>
+          )}
+        </div>
+      )}
+      <div className="nx-panel">
+        {loading ? (
+          <div className="nx-state">Loading report…</div>
+        ) : !data ? (
+          <div className="nx-state">Select filters to load the report.</div>
+        ) : (
+          <div className="nx-table-scroll">
+            <table className="nx-table">
+              <thead>
+                {kind === "advances" ? (
+                  <tr>
+                    <th>Employee</th>
+                    <th>Advance date</th>
+                    <th>Reference</th>
+                    <th className="nx-right">Issued</th>
+                    <th className="nx-right">Repaid</th>
+                    <th className="nx-right">Balance</th>
+                    <th>Installments</th>
+                    <th>Status</th>
+                    <th>History</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th>Employee</th>
+                    <th>Repayment date</th>
+                    <th>Advance ID</th>
+                    <th>Repayment type</th>
+                    <th>Installment</th>
+                    <th className="nx-right">Paid</th>
+                    <th className="nx-right">Balance after</th>
+                    <th>History</th>
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {visible.map((r) =>
+                  kind === "advances" ? (
+                    <tr key={r.id}>
+                      <td>
+                        <strong>{r.employee_name}</strong>
+                        <small className="nx-sub">{r.employee_code}</small>
+                      </td>
+                      <td>{formatISODate(r.advance_date)}</td>
+                      <td>ADV-{r.id}</td>
+                      <td className="nx-right">{moneyText(r.amount)}</td>
+                      <td className="nx-right">{moneyText(r.total_repaid)}</td>
+                      <td className="nx-right">
+                        {moneyText(r.outstanding_amount)}
+                      </td>
+                      <td>
+                        {r.completed_installments ?? 0}
+                        {r.installment_count ? ` / ${r.installment_count}` : ""}
+                      </td>
+                      <td>
+                        <NxStatus
+                          tone={
+                            r.status === "FULLY_REPAID"
+                              ? "success"
+                              : r.status === "PARTIALLY_REPAID"
+                                ? "info"
+                                : "warning"
+                          }
+                        >
+                          {String(r.status).replaceAll("_", " ")}
+                        </NxStatus>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="nx-btn nx-btn--sm nx-btn--outline"
+                          onClick={() => setHistoryId(r.employee)}
+                        >
+                          <Eye size={14} /> History
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={r.repayment_id}>
+                      <td>
+                        <strong>{r.employee_name}</strong>
+                        <small className="nx-sub">{r.employee_code}</small>
+                      </td>
+                      <td>{formatISODate(r.date)}</td>
+                      <td>ADV-{r.advance_id}</td>
+                      <td>
+                        {r.type === "SALARY_INSTALLMENT"
+                          ? "Salary deduction"
+                          : "Manual repayment"}
+                      </td>
+                      <td>
+                        {r.installment_number
+                          ? `#${r.installment_number} completed`
+                          : "—"}
+                      </td>
+                      <td className="nx-right">{moneyText(r.amount)}</td>
+                      <td className="nx-right">{moneyText(r.balance_after)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="nx-btn nx-btn--sm nx-btn--outline"
+                          onClick={() => setHistoryId(r.employee)}
+                        >
+                          <Eye size={14} /> History
+                        </button>
+                      </td>
+                    </tr>
+                  ),
+                )}
+                {!visible.length && (
+                  <tr>
+                    <td
+                      colSpan={kind === "advances" ? 9 : 8}
+                      className="nx-empty"
+                    >
+                      No matching records on this page.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="nx-report-pagination">
+          <span>
+            Page {page} of {pages} · {data?.count ?? 0} total records
+          </span>
+          <div className="nx-actions">
+            <button
+              type="button"
+              className="nx-btn nx-btn--sm nx-btn--outline"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="nx-btn nx-btn--sm nx-btn--outline"
+              disabled={page >= pages || loading}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+      {historyId != null && (
+        <AdvanceEmployeeHistory
+          employeeId={historyId}
+          auth={auth}
+          onClose={() => setHistoryId(null)}
+        />
+      )}
+    </section>
   );
 }
 
