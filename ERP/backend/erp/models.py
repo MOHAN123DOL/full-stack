@@ -1,6 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-
+import uuid
 
 
 class User(AbstractUser):
@@ -2689,6 +2689,45 @@ class Attendance(models.Model):
         ("WEEKLY_OFF", "Weekly Off"),
         ("WFH", "Work From Home"),
     ]
+        # ========================================================
+    # ATTENDANCE SESSION SUPPORT
+    # ========================================================
+
+    ATTENDANCE_MODE_CHOICES = [
+        ("SINGLE_DATE", "Single Date"),
+        ("DATE_TO_DATE", "Date to Date"),
+    ]
+
+    attendance_mode = models.CharField(
+        max_length=20,
+        choices=ATTENDANCE_MODE_CHOICES,
+        default="SINGLE_DATE",
+    )
+
+    # Both date-wise records share the same session ID.
+    # Existing attendance records can remain NULL.
+    attendance_session_id = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
+    # Identifies which date starts the overnight session.
+    is_session_start = models.BooleanField(
+        default=False,
+    )
+
+    # Complete session start and end timestamps.
+    # Used for editing the original overnight session.
+    session_start = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    session_end = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
 
     employee = models.ForeignKey(
         "Employee",

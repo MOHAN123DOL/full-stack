@@ -1816,9 +1816,148 @@ from .models import (
     WageConfig, Attendance,
 )
 from .services import (
-    WORKED_STATUSES, AttendanceCalcError,
-    calculate_hours, empty_hours,
+    WORKED_STATUSES,
+    AttendanceCalcError,
+    calculate_hours,
+    calculate_overnight_hours,
+    empty_hours,
 )
+TIME_INPUT_FORMATS = ["%H:%M", "%H:%M:%S"]
+# ============================================================
+# OVERNIGHT ATTENDANCE SERIALIZER
+# Date to Date — Two Consecutive Calendar Dates
+# ============================================================
+
+class OvernightAttendanceSerializer(serializers.Serializer):
+    """
+    Validates one continuous attendance session spanning
+    exactly two consecutive calendar dates.
+
+    This serializer:
+        - Validates employee and attendance status.
+        - Validates both dates and times.
+        - Validates date-wise selected hourly slots.
+        - Calculates normal and overtime hours per date.
+        - Returns calculated data for the view.
+
+    Database creation and updates are handled by views.py.
+    """
+
+    ATTENDANCE_MODE = "DATE_TO_DATE"
+
+    employee = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.filter(
+            archived=False,
+            employment_status="Active",
+        )
+    )
+
+    attendance_mode = serializers.ChoiceField(
+        choices=["DATE_TO_DATE"],
+        default="DATE_TO_DATE",
+    )
+
+    status = serializers.ChoiceField(
+        choices=[
+            "PRESENT",
+            "HALF_DAY",
+            "WFH",
+        ]
+    )
+
+    start_date = serializers.DateField()
+
+    start_time = serializers.TimeField(
+        input_formats=TIME_INPUT_FORMATS,
+        format="%H:%M",
+    )
+
+    end_date = serializers.DateField()
+
+    end_time = serializers.TimeField(
+        input_formats=TIME_INPUT_FORMATS,
+        format="%H:%M",
+    )
+
+    selected_slots_by_date = serializers.DictField(
+        child=serializers.ListField(
+            child=serializers.IntegerField(
+                min_value=0,
+                max_value=23,
+            ),
+            allow_empty=True,
+        )
+    )
+
+    approved_ot_by_date = serializers.DictField(
+        child=serializers.DecimalField(
+            max_digits=6,
+            decimal_places=2,
+            min_value=Decimal("0.00"),
+        ),
+        required=False,
+    )
+
+    remarks = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+
+    # --------------------------------------------------------
+    # VALIDATION
+    # --------------------------------------------------------
+
+    def validate(self, attrs):
+
+        start_date = attrs["start_date"]
+        start_time = attrs["start_time"]
+
+        end_date = attrs["end_date"]
+        end_time = attrs["end_time"]
+
+        selected_slots = attrs["selected_slots_by_date"]
+
+        approved_ot = attrs.get("approved_ot_by_date")
+
+        try:
+            calculation = calculate_overnight_hours(
+                start_date=start_date,
+                start_time=start_time,
+                end_date=end_date,
+                end_time=end_time,
+                selected_slots=selected_slots,
+                approved_ot=approved_ot,
+            )
+
+        except AttendanceCalcError as exc:
+            raise serializers.ValidationError({
+                exc.field: exc.message
+            })
+
+        # Store calculated result for the view.
+        # This is not a database field.
+        attrs["_calculation"] = calculation
+
+        return attrs
+
+    # --------------------------------------------------------
+    # OUTPUT HELPERS
+    # --------------------------------------------------------
+
+    def get_calculation(self):
+        """
+        Return calculated attendance information after
+        is_valid() has completed successfully.
+        """
+
+        if not hasattr(self, "validated_data"):
+            raise AssertionError(
+                "Call is_valid() before get_calculation()."
+            )
+
+        return self.validated_data["_calculation"]
+
 
 
 class SalaryEmployeeSerializer(serializers.ModelSerializer):
@@ -2240,6 +2379,10 @@ class AttendanceEmployeeSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(
         source="full_name",
         read_only=True
+    )
+    employee_code = serializers.CharField(
+        source="employee_id",
+        read_only=True,
     )
 
     class Meta:

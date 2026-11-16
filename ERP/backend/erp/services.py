@@ -1413,7 +1413,10 @@ def build_production_operation_rows():
             "rejectedQty": rejected,
             "processStatus": process_status,
         })
-    return rows# =====================================================================
+    return rows
+    
+    
+    # =====================================================================
 # 10 — REWORK
 # =====================================================================
 
@@ -2325,35 +2328,88 @@ def sync_purchase_order_items(purchase_order):
             },
         )
 
+"""
+NXT GENZ ERP — Attendance Hour Calculation Service
 
+SUPPORTED MODES
+---------------
+1. SINGLE_DATE
+   Existing attendance calculation remains unchanged.
 
-"""Attendance-hour calculation for NXT GENZ ERP HR attendance.
+2. DATE_TO_DATE
+   Supports one continuous work session across two consecutive dates.
 
-Mon–Sat: 09:00–18:00, 8 normal hours maximum. Lunch 13:00–14:00
-is unpaid by default but can be explicitly selected as worked.
-Sunday: 06:00–12:00, 6 normal hours maximum, no lunch break.
+Example:
+    2026-11-16 18:00 -> 2026-11-17 08:00
 
-Slots are integer START hours (0–23). Only checked slots are counted.
-The selected 13:00–14:00 slot on weekdays is eligible work. Checked
-in-shift time beyond the daily normal-hours limit becomes suggested OT.
+    16 Nov: 18:00 -> 24:00 = 6 hours
+    17 Nov: 00:00 -> 08:00 = 8 hours
+
+    Total session hours = 14
+
+SHIFT RULES
+-----------
+Monday–Saturday:
+    09:00–18:00
+    Maximum 8 normal hours
+    Lunch 13:00–14:00 is unpaid by default.
+    If explicitly selected, lunch is counted as worked.
+
+Sunday:
+    06:00–12:00
+    Maximum 6 normal hours
+    No lunch break.
+
+Only selected hourly slots are counted.
+
+IMPORTANT
+---------
+This service calculates attendance hours only.
+
+It does not create database records or calculate salary.
+
+The serializer/view must:
+    - Validate employee and dates.
+    - Save linked date-wise attendance records atomically.
+    - Prevent duplicate or overlapping attendance.
+    - Ensure payroll does not count one overnight session
+      as two independent daily-wage occurrences.
 """
 
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+
+# ============================================================
+# CONSTANTS
+# ============================================================
 
 WORKED_STATUSES = ("PRESENT", "HALF_DAY", "WFH")
 
-SHIFT_START_MIN = 9 * 60  # legacy weekday constant
+SHIFT_START_MIN = 9 * 60  # Legacy compatibility
+
 WEEKDAY_SHIFT_START_MIN = 9 * 60
 WEEKDAY_SHIFT_END_MIN = 18 * 60
+
 SUNDAY_SHIFT_START_MIN = 6 * 60
 SUNDAY_SHIFT_END_MIN = 12 * 60
+
 LUNCH_START_MIN = 13 * 60
 LUNCH_END_MIN = 14 * 60
 LUNCH_SLOT_HOUR = 13
 
+MINUTES_PER_DAY = 24 * 60
+
 TWO_PLACES = Decimal("0.01")
 ZERO = Decimal("0.00")
 
+SINGLE_DATE = "SINGLE_DATE"
+DATE_TO_DATE = "DATE_TO_DATE"
+
+
+# ============================================================
+# EXCEPTION
+# ============================================================
 
 class AttendanceCalcError(Exception):
     """Validation problem tied to one request field."""
@@ -2364,21 +2420,38 @@ class AttendanceCalcError(Exception):
         self.message = message
 
 
+# ============================================================
+# SHIFT HELPERS
+# ============================================================
+
 def is_sunday(att_date):
     return att_date.weekday() == 6
 
 
 def shift_start_minutes(att_date):
-    return SUNDAY_SHIFT_START_MIN if is_sunday(att_date) else WEEKDAY_SHIFT_START_MIN
+    return (
+        SUNDAY_SHIFT_START_MIN
+        if is_sunday(att_date)
+        else WEEKDAY_SHIFT_START_MIN
+    )
 
 
 def shift_end_minutes(att_date):
-    return SUNDAY_SHIFT_END_MIN if is_sunday(att_date) else WEEKDAY_SHIFT_END_MIN
+    return (
+        SUNDAY_SHIFT_END_MIN
+        if is_sunday(att_date)
+        else WEEKDAY_SHIFT_END_MIN
+    )
 
 
 def max_normal_hours(att_date):
     """Maximum normal hours, never automatically credited."""
-    return Decimal("6.00") if is_sunday(att_date) else Decimal("8.00")
+
+    return (
+        Decimal("6.00")
+        if is_sunday(att_date)
+        else Decimal("8.00")
+    )
 
 
 def time_to_minutes(value):
@@ -2386,17 +2459,24 @@ def time_to_minutes(value):
 
 
 def _overlap(a_start, a_end, b_start, b_end):
-    return max(0, min(a_end, b_end) - max(a_start, b_start))
+    return max(
+        0,
+        min(a_end, b_end) - max(a_start, b_start)
+    )
 
 
 def _to_hours(minutes):
-    return (Decimal(minutes) / Decimal(60)).quantize(
-        TWO_PLACES, rounding=ROUND_HALF_UP
+    return (
+        Decimal(minutes) / Decimal(60)
+    ).quantize(
+        TWO_PLACES,
+        rounding=ROUND_HALF_UP
     )
 
 
 def empty_hours():
     """Result used for non-working statuses."""
+
     return {
         "selected_slots": [],
         "normal_hours": ZERO,
@@ -2407,90 +2487,172 @@ def empty_hours():
     }
 
 
-def calculate_hours(att_date, login_time, logout_time, selected_slots, approved_ot=None):
-    """Calculate normal and suggested OT from checked hourly slots only.
+# ============================================================
+# APPROVED OT VALIDATION
+# ============================================================
 
-    approved_ot=None follows the suggested OT. Otherwise HR may approve
-    a nonnegative value not greater than suggested OT.
-    """
-    if login_time is None or logout_time is None:
+def _validate_approved_ot(approved_ot, suggested_ot):
+
+    if approved_ot is None:
+        return suggested_ot, False
+
+    try:
+        approved = Decimal(str(approved_ot))
+
+    except (InvalidOperation, ValueError, TypeError):
         raise AttendanceCalcError(
-            "login_time", "Login time and logout time are required."
+            "approved_ot_hours",
+            "Approved OT must be a valid number."
         )
-    if not isinstance(selected_slots, list):
-        raise AttendanceCalcError("selected_slots", "Slots must be a list of hours.")
 
-    login_min = time_to_minutes(login_time)
-    logout_min = time_to_minutes(logout_time)
-    if logout_min <= login_min:
+    if not approved.is_finite():
         raise AttendanceCalcError(
-            "logout_time", "Logout time must be later than login time."
+            "approved_ot_hours",
+            "Approved OT must be a finite number."
+        )
+
+    approved = approved.quantize(
+        TWO_PLACES,
+        rounding=ROUND_HALF_UP
+    )
+
+    if approved < ZERO:
+        raise AttendanceCalcError(
+            "approved_ot_hours",
+            "Approved OT cannot be negative."
+        )
+
+    if approved > suggested_ot:
+        raise AttendanceCalcError(
+            "approved_ot_hours",
+            (
+                "Approved OT cannot exceed suggested OT "
+                f"({suggested_ot} hrs)."
+            )
+        )
+
+    return approved, approved != suggested_ot
+
+
+# ============================================================
+# SHARED DAILY CALCULATION
+# ============================================================
+
+def _calculate_day_minutes(
+    att_date,
+    login_min,
+    logout_min,
+    selected_slots,
+    approved_ot=None,
+):
+    """
+    Calculate hours for one calendar date.
+
+    login_min and logout_min are minute offsets within that date.
+
+    logout_min=1440 is allowed internally for midnight.
+
+    Slots remain integer start hours from 0 to 23.
+    """
+
+    if not isinstance(selected_slots, list):
+        raise AttendanceCalcError(
+            "selected_slots",
+            "Slots must be a list of hours."
+        )
+
+    if not (
+        0 <= login_min < logout_min <= MINUTES_PER_DAY
+    ):
+        raise AttendanceCalcError(
+            "logout_time",
+            "Invalid attendance time window."
         )
 
     first_hour = login_min // 60
     last_hour = (logout_min - 1) // 60
+
     cleaned = set()
+
     for raw in selected_slots:
+
         if isinstance(raw, bool) or not isinstance(raw, int):
             raise AttendanceCalcError(
-                "selected_slots", "Slots must be whole-number start hours."
+                "selected_slots",
+                "Slots must be whole-number start hours."
             )
+
         if raw < first_hour or raw > last_hour:
             raise AttendanceCalcError(
                 "selected_slots",
-                f"Slot {raw:02d}:00 is outside the login/logout window.",
+                (
+                    f"Slot {raw:02d}:00 is outside "
+                    "the login/logout window."
+                )
             )
-        # Lunch is NOT skipped. It is only counted if HR checked slot 13.
+
         cleaned.add(raw)
 
     if not cleaned:
-        raise AttendanceCalcError("selected_slots", "Select at least one hourly slot.")
+        raise AttendanceCalcError(
+            "selected_slots",
+            "Select at least one hourly slot."
+        )
 
     shift_start = shift_start_minutes(att_date)
     shift_end = shift_end_minutes(att_date)
+
     in_shift_minutes = 0
     outside_shift_minutes = 0
 
     for hour in sorted(cleaned):
-        seg_start = max(hour * 60, login_min)
-        seg_end = min(hour * 60 + 60, logout_min)
+
+        seg_start = max(
+            hour * 60,
+            login_min
+        )
+
+        seg_end = min(
+            hour * 60 + 60,
+            logout_min
+        )
+
         duration = seg_end - seg_start
-        normal_candidate = _overlap(seg_start, seg_end, shift_start, shift_end)
+
+        normal_candidate = _overlap(
+            seg_start,
+            seg_end,
+            shift_start,
+            shift_end
+        )
+
         in_shift_minutes += normal_candidate
-        outside_shift_minutes += duration - normal_candidate
 
-    # A checked weekday lunch hour can take in-shift worked time above 8h.
-    # Such excess becomes suggested OT rather than a ninth normal hour.
-    max_normal_minutes = int(max_normal_hours(att_date) * 60)
-    excess_minutes = max(0, in_shift_minutes - max_normal_minutes)
-    normal = _to_hours(in_shift_minutes - excess_minutes)
-    suggested = _to_hours(outside_shift_minutes + excess_minutes)
+        outside_shift_minutes += (
+            duration - normal_candidate
+        )
 
-    if approved_ot is None:
-        approved = suggested
-        edited = False
-    else:
-        try:
-            approved = Decimal(str(approved_ot))
-        except (InvalidOperation, ValueError, TypeError):
-            raise AttendanceCalcError(
-                "approved_ot_hours", "Approved OT must be a valid number."
-            )
-        if not approved.is_finite():
-            raise AttendanceCalcError(
-                "approved_ot_hours", "Approved OT must be a finite number."
-            )
-        approved = approved.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-        if approved < ZERO:
-            raise AttendanceCalcError(
-                "approved_ot_hours", "Approved OT cannot be negative."
-            )
-        if approved > suggested:
-            raise AttendanceCalcError(
-                "approved_ot_hours",
-                f"Approved OT cannot exceed suggested OT ({suggested} hrs).",
-            )
-        edited = approved != suggested
+    max_normal_minutes = int(
+        max_normal_hours(att_date) * 60
+    )
+
+    excess_minutes = max(
+        0,
+        in_shift_minutes - max_normal_minutes
+    )
+
+    normal = _to_hours(
+        in_shift_minutes - excess_minutes
+    )
+
+    suggested = _to_hours(
+        outside_shift_minutes + excess_minutes
+    )
+
+    approved, edited = _validate_approved_ot(
+        approved_ot,
+        suggested
+    )
 
     return {
         "selected_slots": sorted(cleaned),
@@ -2500,6 +2662,333 @@ def calculate_hours(att_date, login_time, logout_time, selected_slots, approved_
         "total_hours": normal + approved,
         "ot_manually_edited": edited,
     }
+
+
+# ============================================================
+# EXISTING SINGLE-DATE CALCULATION
+# ============================================================
+
+def calculate_hours(
+    att_date,
+    login_time,
+    logout_time,
+    selected_slots,
+    approved_ot=None,
+):
+    """
+    Existing single-date attendance calculation.
+
+    Function signature and return format are preserved.
+
+    Existing serializers can continue calling this function.
+    """
+
+    if login_time is None or logout_time is None:
+        raise AttendanceCalcError(
+            "login_time",
+            "Login time and logout time are required."
+        )
+
+    login_min = time_to_minutes(login_time)
+    logout_min = time_to_minutes(logout_time)
+
+    if logout_min <= login_min:
+        raise AttendanceCalcError(
+            "logout_time",
+            "Logout time must be later than login time."
+        )
+
+    return _calculate_day_minutes(
+        att_date=att_date,
+        login_min=login_min,
+        logout_min=logout_min,
+        selected_slots=selected_slots,
+        approved_ot=approved_ot,
+    )
+
+
+# ============================================================
+# OVERNIGHT DATE VALIDATION
+# ============================================================
+
+def validate_overnight_dates(
+    start_date,
+    start_time,
+    end_date,
+    end_time,
+):
+    """
+    Validate a two-date attendance session.
+
+    Only two consecutive calendar dates are supported.
+    """
+
+    if (
+        start_date is None
+        or start_time is None
+        or end_date is None
+        or end_time is None
+    ):
+        raise AttendanceCalcError(
+            "end_date",
+            "Start date/time and end date/time are required."
+        )
+
+    expected_end_date = start_date + timedelta(days=1)
+
+    if end_date != expected_end_date:
+        raise AttendanceCalcError(
+            "end_date",
+            (
+                "Date-to-Date attendance must use "
+                "two consecutive calendar dates."
+            )
+        )
+
+    start_datetime = datetime.combine(
+        start_date,
+        start_time
+    )
+
+    end_datetime = datetime.combine(
+        end_date,
+        end_time
+    )
+
+    if end_datetime <= start_datetime:
+        raise AttendanceCalcError(
+            "end_time",
+            "End date/time must be after start date/time."
+        )
+
+    return start_datetime, end_datetime
+
+
+# ============================================================
+# OVERNIGHT SLOT GENERATION
+# ============================================================
+
+def build_overnight_slots(
+    start_date,
+    start_time,
+    end_date,
+    end_time,
+):
+    """
+    Generate hourly slots grouped by calendar date.
+
+    Example:
+
+    2026-11-16 18:00 -> 2026-11-17 08:00
+
+    {
+        "2026-11-16": [18, 19, 20, 21, 22, 23],
+        "2026-11-17": [0, 1, 2, 3, 4, 5, 6, 7]
+    }
+    """
+
+    validate_overnight_dates(
+        start_date,
+        start_time,
+        end_date,
+        end_time,
+    )
+
+    start_min = time_to_minutes(start_time)
+    end_min = time_to_minutes(end_time)
+
+    first_day_slots = list(
+        range(
+            start_min // 60,
+            24
+        )
+    )
+
+    second_day_slots = list(
+        range(
+            0,
+            (end_min + 59) // 60
+        )
+    )
+
+    return {
+        start_date.isoformat(): first_day_slots,
+        end_date.isoformat(): second_day_slots,
+    }
+
+
+
+
+def calculate_overnight_hours(
+    start_date,
+    start_time,
+    end_date,
+    end_time,
+    selected_slots,
+    approved_ot=None,
+):
+    """
+    Calculate one continuous attendance session across midnight.
+
+    selected_slots format:
+
+    {
+        "2026-11-16": [18, 19, 20, 21, 22, 23],
+        "2026-11-17": [0, 1, 2, 3, 4, 5, 6, 7]
+    }
+
+    approved_ot format:
+
+    None:
+        Suggested OT is automatically approved for both dates.
+
+    Dictionary:
+        {
+            "2026-11-16": 6,
+            "2026-11-17": 8
+        }
+
+    Each date is calculated using its own shift rules.
+
+    Returns:
+        {
+            "attendance_mode": "DATE_TO_DATE",
+            "start_date": "...",
+            "end_date": "...",
+            "days": [...],
+            "session_totals": {...}
+        }
+    """
+
+    validate_overnight_dates(
+        start_date,
+        start_time,
+        end_date,
+        end_time,
+    )
+
+    if not isinstance(selected_slots, dict):
+        raise AttendanceCalcError(
+            "selected_slots",
+            "Overnight selected slots must be grouped by date."
+        )
+
+    if approved_ot is not None and not isinstance(
+        approved_ot,
+        dict
+    ):
+        raise AttendanceCalcError(
+            "approved_ot_hours",
+            "Overnight approved OT must be grouped by date."
+        )
+
+    start_key = start_date.isoformat()
+    end_key = end_date.isoformat()
+
+    expected_keys = {start_key, end_key}
+
+    if set(selected_slots.keys()) != expected_keys:
+        raise AttendanceCalcError(
+            "selected_slots",
+            "Selected slots must contain both attendance dates."
+        )
+
+    if approved_ot is not None:
+        unexpected = set(approved_ot.keys()) - expected_keys
+
+        if unexpected:
+            raise AttendanceCalcError(
+                "approved_ot_hours",
+                "Approved OT contains an invalid attendance date."
+            )
+
+    start_min = time_to_minutes(start_time)
+    end_min = time_to_minutes(end_time)
+
+    first_slots = selected_slots[start_key]
+    second_slots = selected_slots[end_key]
+
+    # Both days must contain at least one checked slot.
+    # This service represents a session with work on both dates.
+
+    first_day = _calculate_day_minutes(
+        att_date=start_date,
+        login_min=start_min,
+        logout_min=MINUTES_PER_DAY,
+        selected_slots=first_slots,
+        approved_ot=(
+            approved_ot.get(start_key)
+            if approved_ot is not None
+            else None
+        ),
+    )
+
+    second_day = _calculate_day_minutes(
+        att_date=end_date,
+        login_min=0,
+        logout_min=end_min,
+        selected_slots=second_slots,
+        approved_ot=(
+            approved_ot.get(end_key)
+            if approved_ot is not None
+            else None
+        ),
+    )
+
+    days = [
+        {
+            "date": start_key,
+            "login_time": start_time.strftime("%H:%M"),
+            "logout_time": "00:00",
+            "ends_at_midnight": True,
+            **first_day,
+        },
+        {
+            "date": end_key,
+            "login_time": "00:00",
+            "logout_time": end_time.strftime("%H:%M"),
+            "ends_at_midnight": False,
+            **second_day,
+        },
+    ]
+
+    total_normal = (
+        first_day["normal_hours"]
+        + second_day["normal_hours"]
+    )
+
+    total_suggested_ot = (
+        first_day["suggested_ot_hours"]
+        + second_day["suggested_ot_hours"]
+    )
+
+    total_approved_ot = (
+        first_day["approved_ot_hours"]
+        + second_day["approved_ot_hours"]
+    )
+
+    total_hours = (
+        first_day["total_hours"]
+        + second_day["total_hours"]
+    )
+
+    return {
+        "attendance_mode": DATE_TO_DATE,
+        "start_date": start_key,
+        "start_time": start_time.strftime("%H:%M"),
+        "end_date": end_key,
+        "end_time": end_time.strftime("%H:%M"),
+        "days": days,
+        "session_totals": {
+            "normal_hours": total_normal,
+            "suggested_ot_hours": total_suggested_ot,
+            "approved_ot_hours": total_approved_ot,
+            "total_hours": total_hours,
+            "session_count": 1,
+        },
+    }
+
+
 
 
 """NXT GENZ ERP — Admin payroll calculation and confirmation service.

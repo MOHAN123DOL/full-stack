@@ -7395,6 +7395,13 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
+import uuid
+
+from .serializers import (
+    AttendanceSerializer,
+    OvernightAttendanceSerializer,
+    payroll_snapshot,
+)
 
 from .services import WORKED_STATUSES
 from .models import Attendance, Employee
@@ -7491,7 +7498,6 @@ def filter_employees(queryset, params):
     for token in search.split():
         queryset = queryset.filter(
             Q(employee_id__icontains=token)
-            | Q(employee_code__icontains=token)
             | Q(first_name__icontains=token)
             | Q(last_name__icontains=token)
         )
@@ -7563,7 +7569,7 @@ class AttendanceViewSet(ModelViewSet):
         for token in search.split():
             queryset = queryset.filter(
                 Q(employee__employee_id__icontains=token)
-                | Q(employee__employee_code__icontains=token)
+                
                 | Q(employee__first_name__icontains=token)
                 | Q(employee__last_name__icontains=token)
             )
@@ -7579,37 +7585,261 @@ class AttendanceViewSet(ModelViewSet):
     # CREATE  (409 on duplicate employee + date)
     # --------------------------------------------------------
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
 
-        employee = serializer.validated_data["employee"]
-        att_date = serializer.validated_data["date"]
+        attendance_mode = request.data.get(
+            "attendance_mode",
+            "SINGLE_DATE",
+        )
 
-        existing = Attendance.objects.filter(employee=employee, date=att_date).first()
-        if existing:
+        # ========================================================
+        # SINGLE DATE — EXISTING BEHAVIOR
+        # ========================================================
+
+        if attendance_mode == "SINGLE_DATE":
+
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            employee = serializer.validated_data["employee"]
+            att_date = serializer.validated_data["date"]
+
+            existing = Attendance.objects.filter(
+                employee=employee,
+                date=att_date,
+            ).first()
+
+            if existing:
+                return Response(
+                    {
+                        "detail": DUPLICATE_MESSAGE,
+                        "id": existing.id,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            try:
+                with transaction.atomic():
+                    serializer.save(
+                        attendance_mode="SINGLE_DATE",
+                    )
+
+            except IntegrityError:
+                return Response(
+                    {"detail": DUPLICATE_MESSAGE},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
             return Response(
-                {"detail": DUPLICATE_MESSAGE, "id": existing.id},
-                status=status.HTTP_409_CONFLICT,
+                serializer.data,
+                status=status.HTTP_201_CREATED,
             )
 
-        try:
-            with transaction.atomic():
-                serializer.save()
-        except IntegrityError:
-            # Two HR users saved the same employee/date at the same moment.
-            return Response(
-                {"detail": DUPLICATE_MESSAGE},
-                status=status.HTTP_409_CONFLICT,
+        # ========================================================
+        # DATE TO DATE — OVERNIGHT ATTENDANCE
+        # ========================================================
+
+        if attendance_mode == "DATE_TO_DATE":
+
+            serializer = OvernightAttendanceSerializer(
+                data=request.data
             )
 
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+            serializer.is_valid(raise_exception=True)
 
-    # --------------------------------------------------------
+            data = serializer.validated_data
+            calculation = serializer.get_calculation()
+
+            employee = data["employee"]
+            start_date = data["start_date"]
+            end_date = data["end_date"]
+
+            dates = [start_date, end_date]
+
+            # Both dates must be available.
+            existing = Attendance.objects.filter(
+                employee=employee,
+                date__in=dates,
+            ).first()
+
+            if existing:
+                return Response(
+                    {
+                        "detail": (
+                            "Attendance already exists for this "
+                            "employee on one of the selected dates."
+                        ),
+                        "id": existing.id,
+                        "date": existing.date.isoformat(),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            session_id = uuid.uuid4()
+
+            session_start = timezone.make_aware(
+                datetime.combine(
+                    start_date,
+                    data["start_time"],
+                ),
+                timezone.get_current_timezone(),
+            )
+
+            session_end = timezone.make_aware(
+                datetime.combine(
+                    end_date,
+                    data["end_time"],
+                ),
+                timezone.get_current_timezone(),
+            )
+
+            records = []
+
+            try:
+                with transaction.atomic():
+
+                    # Lock the employee row to serialize attendance
+                    # creation requests for this employee.
+                    Employee.objects.select_for_update().get(
+                        pk=employee.pk
+                    )
+
+                    # Recheck duplicates inside the transaction.
+                    if Attendance.objects.filter(
+                        employee=employee,
+                        date__in=dates,
+                    ).exists():
+                        return Response(
+                            {
+                                "detail": (
+                                    "Attendance already exists on "
+                                    "one of the selected dates."
+                                )
+                            },
+                            status=status.HTTP_409_CONFLICT,
+                        )
+
+                    for index, day in enumerate(
+                        calculation["days"]
+                    ):
+
+                        day_date = date.fromisoformat(
+                            day["date"]
+                        )
+
+                        normal_hours = day["normal_hours"]
+                        approved_ot = day["approved_ot_hours"]
+
+                        total_hours = day["total_hours"]
+
+                        rate, wage = payroll_snapshot(
+                            employee,
+                            data["status"],
+                            total_hours,
+                        )
+
+                        attendance = Attendance.objects.create(
+                            employee=employee,
+                            date=day_date,
+                            status=data["status"],
+
+                            attendance_mode="DATE_TO_DATE",
+                            attendance_session_id=session_id,
+                            is_session_start=(index == 0),
+
+                            session_start=session_start,
+                            session_end=session_end,
+
+                            login_time=datetime.strptime(
+                                day["login_time"],
+                                "%H:%M",
+                            ).time(),
+
+                            logout_time=datetime.strptime(
+                                day["logout_time"],
+                                "%H:%M",
+                            ).time(),
+
+                            selected_slots=day["selected_slots"],
+
+                            normal_hours=normal_hours,
+                            suggested_ot_hours=day[
+                                "suggested_ot_hours"
+                            ],
+                            approved_ot_hours=approved_ot,
+                            total_hours=total_hours,
+
+                            ot_manually_edited=day[
+                                "ot_manually_edited"
+                            ],
+
+                            working_hours=total_hours,
+                            break_hours=Decimal("0.00"),
+
+                            hourly_rate=rate,
+                            daily_wage=wage,
+
+                            remarks=data.get("remarks", ""),
+                        )
+
+                        records.append(attendance)
+
+            except IntegrityError:
+                return Response(
+                    {
+                        "detail": (
+                            "Attendance already exists for "
+                            "one of the selected dates."
+                        )
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Overnight attendance saved successfully.",
+                    "attendance_mode": "DATE_TO_DATE",
+                    "attendance_session_id": str(session_id),
+                    "records": AttendanceSerializer(
+                        records,
+                        many=True,
+                    ).data,
+                    "session_totals": calculation[
+                        "session_totals"
+                    ],
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            {
+                "attendance_mode": (
+                    "Choose SINGLE_DATE or DATE_TO_DATE."
+                )
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # --------------    ------------------------------------------
     # UPDATE / PARTIAL UPDATE
     # --------------------------------------------------------
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
+        if instance.attendance_mode == "DATE_TO_DATE":
+            return Response(
+                {
+                    "detail": (
+                        "This attendance belongs to an overnight session. "
+                        "Edit the complete session using the overnight "
+                        "session update endpoint."
+                    ),
+                    "attendance_session_id": str(
+                        instance.attendance_session_id
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
@@ -7637,6 +7867,28 @@ class AttendanceViewSet(ModelViewSet):
             )
 
         return Response(serializer.data)
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        if instance.attendance_mode == "DATE_TO_DATE":
+            return Response(
+                {
+                    "detail": (
+                        "Cannot delete one date of an overnight session. "
+                        "Delete the complete session instead."
+                    ),
+                    "attendance_session_id": str(
+                        instance.attendance_session_id
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        instance.delete()
+
+        return Response(
+            status=status.HTTP_204_NO_CONTENT,
+        )
 
     # ========================================================
     # DAILY ROSTER  (Add Attendance page)
@@ -8364,20 +8616,24 @@ class WageConfigDetailAPIView(APIView):
         instance.delete()
         return Response(status=204)
 
-"""Read-only Admin Attendance custom salary report.
 
-Place in the same Django app as models.py (for example hr/admin_custom_salary_report.py).
-Uses saved Attendance.daily_wage, NOT monthly SalaryPayment and NOT a recalculation.
-Requires openpyxl only for XLSX exports: pip install openpyxl
+
+
+"""Admin-only, read-only attendance wage report.
+
+DAILY wage calculations mirror payroll_services.calculate_salary. Other salary
+configurations retain their saved Attendance.daily_wage (no guessed rates).
+This report uses CURRENT WageConfig rates, so historical results can change.
 """
 import csv
+import re
 from calendar import monthrange
+from collections import defaultdict
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 
-from django.db.models import Count, Q, Sum
-from django.db.models.functions import TruncMonth
+from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -8386,13 +8642,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Attendance, Employee
-# IMPORTANT: import your project's existing, verified ADMIN-ONLY permission.
-# Do not use IsHRorAdmin for this endpoint if HR users should not see the report.
+from .models import Attendance, WageConfig
+# IMPORTANT: use your project's existing IsERPAdmin import here.
+# Example (adjust to your project): from .permissions import IsERPAdmin
 
-
-WORKED = ('PRESENT', 'HALF_DAY', 'WFH')
+WORKED = {'PRESENT', 'HALF_DAY', 'WFH'}
+POLICY_FIELDS = {
+    'PAID_LEAVE': 'paid_leave_policy',
+    'HOLIDAY': 'holiday_policy',
+    'WEEKLY_OFF': 'weekly_off_policy',
+}
 ZERO = Decimal('0.00')
+CENT = Decimal('0.01')
 
 
 class ReportPagination(PageNumberPagination):
@@ -8401,10 +8662,16 @@ class ReportPagination(PageNumberPagination):
     max_page_size = 100
 
 
+def money(value):
+    return Decimal(str(value if value is not None else 0)).quantize(
+        CENT, rounding=ROUND_HALF_UP
+    )
+
+
 def report_filters(request):
     params = request.query_params
     today = timezone.localdate()
-    period = params.get('period', 'today').lower().strip()
+    period = params.get('period', 'today').strip().lower()
     if period == 'today':
         start = end = today
     elif period == 'week':
@@ -8425,48 +8692,46 @@ def report_filters(request):
             start = date.fromisoformat(params['date_from'])
             end = date.fromisoformat(params['date_to'])
         except (KeyError, ValueError):
-            raise ValidationError({'detail': 'Custom period requires valid date_from and date_to (YYYY-MM-DD).'})
+            raise ValidationError({'detail': 'Custom period requires date_from and date_to (YYYY-MM-DD).'})
     else:
         raise ValidationError({'period': 'Use today, week, month, year, selected_date, or custom.'})
-    # Preset ranges must not extend into the future; custom ranges remain strict.
-    if period != 'custom' and end > today:
-        end = today
-    if start > end:
-        raise ValidationError({'date_to': 'End date must be on or after start date.'})
-    if end > today:
-        raise ValidationError({'date_to': 'Future dates are not allowed in this report.'})
-    if (end - start).days > 3660:
-        raise ValidationError({'date_to': 'Maximum custom range is 10 years.'})
-
-    def boolean(name, default=True):
-        raw = params.get(name)
-        if raw is None:
-            return default
-        if raw.lower() in ('true', '1', 'yes'):
-            return True
-        if raw.lower() in ('false', '0', 'no'):
-            return False
-        raise ValidationError({name: 'Use true or false.'})
 
     if period == 'year' and params.get('year'):
         try:
             year = int(params['year'])
             if year < 2000 or year > today.year:
-                raise ValueError()
-            start = date(year, 1, 1)
-            end = min(date(year, 12, 31), today)
+                raise ValueError
         except ValueError:
-            raise ValidationError({'year': 'Choose a valid year not later than the current year.'})
+            raise ValidationError({'year': 'Choose a valid year not later than this year.'})
+        start, end = date(year, 1, 1), min(date(year, 12, 31), today)
+    elif period != 'custom':
+        end = min(end, today)
+    if start > end:
+        raise ValidationError({'date_to': 'End date must be on or after start date.'})
+    if end > today:
+        raise ValidationError({'date_to': 'Future dates are not allowed.'})
+    if (end - start).days > 3660:
+        raise ValidationError({'date_to': 'Maximum custom range is 10 years.'})
 
+    def boolean(name, default=True):
+        value = params.get(name)
+        if value is None:
+            return default
+        if value.lower() in ('true', '1', 'yes'):
+            return True
+        if value.lower() in ('false', '0', 'no'):
+            return False
+        raise ValidationError({name: 'Use true or false.'})
+
+    employee_pk = params.get('employee_pk', '').strip()
+    if employee_pk and not employee_pk.isdigit():
+        raise ValidationError({'employee_pk': 'Invalid employee identifier.'})
     return {
-        'period': period,
-        'year': params.get('year', '').strip(),
-        'date_from': start,
-        'date_to': end,
+        'period': period, 'date_from': start, 'date_to': end,
         'search': params.get('search', '').strip(),
         'department': params.get('department', '').strip(),
         'employee_id': params.get('employee_id', '').strip(),
-        'employee_pk': params.get('employee_pk', '').strip(),
+        'employee_pk': employee_pk,
         'status': params.get('status', '').strip().upper(),
         'require_attendance': boolean('require_attendance'),
         'require_wage': boolean('require_wage'),
@@ -8474,7 +8739,6 @@ def report_filters(request):
 
 
 def report_queryset(filters):
-    # Attendance rows are the source of truth. No blank/unmarked calendar dates.
     qs = Attendance.objects.select_related('employee').filter(
         date__range=(filters['date_from'], filters['date_to']),
         employee__archived=False,
@@ -8489,8 +8753,8 @@ def report_queryset(filters):
         )
     if filters['department']:
         qs = qs.filter(employee__department__iexact=filters['department'])
-    if filters.get('employee_pk'):
-        qs = qs.filter(employee_id=filters['employee_pk'])
+    if filters['employee_pk']:
+        qs = qs.filter(employee_id=int(filters['employee_pk']))
     if filters['employee_id']:
         qs = qs.filter(employee__employee_id__iexact=filters['employee_id'])
     if filters['status']:
@@ -8499,26 +8763,113 @@ def report_queryset(filters):
         qs = qs.filter(status=filters['status'])
     if filters['require_attendance']:
         qs = qs.filter(status__in=WORKED)
-    if filters['require_wage']:
-        qs = qs.filter(daily_wage__gt=0)
+    # require_wage is evaluated AFTER wage calculation, not on stored daily_wage.
     return qs
 
 
-def serialize_row(row):
-    person = row.employee
+def calculate_day_wage(att, config):
+    """
+    Calculate daily wages for normal and overnight attendance.
+
+    DAILY salary:
+        Normal Wage = Normal Hours × Daily Rate / Standard Hours
+        OT Wage = Approved OT Hours × Daily Rate / Standard Hours
+
+    Sunday: 6 standard hours.
+    Monday–Saturday: 8 standard hours.
+    """
+
+    if config is None or config.salary_type != "DAILY":
+        return money(att.daily_wage)
+
+    daily_rate = money(config.daily_rate)
+
+    if daily_rate <= Decimal("0.00"):
+        return Decimal("0.00")
+
+    standard = (
+        Decimal("6")
+        if att.date.weekday() == 6
+        else Decimal("8")
+    )
+
+    if att.status in WORKED:
+        normal = Decimal(str(att.normal_hours or 0))
+        ot = Decimal(str(att.approved_ot_hours or 0))
+
+        if (
+            normal < Decimal("0.00")
+            or ot < Decimal("0.00")
+            or normal > standard
+        ):
+            raise ValidationError({
+                "attendance": (
+                    f"Invalid attendance hours on {att.date}."
+                )
+            })
+
+        normal_wage = (
+            normal * daily_rate / standard
+        ).quantize(
+            CENT,
+            rounding=ROUND_HALF_UP
+        )
+
+        ot_wage = (
+            ot * daily_rate / standard
+        ).quantize(
+            CENT,
+            rounding=ROUND_HALF_UP
+        )
+
+        return normal_wage + ot_wage
+
+    policy_field = POLICY_FIELDS.get(att.status)
+
+    if (
+        policy_field
+        and getattr(config, policy_field, None) == "FULL_DAY"
+    ):
+        return daily_rate
+
+    return Decimal("0.00")
+
+
+def serialize_row(att, config):
+    employee = att.employee
+    wage = calculate_day_wage(att, config)
     return {
-        'id': row.pk,
-        'employee': person.pk,
-        'employee_code': person.employee_id,
-        'employee_name': f'{person.first_name} {person.last_name}'.strip(),
-        'department': person.department or '',
-        'designation': person.designation or '',
-        'date': row.date.isoformat(),
-        'status': row.status,
-        'login_time': row.login_time.isoformat(timespec='minutes') if row.login_time else None,
-        'logout_time': row.logout_time.isoformat(timespec='minutes') if row.logout_time else None,
-        'working_hours': str(row.working_hours or ZERO),
-        'daily_wage': str(row.daily_wage or ZERO),
+        'id': att.pk,
+        'employee': employee.pk,
+        'employee_code': employee.employee_id,
+        'employee_name': f'{employee.first_name} {employee.last_name}'.strip(),
+        'department': employee.department or '',
+        'designation': employee.designation or '',
+        'date': att.date.isoformat(),
+        'status': att.status,
+        'login_time': att.login_time.isoformat(timespec='minutes') if att.login_time else None,
+        'logout_time': att.logout_time.isoformat(timespec='minutes') if att.logout_time else None,
+        'working_hours': str(att.working_hours or ZERO),
+        'daily_wage': str(wage),
+    }
+
+
+def report_rows(filters):
+    attendance = list(report_queryset(filters).order_by('date', 'employee__employee_id', 'pk'))
+    employee_ids = {att.employee_id for att in attendance}
+    configs = {cfg.employee_id: cfg for cfg in WageConfig.objects.filter(employee_id__in=employee_ids)}
+    rows = [serialize_row(att, configs.get(att.employee_id)) for att in attendance]
+    if filters['require_wage']:
+        rows = [row for row in rows if Decimal(row['daily_wage']) > ZERO]
+    return rows
+
+
+def totals(rows):
+    return {
+        'records': len(rows),
+        'employees': len({r['employee'] for r in rows}),
+        'total_working_hours': str(sum((Decimal(r['working_hours']) for r in rows), ZERO)),
+        'total_wage': str(sum((Decimal(r['daily_wage']) for r in rows), ZERO)),
     }
 
 
@@ -8533,12 +8884,10 @@ COLUMNS = [
 
 def safe_excel_text(value):
     value = '' if value is None else str(value)
-    if value.lstrip().startswith(('=', '+', '-', '@', '\t', '\r')):
-        return "'" + value
-    return value
+    return "'" + value if value.lstrip().startswith(('=', '+', '-', '@', '\t', '\r')) else value
 
 
-def export_report(qs, filters, file_format):
+def export_report(rows, filters, file_format):
     filename = f"NXT_GENZ_Custom_Salary_{filters['date_from']}_{filters['date_to']}"
     if file_format == 'csv':
         response = HttpResponse(content_type='text/csv; charset=utf-8')
@@ -8546,29 +8895,19 @@ def export_report(qs, filters, file_format):
         response.write('\ufeff')
         writer = csv.writer(response)
         writer.writerow([title for _, title in COLUMNS])
-        for item in qs.iterator(chunk_size=1000):
-            data = serialize_row(item)
-            writer.writerow([safe_excel_text(data[key]) for key, _ in COLUMNS])
+        for row in sorted(rows, key=lambda r: (r['date'], r['employee_code'], r['id'])):
+            writer.writerow([safe_excel_text(row[key]) for key, _ in COLUMNS])
         return response
 
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill
-        from openpyxl.utils import get_column_letter
+        from openpyxl.styles import Alignment, Font, PatternFill
     except ImportError as exc:
         raise ValidationError({'detail': 'XLSX export needs openpyxl: pip install openpyxl'}) from exc
 
-    # Export one workbook with an overview and one named worksheet per employee.
-    # Excel limits: 31 characters per sheet name and 1,048,576 rows per sheet.
-    from collections import defaultdict
-    from openpyxl.styles import Alignment
-    from openpyxl.utils import get_column_letter
-    from openpyxl.workbook.child import INVALID_TITLE_REGEX
-
     employee_data = defaultdict(list)
-    for item in qs.order_by('employee__employee_id', 'date', 'pk').iterator(chunk_size=1000):
-        record = serialize_row(item)
-        employee_data[(item.employee_id, record['employee_code'], record['employee_name'])].append(record)
+    for row in sorted(rows, key=lambda r: (r['employee_code'], r['date'], r['id'])):
+        employee_data[(row['employee'], row['employee_code'], row['employee_name'])].append(row)
 
     wb = Workbook()
     overview = wb.active
@@ -8579,22 +8918,6 @@ def export_report(qs, filters, file_format):
     overview.append([])
     overview.append(['Employee ID', 'Employee Name', 'Department', 'Worked Days', 'Working Hours', 'Total Wages (INR)', 'Worksheet'])
     used_names = {'salary summary'}
-    total_days = 0
-    total_hours = Decimal('0')
-    total_wages = Decimal('0')
-
-    def worksheet_name(name, code):
-        import re
-        base = re.sub(r'[\\/*?:\[\]]', '', (name or code or 'Employee')).strip().strip("'") or 'Employee'
-        base = base[:31]
-        candidate = base
-        number = 2
-        while candidate.casefold() in used_names:
-            suffix = f' ({number})'
-            candidate = base[:31 - len(suffix)] + suffix
-            number += 1
-        used_names.add(candidate.casefold())
-        return candidate
 
     def header_style(ws, row_num):
         for cell in ws[row_num]:
@@ -8602,57 +8925,63 @@ def export_report(qs, filters, file_format):
             cell.fill = PatternFill('solid', fgColor='163B66')
             cell.alignment = Alignment(wrap_text=True)
 
-    for (employee_pk, code, name), rows in employee_data.items():
-        if len(rows) > 1048500:
-            raise ValidationError({'detail': f'Too many records for employee {code}. Narrow the date range.'})
-        title = worksheet_name(name, code)
-        ws = wb.create_sheet(title)
-        worked_days = len(rows)
-        hours = sum((Decimal(str(r['working_hours'] or 0)) for r in rows), Decimal('0'))
-        wages = sum((Decimal(str(r['daily_wage'] or 0)) for r in rows), Decimal('0'))
-        total_days += worked_days
-        total_hours += hours
-        total_wages += wages
-        overview.append([safe_excel_text(code), safe_excel_text(name), safe_excel_text(rows[0]['department']), worked_days, float(hours), float(wages), title])
-
+    grand_days = 0
+    grand_hours = ZERO
+    grand_wages = ZERO
+    for (_, code, name), person_rows in employee_data.items():
+        if len(person_rows) > 1048500:
+            raise ValidationError({'detail': f'Too many records for employee {code}.'})
+        base = re.sub(r'[\\/*?:\[\]]', '', (name or code or 'Employee')).strip().strip("'") or 'Employee'
+        base = base[:31]
+        sheet_name = base
+        number = 2
+        while sheet_name.casefold() in used_names:
+            suffix = f' ({number})'
+            sheet_name = base[:31-len(suffix)] + suffix
+            number += 1
+        used_names.add(sheet_name.casefold())
+        ws = wb.create_sheet(sheet_name)
+        hours = sum((Decimal(r['working_hours']) for r in person_rows), ZERO)
+        wages = sum((Decimal(r['daily_wage']) for r in person_rows), ZERO)
+        grand_days += len(person_rows)
+        grand_hours += hours
+        grand_wages += wages
+        overview.append([safe_excel_text(code), safe_excel_text(name), safe_excel_text(person_rows[0]['department']), len(person_rows), float(hours), float(wages), sheet_name])
         ws.append(['Employee Salary Details'])
         ws.append(['Employee', safe_excel_text(name), 'Employee ID', safe_excel_text(code)])
         ws.append(['Period', filters['date_from'].isoformat(), 'To', filters['date_to'].isoformat()])
-        ws.append(['Worked Days', worked_days, 'Working Hours', float(hours), 'Total Wages (INR)', float(wages)])
+        ws.append(['Worked Days', len(person_rows), 'Working Hours', float(hours), 'Total Wages (INR)', float(wages)])
         ws.append([])
         ws.append(['MONTHLY TOTALS'])
         ws.append(['Month', 'Worked Days', 'Working Hours', 'Total Wages (INR)'])
         header_style(ws, 7)
         months = defaultdict(list)
-        for r in rows:
-            months[r['date'][:7]].append(r)
+        for row in person_rows:
+            months[row['date'][:7]].append(row)
         for month, entries in sorted(months.items()):
-            ws.append([month, len(entries), float(sum((Decimal(str(r['working_hours'] or 0)) for r in entries), Decimal('0'))), float(sum((Decimal(str(r['daily_wage'] or 0)) for r in entries), Decimal('0')))])
+            ws.append([month, len(entries), float(sum((Decimal(r['working_hours']) for r in entries), ZERO)), float(sum((Decimal(r['daily_wage']) for r in entries), ZERO))])
         ws.append([])
         ws.append(['DAY-WISE ATTENDANCE AND WAGES'])
-        ws.append([heading for _, heading in COLUMNS])
+        ws.append([title for _, title in COLUMNS])
         header_style(ws, ws.max_row)
-        for r in rows:
-            ws.append([float(r[k]) if k in ('working_hours', 'daily_wage') else safe_excel_text(r[k]) for k, _ in COLUMNS])
+        first_data_row = ws.max_row + 1
+        for row in person_rows:
+            ws.append([float(row[key]) if key in ('working_hours', 'daily_wage') else safe_excel_text(row[key]) for key, _ in COLUMNS])
         ws.freeze_panes = 'A8'
-        ws.auto_filter.ref = f'A{ws.max_row - len(rows)}:J{ws.max_row}'
+        ws.auto_filter.ref = f'A{first_data_row-1}:J{ws.max_row}'
         for col, width in {'A':19, 'B':25, 'C':19, 'D':21, 'E':18, 'F':20, 'G':18, 'H':18, 'I':18, 'J':22}.items():
             ws.column_dimensions[col].width = width
-        for row in ws.iter_rows(min_row=1):
-            for cell in row:
+        for cells in ws.iter_rows():
+            for cell in cells:
                 if cell.column in (9, 10) and isinstance(cell.value, (float, int)):
                     cell.number_format = '#,##0.00'
 
     overview.append([])
-    overview.append(['GRAND TOTAL', '', '', total_days, float(total_hours), float(total_wages)])
+    overview.append(['GRAND TOTAL', '', '', grand_days, float(grand_hours), float(grand_wages)])
     header_style(overview, 5)
     overview.freeze_panes = 'A6'
     for col, width in {'A':22, 'B':30, 'C':22, 'D':17, 'E':20, 'F':23, 'G':30}.items():
         overview.column_dimensions[col].width = width
-    for row in overview.iter_rows(min_row=6):
-        for cell in row:
-            if cell.column in (5, 6) and isinstance(cell.value, (float, int)):
-                cell.number_format = '#,##0.00'
     if not employee_data:
         overview.append(['No saved worked-attendance wages matched these filters.'])
     output = BytesIO()
@@ -8667,52 +8996,56 @@ class AdminCustomSalaryReportAPIView(APIView):
 
     def get(self, request):
         filters = report_filters(request)
-        if filters.get('employee_pk') and not filters['employee_pk'].isdigit():
-            raise ValidationError({'employee_pk': 'Invalid employee identifier.'})
-        qs = report_queryset(filters)
+        rows = report_rows(filters)
         file_format = request.query_params.get('export', '').strip().lower()
         if file_format:
             if file_format not in ('csv', 'xlsx'):
                 raise ValidationError({'export': 'Use csv or xlsx.'})
-            return export_report(qs.order_by('date', 'employee__employee_id', 'pk'), filters, file_format)
+            return export_report(rows, filters, file_format)
 
         view = request.query_params.get('view', 'days').strip().lower()
         if view not in ('days', 'employees', 'months'):
             raise ValidationError({'view': 'Use employees, months, or days.'})
-        if view == 'months' and not filters.get('employee_pk'):
+        if view == 'months' and not filters['employee_pk']:
             raise ValidationError({'employee_pk': 'Select an employee before opening monthly details.'})
-        if filters.get('employee_pk') and not filters['employee_pk'].isdigit():
-            raise ValidationError({'employee_pk': 'Invalid employee identifier.'})
+
         if view == 'employees':
-            grouped = qs.values('employee_id', 'employee__employee_id', 'employee__first_name', 'employee__last_name', 'employee__department').annotate(
-                days=Count('pk'), hours=Sum('working_hours'), total_wage=Sum('daily_wage')
-            ).order_by('employee__first_name', 'employee__last_name', 'employee_id')
+            grouped = defaultdict(list)
+            for row in rows:
+                grouped[row['employee']].append(row)
+            result = []
+            for employee_rows in grouped.values():
+                first = employee_rows[0]
+                result.append({
+                    'employee_pk': first['employee'],
+                    'employee_code': first['employee_code'],
+                    'employee_name': first['employee_name'],
+                    'department': first['department'],
+                    'days': len(employee_rows),
+                    'hours': str(sum((Decimal(r['working_hours']) for r in employee_rows), ZERO)),
+                    'total_wage': str(sum((Decimal(r['daily_wage']) for r in employee_rows), ZERO)),
+                })
+            result.sort(key=lambda r: (r['employee_name'].lower(), r['employee_pk']))
             paginator = ReportPagination()
-            page = paginator.paginate_queryset(grouped, request)
-            response = paginator.get_paginated_response([{
-                'employee_pk': r['employee_id'], 'employee_code': r['employee__employee_id'],
-                'employee_name': f"{r['employee__first_name']} {r['employee__last_name']}".strip(),
-                'department': r['employee__department'] or '', 'days': r['days'],
-                'hours': str(r['hours'] or ZERO), 'total_wage': str(r['total_wage'] or ZERO),
-            } for r in page])
+            page = paginator.paginate_queryset(result, request)
+            response = paginator.get_paginated_response(page)
         elif view == 'months':
-            grouped = qs.annotate(month=TruncMonth('date')).values('month').annotate(
-                days=Count('pk'), hours=Sum('working_hours'), total_wage=Sum('daily_wage')
-            ).order_by('month')
-            response = Response({'results': [{
-                'month': r['month'].strftime('%Y-%m'), 'days': r['days'],
-                'hours': str(r['hours'] or ZERO), 'total_wage': str(r['total_wage'] or ZERO),
-            } for r in grouped], 'count': grouped.count()})
+            grouped = defaultdict(list)
+            for row in rows:
+                grouped[row['date'][:7]].append(row)
+            result = [{
+                'month': month, 'days': len(entries),
+                'hours': str(sum((Decimal(r['working_hours']) for r in entries), ZERO)),
+                'total_wage': str(sum((Decimal(r['daily_wage']) for r in entries), ZERO)),
+            } for month, entries in sorted(grouped.items())]
+            response = Response({'results': result, 'count': len(result)})
         else:
+            result = sorted(rows, key=lambda r: (r['date'], r['employee_code'], r['id']), reverse=True)
             paginator = ReportPagination()
-            page = paginator.paginate_queryset(qs.order_by('-date', 'employee__employee_id', 'pk'), request)
-            response = paginator.get_paginated_response([serialize_row(row) for row in page])
-        totals = qs.aggregate(
-            record_count=Count('pk'),
-            total_working_hours=Sum('working_hours'),
-            total_wage=Sum('daily_wage'),
-        )
-        employees_count = qs.values('employee_id').distinct().count()
+            page = paginator.paginate_queryset(result, request)
+            response = paginator.get_paginated_response(page)
+
+        summary = totals(rows)
         response.data['filters'] = {
             'period': filters['period'],
             'date_from': filters['date_from'].isoformat(),
@@ -8720,12 +9053,7 @@ class AdminCustomSalaryReportAPIView(APIView):
             'require_attendance': filters['require_attendance'],
             'require_wage': filters['require_wage'],
         }
-        response.data['summary'] = {
-            'records': totals['record_count'] or 0,
-            'employees': employees_count,
-            'total_working_hours': str(totals['total_working_hours'] or ZERO),
-            'total_wage': str(totals['total_wage'] or ZERO),
-        }
+        response.data['summary'] = summary
         return response
 
 
@@ -8745,10 +9073,19 @@ from rest_framework.views import APIView
 from .models import Advance, AdvanceRepayment
 
 
+from decimal import Decimal, ROUND_HALF_UP
 
+ZERO = Decimal("0.00")
+CENT = Decimal("0.01")
 
 def money(value):
-    return str(value if value is not None else Decimal("0.00"))
+    if value is None or value == "":
+        value = 0
+
+    return Decimal(str(value)).quantize(
+        CENT,
+        rounding=ROUND_HALF_UP
+    )
 
 
 def employee_name(employee):

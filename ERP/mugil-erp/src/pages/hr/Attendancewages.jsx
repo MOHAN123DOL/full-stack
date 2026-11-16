@@ -121,6 +121,9 @@ const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
    recalculates everything from the checked slots on save.
    ========================================================================== */
 
+const SHIFT_START = 9 * 60;
+const LUNCH_START = 13 * 60;
+const LUNCH_END = 14 * 60;
 const LUNCH_HOUR = 13;
 
 export function shiftFor(dateISO) {
@@ -128,18 +131,14 @@ export function shiftFor(dateISO) {
   return isSunday
     ? {
         isSunday: true,
-        start: 6 * 60,
-        startHHMM: "06:00",
-        end: 12 * 60,
-        endHHMM: "12:00",
+        end: 16 * 60,
+        endHHMM: "16:00",
         maxNormal: 6,
         title: "Sunday shift",
-        window: "6:00 AM – 12:00 PM",
+        window: "9:00 AM – 4:00 PM",
       }
     : {
         isSunday: false,
-        start: 9 * 60,
-        startHHMM: "09:00",
         end: 18 * 60,
         endHHMM: "18:00",
         maxNormal: 8,
@@ -189,13 +188,11 @@ export function buildSlots(login, logout, dateISO) {
   for (let h = Math.floor(li / 60); h <= Math.floor((lo - 1) / 60); h++) {
     const s0 = Math.max(h * 60, li);
     const s1 = Math.min(h * 60 + 60, lo);
-    const isLunch = !shift.isSunday && h === LUNCH_HOUR;
-    // Lunch is optional: HR can explicitly mark it as worked.
-    const paidMin = s1 - s0;
-    const normalMin = overlap(s0, s1, shift.start, shift.end);
+    const isLunch = h === LUNCH_HOUR;
+    const paidMin = isLunch ? 0 : s1 - s0;
+    const normalMin = isLunch ? 0 : overlap(s0, s1, SHIFT_START, shift.end);
     slots.push({
       hour: h,
-      dateISO,
       label: slotLabel(h),
       isLunch,
       partial: s1 - s0 < 60,
@@ -213,21 +210,14 @@ export function calcHours(slots, isChecked) {
   let otMin = 0;
   let slotCount = 0;
   slots.forEach((s) => {
-    if (!isChecked(s.hour)) return;
+    if (s.isLunch || !isChecked(s.hour)) return;
     slotCount += 1;
     normalMin += s.normalMin;
     otMin += s.otMin;
   });
-  // Work during lunch is counted, but cannot push normal time beyond the
-  // scheduled 8-hour (Mon–Sat) / 6-hour (Sunday) normal shift limit.
-  // Any excess checked time inside the shift becomes suggested overtime.
-  const normalLimitMin = slots.length
-    ? shiftFor(slots[0].dateISO).maxNormal * 60
-    : 0;
-  const excessMin = Math.max(0, normalMin - normalLimitMin);
   return {
-    normal: round2((normalMin - excessMin) / 60),
-    suggestedOT: round2((otMin + excessMin) / 60),
+    normal: round2(normalMin / 60),
+    suggestedOT: round2(otMin / 60),
     slotCount,
   };
 }
@@ -425,6 +415,17 @@ function useAttendanceApi() {
     [authHeaders],
   );
 
+  // Change this URL only if your Django urls.py uses a different route.
+  const createOvernightAttendance = useCallback(
+    async (data) => {
+      const res = await api.post("/erp/attendance/", data, {
+        headers: authHeaders(),
+      });
+      return res.data;
+    },
+    [authHeaders],
+  );
+
   const updateAttendance = useCallback(
     async (id, data) => {
       const res = await api.patch(`/erp/attendance/${id}/`, data, {
@@ -478,6 +479,7 @@ function useAttendanceApi() {
     () => ({
       getDailyRoster,
       createAttendance,
+      createOvernightAttendance,
       updateAttendance,
       getHoursSummary,
       getEmployeeHoursDetail,
@@ -485,6 +487,7 @@ function useAttendanceApi() {
     [
       getDailyRoster,
       createAttendance,
+      createOvernightAttendance,
       updateAttendance,
       getHoursSummary,
       getEmployeeHoursDetail,
@@ -639,9 +642,8 @@ function initForm(editRecord, presetDate) {
     const legacy =
       WORKED_STATUSES.includes(editRecord.status) &&
       editRecord.selected_slots == null;
-    const recordShift = shiftFor(editRecord.date);
-    const login = hhmm(editRecord.login_time) || recordShift.startHHMM;
-    const logout = hhmm(editRecord.logout_time) || recordShift.endHHMM;
+    const login = hhmm(editRecord.login_time) || "09:00";
+    const logout = hhmm(editRecord.logout_time) || "18:00";
     const checked = {};
     if (Array.isArray(editRecord.selected_slots)) {
       buildSlots(login, logout, editRecord.date).forEach((s) => {
@@ -665,7 +667,7 @@ function initForm(editRecord, presetDate) {
   return {
     date,
     status: "PRESENT",
-    loginTime: shiftFor(date).startHHMM,
+    loginTime: "09:00",
     logoutTime: shiftFor(date).endHHMM,
     checked: {},
     legacy: false,
@@ -674,31 +676,69 @@ function initForm(editRecord, presetDate) {
   };
 }
 
-/**
- * 12-hour time selector. Stores 24-hour HH:mm internally because Django's
- * TimeField and the existing API expect that format.
- */
-function Time12Picker({ value, onChange, label }) {
-  const [h24, minute] = (value || "09:00").split(":").map(Number);
-  const hour12 = h24 % 12 || 12;
-  const period = h24 >= 12 ? "PM" : "AM";
-  function update(nextHour, nextMinute, nextPeriod) {
-    const converted = (Number(nextHour) % 12) + (nextPeriod === "PM" ? 12 : 0);
-    onChange(`${pad2(converted)}:${pad2(nextMinute)}`);
+/** An overnight session is entered once and split by the server into two calendar days. */
+function buildOvernightPreview(startDate, startTime, endDate, endTime) {
+  if (!startDate || !endDate || !startTime || !endTime) {
+    return [];
   }
+
+  if (endDate !== addDays(startDate, 1)) {
+    return [];
+  }
+
+  const startMin = toMin(startTime);
+  const endMin = toMin(endTime);
+
+  if (startMin === null || endMin === null) {
+    return [];
+  }
+
+  const duration = 1440 - startMin + endMin;
+
+  if (duration <= 0 || duration > 1440) {
+    return [];
+  }
+
+  const firstDaySlots = buildSlots(startTime, "24:00", startDate).map(
+    (slot) => ({
+      ...slot,
+      dateISO: startDate,
+    }),
+  );
+
+  const secondDaySlots = buildSlots("00:00", endTime, endDate).map((slot) => ({
+    ...slot,
+    dateISO: endDate,
+  }));
+
+  return [...firstDaySlots, ...secondDaySlots];
+}
+
+/** Display AM/PM while keeping HH:mm (24-hour) values for the Django API. */
+function Time12Picker({ value, onChange, label }) {
+  const [rawHour = "09", rawMinute = "00"] = String(value || "09:00").split(
+    ":",
+  );
+  const hour24 = Number(rawHour);
+  const minute = Number(rawMinute);
+  const hour12 = hour24 % 12 || 12;
+  const period = hour24 >= 12 ? "PM" : "AM";
+  const change = (hour, min, ampm) => {
+    const converted = (Number(hour) % 12) + (ampm === "PM" ? 12 : 0);
+    onChange(`${pad2(converted)}:${pad2(min)}`);
+  };
   return (
     <div
-      className="aw-time12-picker"
       role="group"
       aria-label={label}
       style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}
     >
       <select
         className="aw-select"
-        style={{ flex: "1 1 0", minWidth: 0 }}
+        style={{ flex: 1, minWidth: 0 }}
         aria-label={`${label} hour`}
         value={hour12}
-        onChange={(e) => update(e.target.value, minute, period)}
+        onChange={(e) => change(e.target.value, minute, period)}
       >
         {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
           <option key={h} value={h}>
@@ -706,13 +746,13 @@ function Time12Picker({ value, onChange, label }) {
           </option>
         ))}
       </select>
-      <span aria-hidden="true">:</span>
+      <span>:</span>
       <select
         className="aw-select"
-        style={{ flex: "1 1 0", minWidth: 0 }}
+        style={{ flex: 1, minWidth: 0 }}
         aria-label={`${label} minute`}
         value={minute}
-        onChange={(e) => update(hour12, e.target.value, period)}
+        onChange={(e) => change(hour12, e.target.value, period)}
       >
         {Array.from({ length: 60 }, (_, i) => i).map((m) => (
           <option key={m} value={m}>
@@ -722,15 +762,429 @@ function Time12Picker({ value, onChange, label }) {
       </select>
       <select
         className="aw-select"
-        style={{ flex: "1 1 0", minWidth: 0 }}
-        aria-label={`${label} AM or PM`}
+        style={{ flex: 1, minWidth: 0 }}
+        aria-label={`${label} AM/PM`}
         value={period}
-        onChange={(e) => update(hour12, minute, e.target.value)}
+        onChange={(e) => change(hour12, minute, e.target.value)}
       >
         <option value="AM">AM</option>
         <option value="PM">PM</option>
       </select>
     </div>
+  );
+}
+
+function OvernightAttendanceModal({ employee, presetDate, onClose, onSaved }) {
+  const { createOvernightAttendance } = useAttendance();
+  const [startDate, setStartDate] = useState(presetDate || todayISO());
+  const [startTime, setStartTime] = useState("18:00");
+  const [endTime, setEndTime] = useState("06:00");
+  const [status, setStatus] = useState("PRESENT");
+  const [checked, setChecked] = useState({});
+  const [otByDate, setOtByDate] = useState({});
+  const [remarks, setRemarks] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const endDate = startDate ? addDays(startDate, 1) : "";
+  const slots = useMemo(
+    () => buildOvernightPreview(startDate, startTime, endDate, endTime),
+    [startDate, startTime, endDate, endTime],
+  );
+  const keyFor = (slot) => `${slot.dateISO}:${slot.hour}`;
+  const isChecked = (slot) =>
+    Object.prototype.hasOwnProperty.call(checked, keyFor(slot))
+      ? checked[keyFor(slot)]
+      : !slot.isLunch;
+  const perDate = useMemo(() => {
+    const output = {};
+    [startDate, endDate].forEach((date) => {
+      const daySlots = slots.filter((slot) => slot.dateISO === date);
+      const shift = shiftFor(date);
+      let normalMin = 0;
+      let otMin = 0;
+      daySlots.forEach((slot) => {
+        if (!isChecked(slot)) return;
+        normalMin += slot.normalMin;
+        otMin += slot.otMin;
+      });
+      const extra = Math.max(0, normalMin - shift.maxNormal * 60);
+      output[date] = {
+        normal: round2((normalMin - extra) / 60),
+        suggestedOT: round2((otMin + extra) / 60),
+      };
+    });
+    return output;
+    // checked is replaced immutably on each toggle
+  }, [slots, checked, startDate, endDate]);
+  const usesTime = WORKED_STATUSES.includes(status);
+  const duration = 1440 - toMin(startTime) + toMin(endTime);
+
+  async function save(event) {
+    event.preventDefault();
+    if (saving) return;
+    setError("");
+    if (!startDate || !endDate) return setError("Select the starting date.");
+    if (usesTime && (!slots.length || duration <= 0 || duration > 1440))
+      return setError("Choose a valid overnight interval of at most 24 hours.");
+    if (usesTime && !slots.some(isChecked))
+      return setError("Select at least one worked slot.");
+    const approved = {};
+    for (const date of [startDate, endDate]) {
+      const suggestion = perDate[date]?.suggestedOT || 0;
+      const value =
+        otByDate[date] === undefined ? suggestion : Number(otByDate[date]);
+      if (!Number.isFinite(value) || value < 0 || value > suggestion + 0.0001)
+        return setError(
+          `Approved OT for ${formatDisplayDate(date)} must be between 0 and ${fmt2(suggestion)}.`,
+        );
+      approved[date] = round2(value);
+    }
+    const selected = {};
+    [startDate, endDate].forEach((date) => {
+      selected[date] = usesTime
+        ? slots
+            .filter((slot) => slot.dateISO === date && isChecked(slot))
+            .map((slot) => slot.hour)
+        : [];
+    });
+    const payload = {
+      attendance_mode: "DATE_TO_DATE",
+      employee: employee.id,
+      status,
+      start_date: startDate,
+      start_time: startTime,
+      end_date: endDate,
+      end_time: endTime,
+      selected_slots_by_date: selected,
+      approved_ot_by_date: approved,
+      remarks,
+    };
+    setSaving(true);
+    try {
+      await createOvernightAttendance(payload);
+      onSaved?.({
+        edited: false,
+        date: startDate,
+        employeeLabel: `${employee.employee_id} – ${employee.employee_name}`,
+      });
+    } catch (err) {
+      setError(
+        extractError(
+          err,
+          "Could not save overnight attendance. Check the attendance API response.",
+        ),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="aw-modal-overlay" onClick={saving ? undefined : onClose}>
+      <div
+        className="aw-modal aw-modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Date to date attendance"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="aw-modal-head">
+          <h3>Date to Date Attendance</h3>
+          <button
+            type="button"
+            className="aw-icon-btn"
+            disabled={saving}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <form className="aw-form" onSubmit={save}>
+          <div className="aw-employee-chip">
+            <div>
+              <span className="aw-field-label">Employee</span>
+              <div className="aw-employee-chip-name">
+                {employee.employee_id} – {employee.employee_name}
+              </div>
+            </div>
+          </div>
+          <div className="aw-alert aw-alert-info">
+            One continuous overnight shift. Hours are split between the two
+            actual calendar dates for summaries and payroll. The end date is
+            automatically the next day.
+          </div>
+          {error && (
+            <div className="aw-alert aw-alert-error" role="alert">
+              {error}
+            </div>
+          )}
+          <div className="aw-form-grid">
+            <label className="aw-field">
+              <span className="aw-field-label">Start Date</span>
+              <input
+                className="aw-input"
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setChecked({});
+                  setOtByDate({});
+                }}
+                required
+              />
+            </label>
+            <label className="aw-field">
+              <span className="aw-field-label">End Date (next day)</span>
+              <input
+                className="aw-input"
+                type="date"
+                value={endDate}
+                readOnly
+              />
+            </label>
+            <label className="aw-field">
+              <span className="aw-field-label">Attendance Status</span>
+              <select
+                className="aw-select"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                {ATTENDANCE_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {statusLabel(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {usesTime && (
+              <>
+                <label className="aw-field">
+                  <span className="aw-field-label">Start Time</span>
+                  <Time12Picker
+                    label="Start Time"
+                    value={startTime}
+                    onChange={(v) => {
+                      setStartTime(v);
+                      setChecked({});
+                      setOtByDate({});
+                    }}
+                  />
+                </label>
+                <label className="aw-field">
+                  <span className="aw-field-label">End Time (next day)</span>
+                  <Time12Picker
+                    label="End Time"
+                    value={endTime}
+                    onChange={(v) => {
+                      setEndTime(v);
+                      setChecked({});
+                      setOtByDate({});
+                    }}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+          {usesTime && (
+            <div className="aw-panel aw-slot-panel">
+              <div className="aw-slot-head">
+                <div>
+                  <h4>Hourly Breakup by Date</h4>
+                  <p className="aw-hint">
+                    Select actual worked hours. Sunday has no lunch;
+                    Monday–Saturday lunch is optional.
+                  </p>
+                </div>
+                <div className="aw-slot-bulk">
+                  <button
+                    className="aw-link-btn"
+                    type="button"
+                    onClick={() =>
+                      setChecked(
+                        Object.fromEntries(
+                          slots.map((slot) => [keyFor(slot), true]),
+                        ),
+                      )
+                    }
+                  >
+                    Tick all
+                  </button>
+                  <button
+                    className="aw-link-btn"
+                    type="button"
+                    onClick={() =>
+                      setChecked(
+                        Object.fromEntries(
+                          slots.map((slot) => [keyFor(slot), false]),
+                        ),
+                      )
+                    }
+                  >
+                    Clear all
+                  </button>
+                </div>
+              </div>
+              <div className="aw-table-wrap">
+                <table className="aw-table aw-slot-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time Slot</th>
+                      <th className="aw-center">Worked</th>
+                      <th className="aw-center">Type</th>
+                      <th className="aw-num">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {slots.map((slot) => (
+                      <tr
+                        key={keyFor(slot)}
+                        className={slot.isLunch ? "aw-slot-lunch" : ""}
+                      >
+                        <td>{formatDisplayDate(slot.dateISO)}</td>
+                        <td>
+                          {slot.label}
+                          {slot.partial && (
+                            <span className="aw-hint"> (partial)</span>
+                          )}
+                        </td>
+                        <td className="aw-center">
+                          <input
+                            className="aw-checkbox"
+                            type="checkbox"
+                            checked={isChecked(slot)}
+                            disabled={saving}
+                            onChange={() =>
+                              setChecked((prev) => ({
+                                ...prev,
+                                [keyFor(slot)]: !isChecked(slot),
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="aw-center">
+                          {slot.isLunch
+                            ? "Lunch"
+                            : slot.otMin > 0
+                              ? "OT"
+                              : "Normal"}
+                        </td>
+                        <td className="aw-num">
+                          {isChecked(slot) ? fmt2(slot.paidMin / 60) : "0.00"}{" "}
+                          hr
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {usesTime && (
+            <div className="aw-panel" style={{ padding: 16 }}>
+              <h4>Daily Hours Preview</h4>
+              <div className="aw-table-wrap">
+                <table className="aw-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Normal</th>
+                      <th>Suggested OT</th>
+                      <th>Approved OT</th>
+                      <th>Total Approved</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[startDate, endDate].map((date) => (
+                      <tr key={date}>
+                        <td>{formatDisplayDate(date)}</td>
+                        <td>{fmt2(perDate[date]?.normal)}</td>
+                        <td>{fmt2(perDate[date]?.suggestedOT)}</td>
+                        <td>
+                          <input
+                            className="aw-input"
+                            type="number"
+                            min="0"
+                            step="0.25"
+                            style={{ maxWidth: 110 }}
+                            value={
+                              otByDate[date] ?? fmt2(perDate[date]?.suggestedOT)
+                            }
+                            onChange={(e) =>
+                              setOtByDate((prev) => ({
+                                ...prev,
+                                [date]: e.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                        <td>
+                          {fmt2(
+                            (perDate[date]?.normal || 0) +
+                              Number(
+                                otByDate[date] ??
+                                  perDate[date]?.suggestedOT ??
+                                  0,
+                              ),
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <label className="aw-field" style={{ marginTop: 14 }}>
+            <span className="aw-field-label">Remarks</span>
+            <input
+              className="aw-input"
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+              placeholder="Optional"
+            />
+          </label>
+          <div className="aw-modal-actions">
+            <button
+              className="aw-btn-outline"
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button className="aw-btn-primary" type="submit" disabled={saving}>
+              {saving ? "Saving…" : "Save Date to Date Attendance"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function AttendanceModeModal(props) {
+  const [mode, setMode] = useState("SINGLE_DATE");
+  if (props.editRecord) return <AttendanceFormModal {...props} />;
+  return (
+    <>
+      {mode === "SINGLE_DATE" ? (
+        <AttendanceFormModal
+          {...props}
+          modeSwitcher={
+            <button
+              type="button"
+              className="aw-btn-outline aw-btn-sm"
+              onClick={() => setMode("DATE_TO_DATE")}
+            >
+              Switch to Date to Date
+            </button>
+          }
+        />
+      ) : (
+        <OvernightAttendanceModal {...props} />
+      )}
+    </>
   );
 }
 
@@ -740,6 +1194,7 @@ function AttendanceFormModal({
   presetDate,
   onClose,
   onSaved,
+  modeSwitcher,
 }) {
   const { createAttendance, updateAttendance } = useAttendance();
 
@@ -760,11 +1215,8 @@ function AttendanceFormModal({
   );
 
   const isChecked = useCallback(
-    (hour) =>
-      hour in form.checked
-        ? form.checked[hour]
-        : !form.legacy && (shift.isSunday || hour !== LUNCH_HOUR),
-    [form.checked, form.legacy, shift.isSunday],
+    (hour) => (hour in form.checked ? form.checked[hour] : !form.legacy),
+    [form.checked, form.legacy],
   );
 
   const calc = useMemo(() => calcHours(slots, isChecked), [slots, isChecked]);
@@ -799,8 +1251,6 @@ function AttendanceFormModal({
       ...prev,
       date: value,
       // New record with untouched times: follow the Sunday / weekday shift end.
-      loginTime:
-        !timesTouched && value ? shiftFor(value).startHHMM : prev.loginTime,
       logoutTime:
         !timesTouched && value ? shiftFor(value).endHHMM : prev.logoutTime,
     }));
@@ -813,10 +1263,7 @@ function AttendanceFormModal({
 
   function toggleSlot(hour) {
     setForm((prev) => {
-      const current =
-        hour in prev.checked
-          ? prev.checked[hour]
-          : !prev.legacy && (shift.isSunday || hour !== LUNCH_HOUR);
+      const current = hour in prev.checked ? prev.checked[hour] : !prev.legacy;
       return { ...prev, checked: { ...prev.checked, [hour]: !current } };
     });
   }
@@ -825,7 +1272,7 @@ function AttendanceFormModal({
     setForm((prev) => {
       const next = { ...prev.checked };
       slots.forEach((s) => {
-        next[s.hour] = value;
+        if (!s.isLunch) next[s.hour] = value;
       });
       return { ...prev, checked: next };
     });
@@ -863,10 +1310,10 @@ function AttendanceFormModal({
         status: form.status,
         login_time: usesTime ? form.loginTime : null,
         logout_time: usesTime ? form.logoutTime : null,
-        // The backend must also accept the lunch hour (13) as a worked slot
-        // and apply the same normal-hours cap / excess-as-OT calculation.
         selected_slots: usesTime
-          ? slots.filter((s) => isChecked(s.hour)).map((s) => s.hour)
+          ? slots
+              .filter((s) => !s.isLunch && isChecked(s.hour))
+              .map((s) => s.hour)
           : [],
         // null => backend keeps approved OT equal to the suggested OT.
         approved_ot_hours: usesTime && otOverridden ? round2(otNumber) : null,
@@ -897,8 +1344,16 @@ function AttendanceFormModal({
     }
   }
 
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape" && !saving) onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, saving]);
+
   return (
-    <div className="aw-modal-overlay">
+    <div className="aw-modal-overlay" onClick={() => !saving && onClose()}>
       <div
         className="aw-modal aw-modal-wide"
         onClick={(e) => e.stopPropagation()}
@@ -907,7 +1362,10 @@ function AttendanceFormModal({
         aria-label={editRecord ? "Edit attendance" : "Add attendance"}
       >
         <div className="aw-modal-head">
-          <h3>{editRecord ? "Edit Attendance" : "Add Attendance"}</h3>
+          <div>
+            <h3>{editRecord ? "Edit Attendance" : "Single Date Attendance"}</h3>
+            {modeSwitcher}
+          </div>
           <button
             className="aw-icon-btn"
             type="button"
@@ -1032,7 +1490,8 @@ function AttendanceFormModal({
                 <div>
                   <h4>Hourly Breakup</h4>
                   <p className="aw-hint">
-                    {shift.title}: {shift.window} · Lunch 1:00 PM – 2:00 PM ·
+                    {shift.title}: {shift.window} ·{" "}
+                    {shift.isSunday ? "No lunch" : "Lunch 1:00 PM – 2:00 PM"} ·
                     Max {shift.maxNormal} normal hours. Only ticked slots are
                     counted.
                   </p>
@@ -1074,7 +1533,7 @@ function AttendanceFormModal({
                     </thead>
                     <tbody>
                       {slots.map((s) => {
-                        const checked = isChecked(s.hour);
+                        const checked = !s.isLunch && isChecked(s.hour);
                         const type = s.isLunch
                           ? "Lunch"
                           : s.otMin > 0
@@ -1099,7 +1558,7 @@ function AttendanceFormModal({
                                 type="checkbox"
                                 className="aw-checkbox"
                                 checked={checked}
-                                disabled={saving}
+                                disabled={s.isLunch}
                                 onChange={() => toggleSlot(s.hour)}
                                 aria-label={`Worked ${s.label}`}
                               />
@@ -1277,9 +1736,7 @@ function AddAttendanceTab({ refreshKey, onAdd, onEdit }) {
         <div className="aw-shift-note">
           <strong>{shift.title}</strong>
           <span>
-            {shift.window} ·{" "}
-            {shift.isSunday ? "No lunch break" : "Lunch 1–2 PM"} · Max{" "}
-            {shift.maxNormal} normal hrs
+            {shift.window} · Lunch 1–2 PM · Max {shift.maxNormal} normal hrs
           </span>
         </div>
       </div>
@@ -2075,7 +2532,7 @@ export default function AttendanceWages() {
         )}
 
         {modal && (
-          <AttendanceFormModal
+          <AttendanceModeModal
             employee={modal.employee}
             editRecord={modal.editRecord}
             presetDate={modal.presetDate}
