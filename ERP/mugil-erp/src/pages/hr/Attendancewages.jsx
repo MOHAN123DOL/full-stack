@@ -121,9 +121,6 @@ const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
    recalculates everything from the checked slots on save.
    ========================================================================== */
 
-const SHIFT_START = 9 * 60;
-const LUNCH_START = 13 * 60;
-const LUNCH_END = 14 * 60;
 const LUNCH_HOUR = 13;
 
 export function shiftFor(dateISO) {
@@ -131,15 +128,19 @@ export function shiftFor(dateISO) {
   return isSunday
     ? {
         isSunday: true,
-        end: 16 * 60,
-        endHHMM: "16:00",
+        start: 6 * 60,
+        end: 12 * 60,
+        startHHMM: "06:00",
+        endHHMM: "12:00",
         maxNormal: 6,
         title: "Sunday shift",
-        window: "9:00 AM – 4:00 PM",
+        window: "6:00 AM – 12:00 PM",
       }
     : {
         isSunday: false,
+        start: 9 * 60,
         end: 18 * 60,
+        startHHMM: "09:00",
         endHHMM: "18:00",
         maxNormal: 8,
         title: "Monday – Saturday shift",
@@ -150,7 +151,7 @@ export function shiftFor(dateISO) {
 function toMin(value) {
   if (!value) return null;
   const [h, m] = String(value).slice(0, 5).split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 24 || m < 0 || m > 59 || (h === 24 && m !== 0)) return null;
   return h * 60 + m;
 }
 
@@ -173,7 +174,7 @@ function slotLabel(hour) {
 export function validateTimes(login, logout) {
   const li = toMin(login);
   const lo = toMin(logout);
-  if (li === null || lo === null) return "";
+  if (li === null || lo === null) return "Enter valid login and logout times.";
   if (lo <= li) return "Logout time must be later than login time.";
   return "";
 }
@@ -188,9 +189,9 @@ export function buildSlots(login, logout, dateISO) {
   for (let h = Math.floor(li / 60); h <= Math.floor((lo - 1) / 60); h++) {
     const s0 = Math.max(h * 60, li);
     const s1 = Math.min(h * 60 + 60, lo);
-    const isLunch = h === LUNCH_HOUR;
-    const paidMin = isLunch ? 0 : s1 - s0;
-    const normalMin = isLunch ? 0 : overlap(s0, s1, SHIFT_START, shift.end);
+    const isLunch = !shift.isSunday && h === LUNCH_HOUR;
+    const paidMin = s1 - s0;
+    const normalMin = overlap(s0, s1, shift.start, shift.end);
     slots.push({
       hour: h,
       label: slotLabel(h),
@@ -205,16 +206,20 @@ export function buildSlots(login, logout, dateISO) {
 }
 
 /** Hours from CHECKED slots only. Unchecked slots add 0. */
-export function calcHours(slots, isChecked) {
+export function calcHours(slots, isChecked, dateISO) {
+  const shift = shiftFor(dateISO);
   let normalMin = 0;
   let otMin = 0;
   let slotCount = 0;
   slots.forEach((s) => {
-    if (s.isLunch || !isChecked(s.hour)) return;
+    if (!isChecked(s.hour)) return;
     slotCount += 1;
     normalMin += s.normalMin;
     otMin += s.otMin;
   });
+  const excessNormalMin = Math.max(0, normalMin - shift.maxNormal * 60);
+  normalMin -= excessNormalMin;
+  otMin += excessNormalMin;
   return {
     normal: round2(normalMin / 60),
     suggestedOT: round2(otMin / 60),
@@ -642,8 +647,8 @@ function initForm(editRecord, presetDate) {
     const legacy =
       WORKED_STATUSES.includes(editRecord.status) &&
       editRecord.selected_slots == null;
-    const login = hhmm(editRecord.login_time) || "09:00";
-    const logout = hhmm(editRecord.logout_time) || "18:00";
+    const login = hhmm(editRecord.login_time) || shiftFor(editRecord.date).startHHMM;
+    const logout = hhmm(editRecord.logout_time) || shiftFor(editRecord.date).endHHMM;
     const checked = {};
     if (Array.isArray(editRecord.selected_slots)) {
       buildSlots(login, logout, editRecord.date).forEach((s) => {
@@ -667,7 +672,7 @@ function initForm(editRecord, presetDate) {
   return {
     date,
     status: "PRESENT",
-    loginTime: "09:00",
+    loginTime: shiftFor(date).startHHMM,
     logoutTime: shiftFor(date).endHHMM,
     checked: {},
     legacy: false,
@@ -799,25 +804,17 @@ function OvernightAttendanceModal({ employee, presetDate, onClose, onSaved }) {
     const output = {};
     [startDate, endDate].forEach((date) => {
       const daySlots = slots.filter((slot) => slot.dateISO === date);
-      const shift = shiftFor(date);
-      let normalMin = 0;
-      let otMin = 0;
-      daySlots.forEach((slot) => {
-        if (!isChecked(slot)) return;
-        normalMin += slot.normalMin;
-        otMin += slot.otMin;
-      });
-      const extra = Math.max(0, normalMin - shift.maxNormal * 60);
-      output[date] = {
-        normal: round2((normalMin - extra) / 60),
-        suggestedOT: round2((otMin + extra) / 60),
-      };
+      const selectedHours = new Set(daySlots.filter(isChecked).map((slot) => slot.hour));
+      const calculated = calcHours(daySlots, (hour) => selectedHours.has(hour), date);
+      output[date] = calculated;
     });
     return output;
     // checked is replaced immutably on each toggle
   }, [slots, checked, startDate, endDate]);
   const usesTime = WORKED_STATUSES.includes(status);
-  const duration = 1440 - toMin(startTime) + toMin(endTime);
+  const startMinutes = toMin(startTime);
+  const endMinutes = toMin(endTime);
+  const duration = startMinutes === null || endMinutes === null ? NaN : 1440 - startMinutes + endMinutes;
 
   async function save(event) {
     event.preventDefault();
@@ -1215,11 +1212,11 @@ function AttendanceFormModal({
   );
 
   const isChecked = useCallback(
-    (hour) => (hour in form.checked ? form.checked[hour] : !form.legacy),
-    [form.checked, form.legacy],
+    (hour) => (hour in form.checked ? form.checked[hour] : !form.legacy && !(hour === LUNCH_HOUR && !shift.isSunday)),
+    [form.checked, form.legacy, shift.isSunday],
   );
 
-  const calc = useMemo(() => calcHours(slots, isChecked), [slots, isChecked]);
+  const calc = useMemo(() => calcHours(slots, isChecked, form.date), [slots, isChecked, form.date]);
   const timeError = usesTime
     ? validateTimes(form.loginTime, form.logoutTime)
     : "";
@@ -1250,9 +1247,11 @@ function AttendanceFormModal({
     setForm((prev) => ({
       ...prev,
       date: value,
-      // New record with untouched times: follow the Sunday / weekday shift end.
-      logoutTime:
-        !timesTouched && value ? shiftFor(value).endHHMM : prev.logoutTime,
+      // Untouched times follow the date-specific Sunday / weekday shift.
+      loginTime: !timesTouched && value ? shiftFor(value).startHHMM : prev.loginTime,
+      logoutTime: !timesTouched && value ? shiftFor(value).endHHMM : prev.logoutTime,
+      checked: {},
+      otOverride: null,
     }));
   }
 
@@ -1263,7 +1262,7 @@ function AttendanceFormModal({
 
   function toggleSlot(hour) {
     setForm((prev) => {
-      const current = hour in prev.checked ? prev.checked[hour] : !prev.legacy;
+      const current = hour in prev.checked ? prev.checked[hour] : !prev.legacy && !(hour === LUNCH_HOUR && !shift.isSunday);
       return { ...prev, checked: { ...prev.checked, [hour]: !current } };
     });
   }
@@ -1272,7 +1271,7 @@ function AttendanceFormModal({
     setForm((prev) => {
       const next = { ...prev.checked };
       slots.forEach((s) => {
-        if (!s.isLunch) next[s.hour] = value;
+        next[s.hour] = value;
       });
       return { ...prev, checked: next };
     });
@@ -1312,7 +1311,7 @@ function AttendanceFormModal({
         logout_time: usesTime ? form.logoutTime : null,
         selected_slots: usesTime
           ? slots
-              .filter((s) => !s.isLunch && isChecked(s.hour))
+              .filter((s) => isChecked(s.hour))
               .map((s) => s.hour)
           : [],
         // null => backend keeps approved OT equal to the suggested OT.
@@ -1491,7 +1490,7 @@ function AttendanceFormModal({
                   <h4>Hourly Breakup</h4>
                   <p className="aw-hint">
                     {shift.title}: {shift.window} ·{" "}
-                    {shift.isSunday ? "No lunch" : "Lunch 1:00 PM – 2:00 PM"} ·
+                    {shift.isSunday ? "No lunch" : "Lunch 1:00 PM – 2:00 PM (selectable)"} ·
                     Max {shift.maxNormal} normal hours. Only ticked slots are
                     counted.
                   </p>
@@ -1533,7 +1532,7 @@ function AttendanceFormModal({
                     </thead>
                     <tbody>
                       {slots.map((s) => {
-                        const checked = !s.isLunch && isChecked(s.hour);
+                        const checked = isChecked(s.hour);
                         const type = s.isLunch
                           ? "Lunch"
                           : s.otMin > 0
@@ -1558,7 +1557,7 @@ function AttendanceFormModal({
                                 type="checkbox"
                                 className="aw-checkbox"
                                 checked={checked}
-                                disabled={s.isLunch}
+                                disabled={saving}
                                 onChange={() => toggleSlot(s.hour)}
                                 aria-label={`Worked ${s.label}`}
                               />
@@ -1571,11 +1570,7 @@ function AttendanceFormModal({
                               </span>
                             </td>
                             <td className="aw-num">
-                              {s.isLunch
-                                ? "0 hr (Lunch)"
-                                : checked
-                                  ? `${fmt2(s.paidMin / 60)} hr`
-                                  : "0 hr"}
+                              {checked ? `${fmt2(s.paidMin / 60)} hr` : "0 hr"}
                             </td>
                           </tr>
                         );
@@ -1736,7 +1731,7 @@ function AddAttendanceTab({ refreshKey, onAdd, onEdit }) {
         <div className="aw-shift-note">
           <strong>{shift.title}</strong>
           <span>
-            {shift.window} · Lunch 1–2 PM · Max {shift.maxNormal} normal hrs
+            {shift.window} · {shift.isSunday ? "No lunch" : "Lunch 1–2 PM (selectable)"} · Max {shift.maxNormal} normal hrs
           </span>
         </div>
       </div>
