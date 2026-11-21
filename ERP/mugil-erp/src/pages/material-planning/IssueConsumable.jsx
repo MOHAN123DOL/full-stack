@@ -1,127 +1,98 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
+  Boxes,
+  ClipboardList,
+  Pencil,
+  RefreshCw,
   Search,
   Send,
-  Boxes,
   X,
-  RefreshCw,
+  Lock,
 } from "lucide-react";
 import Header from "../../components/Header";
-import Loading from "../../components/loading";
-import Error from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import "./IssueConsumable.css";
 
-// ---------------------------------------------------------------------
-// CONSTANTS
-// ---------------------------------------------------------------------
-
-const GENERIC_ERROR = "Something went wrong. Please try again.";
-const STOCK_ENDPOINT = "/erp/consumable-grn/issue-stock/";
-const ISSUE_ENDPOINT = "/erp/consumable-grn/issue/";
-
-// ---------------------------------------------------------------------
-// SAFE STRING — some fields may arrive as objects (JSONField leaks).
-// ---------------------------------------------------------------------
-function toDisplayString(value) {
-  if (value === null || value === undefined) return "";
-
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return String(value);
-  if (typeof value === "boolean") return String(value);
-
-  if (typeof value === "object") {
-    const candidate =
-      value.companyName ||
-      value.company_name ||
-      value.name ||
-      value.label ||
-      value.title ||
-      value.supplier ||
-      value.description;
-
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate;
-    }
-
-    const parts = Object.values(value)
-      .filter((v) => typeof v === "string" && v.trim())
-      .slice(0, 2);
-
-    return parts.join(" — ") || "—";
-  }
-
-  return String(value);
-}
-
-function getApiError(error, fallback = GENERIC_ERROR) {
-  const data = error?.response?.data;
-
-  if (typeof data?.detail === "string") return data.detail;
-  if (typeof data?.message === "string") return data.message;
-
-  if (data && typeof data === "object") {
-    const firstFieldError = Object.values(data)
+const STOCK_URL = "/erp/consumable-grn/issue-stock/";
+const ISSUE_URL = "/erp/consumable-grn/issue/";
+const HISTORY_URL = "/erp/consumable-grn/issues/";
+const asArray = (payload) =>
+  Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.results)
+      ? payload.results
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+const display = (v) =>
+  v == null
+    ? ""
+    : typeof v === "object"
+      ? (v.name ?? v.label ?? v.title ?? "")
+      : String(v);
+const pick = (obj, ...keys) =>
+  keys
+    .map((k) => obj?.[k])
+    .find((v) => v !== undefined && v !== null && v !== "");
+const num = (v) => Number(v) || 0;
+const fmt = (v) =>
+  num(v).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const errText = (e) => {
+  const d = e?.response?.data;
+  if (typeof d === "string") return d;
+  if (typeof d?.detail === "string") return d.detail;
+  if (typeof d?.message === "string") return d.message;
+  const value =
+    d &&
+    Object.values(d)
       .flat()
-      .find((value) => typeof value === "string");
-    if (firstFieldError) return firstFieldError;
-  }
-
-  if (error?.message) return error.message;
-  return fallback;
-}
-
-// ---------------------------------------------------------------------
-// STOCK HELPERS
-// ---------------------------------------------------------------------
-
-function getStockPoNumber(item) {
-  return toDisplayString(item.poNumber || item.sourcePoNumber) || "—";
-}
-
-function getStockDescription(item) {
-  return (
-    toDisplayString(
-      item.description ||
-        item.poDescription ||
-        item.itemDescription,
-    ) || "—"
+      .find((x) => typeof x === "string");
+  return value || e.message || "Request failed";
+};
+const varietyId = (s) =>
+  pick(
+    s,
+    "variety_id",
+    "consumable_variety_id",
+    "consumable_variety",
+    "varietyId",
+    "variety_id_value",
+    "variety",
+  )?.id ??
+  pick(
+    s,
+    "variety_id",
+    "consumable_variety_id",
+    "consumable_variety",
+    "varietyId",
+    "variety",
   );
-}
-
-function getStockReference(item) {
-  return toDisplayString(item.referenceNumber) || "—";
-}
-
-function getStockConsumable(item) {
-  return toDisplayString(item.consumableName) || "—";
-}
-
-function getStockCategory(item) {
-  return toDisplayString(item.category) || "—";
-}
-
-function getStockWarehouse(item) {
-  return toDisplayString(item.warehouse) || "—";
-}
-
-function getStockUnit(item) {
-  return toDisplayString(item.unit) || "—";
-}
-
-function getStockAvailable(item) {
-  const n = Number(item.availableQty);
-  return Number.isFinite(n) ? n : 0;
-}
-
-// ---------------------------------------------------------------------
-// FORM
-// ---------------------------------------------------------------------
-
-const initialIssueForm = {
+const category = (s) => display(pick(s, "category", "category_name"));
+const master = (s) =>
+  display(
+    pick(s, "consumable_name", "consumableName", "consumable", "master_name"),
+  );
+const variety = (s) =>
+  display(
+    pick(s, "variety_name", "variety_code", "varietyName", "variety", "code"),
+  );
+const warehouse = (s) => display(pick(s, "warehouse", "warehouse_name"));
+const unit = (s) => display(pick(s, "unit", "uom"));
+const available = (s) =>
+  num(
+    pick(
+      s,
+      "available_quantity",
+      "available_qty",
+      "availableQty",
+      "current_stock",
+      "balance_quantity",
+    ),
+  );
+const blank = {
   department: "",
   employeeName: "",
   jobCard: "",
@@ -129,673 +100,564 @@ const initialIssueForm = {
   remarks: "",
 };
 
-// =====================================================================
-// COMPONENT
-// =====================================================================
-
 export default function IssueConsumable() {
   const { accessToken } = useAuth();
-
-  // ---------------------------------------------------------------
-  // STATE
-  // ---------------------------------------------------------------
-  const [stock, setStock] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [stocks, setStocks] = useState([]);
+  const [issues, setIssues] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
+  const [error, setError] = useState("");
+  const [historyError, setHistoryError] = useState("");
   const [search, setSearch] = useState("");
-
-  const [selectedStock, setSelectedStock] = useState(null);
-  const [issueForm, setIssueForm] = useState(initialIssueForm);
-  const [issueErrors, setIssueErrors] = useState({});
-  const [isIssuing, setIsIssuing] = useState(false);
-
-  // ---------------------------------------------------------------
-  // AUTH HEADERS
-  // ---------------------------------------------------------------
-  const authHeaders = useCallback(
-    () => ({
-      Authorization: `Bearer ${accessToken}`,
-    }),
+  const [historySearch, setHistorySearch] = useState("");
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState(blank);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const headers = useMemo(
+    () => ({ Authorization: `Bearer ${accessToken}` }),
     [accessToken],
   );
 
-  // ---------------------------------------------------------------
-  // FETCH STOCK
-  // ---------------------------------------------------------------
-  const fetchStock = useCallback(
-    async (isRefresh = false) => {
+  const load = useCallback(
+    async (refresh = false) => {
       if (!accessToken) {
-        setStock([]);
-        setError("Your session has expired. Please login again.");
-        setIsLoading(false);
-        setRefreshing(false);
+        setError("Please log in again.");
+        setLoading(false);
         return;
       }
-
-      try {
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
-          setIsLoading(true);
-        }
-        setError("");
-
-        const response = await api.get(STOCK_ENDPOINT, {
-          headers: authHeaders(),
-        });
-
-        const data = Array.isArray(response.data)
-          ? response.data
-          : Array.isArray(response.data?.data)
-            ? response.data.data
-            : Array.isArray(response.data?.results)
-              ? response.data.results
-              : [];
-
-        setStock(data);
-      } catch (err) {
-        console.error("Failed to load issue stock:", err);
-        setStock([]);
-        setError(getApiError(err, "Failed to load consumable stock."));
-      } finally {
-        setIsLoading(false);
-        setRefreshing(false);
-      }
+      refresh ? setRefreshing(true) : setLoading(true);
+      setError("");
+      setHistoryError("");
+      const [stockResult, issueResult] = await Promise.allSettled([
+        api.get(STOCK_URL, { headers }),
+        api.get(HISTORY_URL, { headers }),
+      ]);
+      if (stockResult.status === "fulfilled")
+        setStocks(asArray(stockResult.value.data));
+      else setError(`Could not load stock: ${errText(stockResult.reason)}`);
+      if (issueResult.status === "fulfilled")
+        setIssues(asArray(issueResult.value.data));
+      else
+        setHistoryError(
+          `Could not load issue history: ${errText(issueResult.reason)}. Add GET ${HISTORY_URL} in Django.`,
+        );
+      setLoading(false);
+      setRefreshing(false);
     },
-    [accessToken, authHeaders],
+    [accessToken, headers],
   );
-
   useEffect(() => {
-    fetchStock(false);
-  }, [fetchStock]);
+    load();
+  }, [load]);
 
-  // ---------------------------------------------------------------
-  // AVAILABLE STOCK (already filtered server-side, but keep defensive)
-  // ---------------------------------------------------------------
-  const availableStock = useMemo(
-    () => stock.filter((item) => getStockAvailable(item) > 0),
-    [stock],
-  );
-
-  // ---------------------------------------------------------------
-  // FILTERING
-  // ---------------------------------------------------------------
-  const filteredStock = availableStock.filter((item) => {
-    const term = search.trim().toLowerCase();
-    if (!term) return true;
-
-    const haystack = [
-      getStockPoNumber(item),
-      getStockDescription(item),
-      getStockReference(item),
-      getStockConsumable(item),
-      getStockCategory(item),
-      getStockWarehouse(item),
+  // Stock API is authoritative for balances. Merge duplicate variety/warehouse rows only.
+  const combined = useMemo(() => {
+    const map = new Map();
+    for (const s of stocks) {
+      const id = varietyId(s);
+      const key =
+        id != null && typeof id !== "object"
+          ? `${id}|${warehouse(s).trim().toLowerCase()}`
+          : `${category(s)}|${master(s)}|${variety(s)}|${warehouse(s)}`.toLowerCase();
+      if (!map.has(key))
+        map.set(key, { ...s, _key: key, _available: 0, _count: 0 });
+      const row = map.get(key);
+      row._available += available(s);
+      row._count++;
+    }
+    return [...map.values()];
+  }, [stocks]);
+  const filtered = combined.filter((s) =>
+    [
+      category(s),
+      master(s),
+      variety(s),
+      warehouse(s),
+      display(pick(s, "description", "size")),
     ]
       .join(" ")
-      .toLowerCase();
-
-    return haystack.includes(term);
-  });
-
-  // ---------------------------------------------------------------
-  // SUMMARY
-  // ---------------------------------------------------------------
-  const totalAvailableItems = availableStock.length;
-
-  // Group total available quantity by unit so "Nos" and "Kg" never mix.
-  // Produces e.g. [{ unit: "Nos", qty: 30 }, { unit: "Kg", qty: 30 }]
-  const totalsByUnit = useMemo(() => {
-    const map = new Map();
-
-    for (const item of availableStock) {
-      const unit = getStockUnit(item) || "—";
-      const qty = getStockAvailable(item);
-      map.set(unit, (map.get(unit) || 0) + qty);
-    }
-
-    return Array.from(map.entries()).map(([unit, qty]) => ({
-      unit,
-      qty,
-    }));
-  }, [availableStock]);
-
-  // ---------------------------------------------------------------
-  // MODAL OPEN / CLOSE
-  // ---------------------------------------------------------------
-  function openIssueModal(stockItem) {
-    setSelectedStock(stockItem);
-    setIssueForm(initialIssueForm);
-    setIssueErrors({});
-  }
-
-  function closeIssueModal() {
-    if (isIssuing) return;
-    setSelectedStock(null);
-    setIssueForm(initialIssueForm);
-    setIssueErrors({});
-  }
-
-  function handleIssueChange(field, value) {
-    setIssueForm((prev) => ({ ...prev, [field]: value }));
-  }
-
-  // ---------------------------------------------------------------
-  // VALIDATION
-  // ---------------------------------------------------------------
-  function validateIssueForm() {
-    const errors = {};
-
-    if (!issueForm.department.trim()) {
-      errors.department = "Department is required.";
-    }
-
-    if (!issueForm.employeeName.trim()) {
-      errors.employeeName = "Employee name is required.";
-    }
-
-    const maxQty = selectedStock ? getStockAvailable(selectedStock) : 0;
-    const qty = Number(issueForm.quantity);
-
-    if (!issueForm.quantity) {
-      errors.quantity = "Quantity is required.";
-    } else if (!(qty > 0)) {
-      errors.quantity = "Quantity must be greater than 0.";
-    } else if (qty > maxQty) {
-      errors.quantity = `Quantity cannot exceed available stock (${maxQty}).`;
-    }
-
-    return errors;
-  }
-
-  // ---------------------------------------------------------------
-  // SUBMIT
-  // ---------------------------------------------------------------
-  async function handleIssueSubmit(e) {
-    e.preventDefault();
-    if (!selectedStock || isIssuing) return;
-
-    const errors = validateIssueForm();
-    setIssueErrors(errors);
-
-    if (Object.keys(errors).length > 0) return;
-
-    setIsIssuing(true);
-
-    try {
-      await api.post(
-        `${ISSUE_ENDPOINT}${selectedStock.id}/`,
-        {
-          department: issueForm.department.trim(),
-          employeeName: issueForm.employeeName.trim(),
-          jobCard: issueForm.jobCard.trim(),
-          quantity: Number(issueForm.quantity),
-          remarks: issueForm.remarks,
-        },
-        { headers: authHeaders() },
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
+  const filteredIssues = issues.filter((i) =>
+    [
+      pick(i, "issue_number", "id"),
+      master(i),
+      variety(i),
+      pick(i, "department"),
+      pick(i, "employee_name", "employeeName"),
+      warehouse(i),
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(historySearch.toLowerCase()),
+  );
+  const byUnit = useMemo(() => {
+    const totals = new Map();
+    for (const s of combined)
+      totals.set(
+        unit(s) || "Units",
+        (totals.get(unit(s) || "Units") || 0) + s._available,
       );
+    return [...totals.entries()];
+  }, [combined]);
 
-      closeIssueModal();
-
-      // Refresh the stock list so the issued qty disappears
-      await fetchStock(true);
-    } catch (err) {
-      console.error("Issue failed:", err);
-      setIssueErrors({
-        submit: getApiError(err, "Failed to issue consumable."),
-      });
-    } finally {
-      setIsIssuing(false);
+  function openCreate(s) {
+    setModal({ type: "create", item: s });
+    setForm(blank);
+    setFormError("");
+  }
+  function openEdit(i) {
+    if (
+      i.can_edit === false ||
+      num(pick(i, "returned_quantity", "returned_qty", "returnedQty")) > 0 ||
+      i.has_returns === true
+    )
+      return;
+    setModal({ type: "edit", item: i });
+    setForm({
+      department: display(i.department),
+      employeeName: display(pick(i, "employee_name", "employeeName")),
+      jobCard: display(pick(i, "job_card", "jobCard")),
+      quantity: String(pick(i, "quantity", "issued_quantity") ?? ""),
+      remarks: display(i.remarks),
+    });
+    setFormError("");
+  }
+  function close() {
+    if (!saving) {
+      setModal(null);
+      setFormError("");
     }
   }
-
-  // ===============================================================
-  // RENDER
-  // ===============================================================
+  async function submit(e) {
+    e.preventDefault();
+    if (!modal || saving) return;
+    const q = Number(form.quantity);
+    if (!form.department.trim() || !form.employeeName.trim()) {
+      setFormError("Department and employee name are required.");
+      return;
+    }
+    if (!Number.isFinite(q) || q <= 0) {
+      setFormError("Enter a quantity greater than zero.");
+      return;
+    }
+    if (modal.type === "create" && q > modal.item._available) {
+      setFormError(`Only ${fmt(modal.item._available)} available.`);
+      return;
+    }
+    setSaving(true);
+    setFormError("");
+    try {
+      const payload = {
+        department: form.department.trim(),
+        employeeName: form.employeeName.trim(),
+        jobCard: form.jobCard.trim(),
+        quantity: q,
+        remarks: form.remarks.trim(),
+      };
+      if (modal.type === "create") {
+        const s = modal.item;
+        const id = varietyId(s);
+        if (!id || typeof id === "object")
+          throw new Error(
+            "Stock response must include variety_id / consumable_variety_id for combined-stock issuing.",
+          );
+        // New direct issue API; no GRN ID in URL.
+        await api.post(
+          ISSUE_URL,
+          { ...payload, consumable_variety: id, warehouse: warehouse(s) },
+          { headers },
+        );
+      } else {
+        await api.patch(`${HISTORY_URL}${modal.item.id}/`, payload, {
+          headers,
+        });
+      }
+      setModal(null);
+      await load(true);
+    } catch (e2) {
+      setFormError(errText(e2));
+    } finally {
+      setSaving(false);
+    }
+  }
   return (
     <>
       <Header />
-
-      <div className="issue-consumable-page">
+      <main className="issue-consumable-page">
         <div className="issue-consumable-container">
-          <Link to="/inventory/consumable" className="erp-back-button">
-            <ArrowLeft size={16} />
-            Back
+          <Link
+            to="/inventory/consumable"
+            className="issue-consumable-back-link"
+          >
+            <ArrowLeft size={17} /> Back to Consumables
           </Link>
-
           <section className="issue-consumable-hero">
-            <div className="issue-consumable-hero-content">
-              <span className="issue-consumable-eyebrow">
-                Consumables
-              </span>
-
-              <h1 className="issue-consumable-title">
-                Issue Consumables
-              </h1>
-
-              <p className="issue-consumable-description">
-                Issue available consumable stock to a department, employee,
-                or job card / production order.
-              </p>
-            </div>
+            <span className="issue-consumable-eyebrow">
+              INVENTORY / TRANSACTIONS
+            </span>
+            <h1 className="issue-consumable-title">Issue Consumables</h1>
+            <p className="issue-consumable-description">
+              Issue from combined stock and edit individual issue records before
+              any return is made.
+            </p>
           </section>
-
           <section className="issue-consumable-summary-grid">
             <div className="issue-consumable-summary-card">
-              <div className="issue-consumable-summary-icon">
-                <Boxes size={20} />
-              </div>
-
-              <div className="issue-consumable-summary-content">
-                <span className="issue-consumable-summary-value">
-                  {totalAvailableItems}
-                </span>
-                <span className="issue-consumable-summary-label">
-                  Consumables Available
-                </span>
+              <Boxes size={26} />
+              <div>
+                <div className="issue-consumable-summary-value">
+                  {combined.filter((s) => s._available > 0).length}
+                </div>
+                <div className="issue-consumable-summary-label">
+                  Available varieties / warehouses
+                </div>
               </div>
             </div>
-
             <div className="issue-consumable-summary-card">
-              <div className="issue-consumable-summary-icon">
-                <Send size={20} />
-              </div>
-
-              <div className="issue-consumable-summary-content">
-                <span className="issue-consumable-summary-label">
-                  Total Available Quantity
-                </span>
-
-                <div className="issue-consumable-summary-units">
-                  {totalsByUnit.length === 0 && (
-                    <div className="issue-consumable-summary-unit-row">
-                      <span className="issue-consumable-summary-value">
-                        0
-                      </span>
-                    </div>
-                  )}
-
-                  {totalsByUnit.map(({ unit, qty }) => (
-                    <div
-                      key={unit}
-                      className="issue-consumable-summary-unit-row"
-                    >
-                      <span className="issue-consumable-summary-value">
-                        {qty}
-                      </span>
-                      <span className="issue-consumable-summary-unit">
-                        {unit}
-                      </span>
-                    </div>
-                  ))}
+              <Send size={26} />
+              <div>
+                <div className="issue-consumable-summary-value">
+                  {issues.length}
+                </div>
+                <div className="issue-consumable-summary-label">
+                  Recorded issues
                 </div>
               </div>
             </div>
           </section>
-
-          <section className="issue-consumable-toolbar">
-            <div className="issue-consumable-search-box">
-              <Search size={16} />
-
-              <input
-                type="text"
-                placeholder="Search PO, description, consumable, reference, category, warehouse..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                disabled={isLoading}
-              />
+          <section className="issue-consumable-section">
+            <div className="issue-consumable-section-heading">
+              <div>
+                <h2>Available Stock</h2>
+                <p>Combined by variety and warehouse</p>
+              </div>
+              <div className="issue-consumable-actions">
+                <label className="issue-consumable-search-box">
+                  <Search size={17} />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search stock..."
+                  />
+                </label>
+                <button
+                  className="issue-consumable-refresh-button"
+                  onClick={() => load(true)}
+                  disabled={refreshing}
+                >
+                  <RefreshCw size={16} />
+                  {refreshing ? "Refreshing" : "Refresh"}
+                </button>
+              </div>
             </div>
-
-            <button
-              type="button"
-              className="issue-consumable-refresh-button"
-              onClick={() => fetchStock(true)}
-              disabled={isLoading || refreshing}
-              title="Refresh stock"
-            >
-              <RefreshCw
-                size={16}
-                className={refreshing ? "issue-consumable-spin" : ""}
-              />
-              <span>{refreshing ? "Refreshing..." : "Refresh"}</span>
-            </button>
-          </section>
-
-          {/* ============== ERROR ============== */}
-
-          {error && !isLoading && (
-            <section className="issue-consumable-error-box">
-              <Error onRetry={() => fetchStock(false)} />
-            </section>
-          )}
-
-          {/* ============== TABLE ============== */}
-
-          {!error && (
-            <section className="issue-consumable-table-card">
+            {error && (
+              <div className="issue-consumable-form-error">{error}</div>
+            )}
+            <div className="issue-consumable-table-card">
               <div className="issue-consumable-table-scroll">
                 <table className="issue-consumable-table">
                   <thead>
                     <tr>
-                      <th>PO Number</th>
-                      <th>PO Description</th>
-                      <th>Reference Number</th>
-                      <th>Consumable</th>
                       <th>Category</th>
+                      <th>Consumable</th>
+                      <th>Variety</th>
+                      <th>Size / Description</th>
                       <th>Warehouse</th>
-                      <th>Available Quantity</th>
+                      <th>Available</th>
                       <th>Unit</th>
                       <th>Action</th>
                     </tr>
                   </thead>
-
                   <tbody>
-                    {/* Loading */}
-                    {isLoading && (
+                    {loading ? (
                       <tr>
-                        <td
-                          colSpan={9}
-                          className="issue-consumable-empty-state"
-                        >
-                          <div className="issue-consumable-loading-wrapper">
-                            <Loading />
-                          </div>
-                        </td>
+                        <td colSpan={8}>Loading stock...</td>
                       </tr>
-                    )}
-
-                    {/* Rows */}
-                    {!isLoading &&
-                      filteredStock.map((item) => (
-                        <tr key={item.id}>
+                    ) : filtered.length ? (
+                      filtered.map((s) => (
+                        <tr key={s._key}>
+                          <td>{category(s) || "—"}</td>
+                          <td className="issue-consumable-name">
+                            {master(s) || "—"}
+                          </td>
+                          <td>{variety(s) || "—"}</td>
                           <td>
-                            <span className="issue-consumable-po-number">
-                              {getStockPoNumber(item)}
-                            </span>
+                            {[display(s.size), display(s.description)]
+                              .filter(Boolean)
+                              .join(" / ") || "—"}
                           </td>
-
-                          <td className="issue-consumable-po-description">
-                            {getStockDescription(item)}
+                          <td>{warehouse(s) || "—"}</td>
+                          <td className="issue-consumable-stock-value">
+                            {fmt(s._available)}
                           </td>
-
-                          <td>{getStockReference(item)}</td>
-
-                          <td>
-                            <div className="issue-consumable-name-cell">
-                              <span className="issue-consumable-name">
-                                {getStockConsumable(item)}
-                              </span>
-                            </div>
-                          </td>
-
-                          <td>
-                            <span className="issue-consumable-category-badge">
-                              {getStockCategory(item)}
-                            </span>
-                          </td>
-
-                          <td>{getStockWarehouse(item)}</td>
-
-                          <td>
-                            <span className="issue-consumable-stock-value">
-                              {getStockAvailable(item)}
-                            </span>
-                          </td>
-
-                          <td>{getStockUnit(item)}</td>
-
+                          <td>{unit(s) || "—"}</td>
                           <td>
                             <button
-                              type="button"
                               className="issue-consumable-issue-button"
-                              onClick={() => openIssueModal(item)}
+                              disabled={s._available <= 0}
+                              onClick={() => openCreate(s)}
                             >
                               Issue
                             </button>
                           </td>
                         </tr>
-                      ))}
-
-                    {/* Empty state */}
-                    {!isLoading && filteredStock.length === 0 && (
+                      ))
+                    ) : (
                       <tr>
                         <td
-                          colSpan={9}
+                          colSpan={8}
                           className="issue-consumable-empty-state"
                         >
-                          No available consumable stock to issue.
+                          No stock matches your search.
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-            </section>
-          )}
-
-          {/* ============== MODAL ============== */}
-
-          {selectedStock && (
-            <div
-              className="issue-consumable-modal-overlay"
-              onClick={closeIssueModal}
-            >
+            </div>
+            <div className="issue-consumable-unit-totals">
+              {byUnit.map(([u, q]) => (
+                <span key={u}>
+                  {fmt(q)} {u} available
+                </span>
+              ))}
+            </div>
+          </section>
+          <section className="issue-consumable-section">
+            <div className="issue-consumable-section-heading">
+              <div>
+                <h2>
+                  <ClipboardList size={22} /> Issue History
+                </h2>
+                <p>Edit each issue until a return is recorded against it.</p>
+              </div>
+              <label className="issue-consumable-search-box">
+                <Search size={17} />
+                <input
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  placeholder="Search issue history..."
+                />
+              </label>
+            </div>
+            {historyError && (
+              <div className="issue-consumable-form-error">{historyError}</div>
+            )}
+            <div className="issue-consumable-table-card">
+              <div className="issue-consumable-table-scroll">
+                <table className="issue-consumable-table">
+                  <thead>
+                    <tr>
+                      <th>Issue</th>
+                      <th>Date</th>
+                      <th>Consumable</th>
+                      <th>Variety</th>
+                      <th>Warehouse</th>
+                      <th>Department</th>
+                      <th>Employee</th>
+                      <th>Issued</th>
+                      <th>Returned</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={10}>Loading history...</td>
+                      </tr>
+                    ) : filteredIssues.length ? (
+                      filteredIssues.map((i) => {
+                        const returned = num(
+                          pick(
+                            i,
+                            "returned_quantity",
+                            "returned_qty",
+                            "returnedQty",
+                          ),
+                        );
+                        const locked =
+                          i.can_edit === false ||
+                          i.has_returns === true ||
+                          returned > 0;
+                        return (
+                          <tr key={i.id}>
+                            <td>
+                              {display(
+                                pick(
+                                  i,
+                                  "issue_number",
+                                  "reference_number",
+                                  "id",
+                                ),
+                              )}
+                            </td>
+                            <td>
+                              {display(
+                                pick(
+                                  i,
+                                  "issued_date",
+                                  "issue_date",
+                                  "date",
+                                  "created_at",
+                                ),
+                              )?.slice(0, 10) || "—"}
+                            </td>
+                            <td>{master(i) || "—"}</td>
+                            <td>{variety(i) || "—"}</td>
+                            <td>{warehouse(i) || "—"}</td>
+                            <td>{display(i.department) || "—"}</td>
+                            <td>
+                              {display(
+                                pick(i, "employee_name", "employeeName"),
+                              ) || "—"}
+                            </td>
+                            <td>
+                              {fmt(pick(i, "quantity", "issued_quantity"))}{" "}
+                              {unit(i)}
+                            </td>
+                            <td>{fmt(returned)}</td>
+                            <td>
+                              {locked ? (
+                                <span className="issue-consumable-locked">
+                                  <Lock size={14} /> Edit Locked
+                                </span>
+                              ) : (
+                                <button
+                                  className="issue-consumable-edit-button"
+                                  onClick={() => openEdit(i)}
+                                >
+                                  <Pencil size={14} /> Edit
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={10}
+                          className="issue-consumable-empty-state"
+                        >
+                          No issue records found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+          {modal && (
+            <div className="issue-consumable-modal-overlay" onMouseDown={close}>
               <div
                 className="issue-consumable-modal"
-                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
               >
                 <div className="issue-consumable-modal-header">
-                  <div>
-                    <h3 className="issue-consumable-modal-title">
-                      Issue Consumable
-                    </h3>
-                  </div>
-
+                  <h3 className="issue-consumable-modal-title">
+                    {modal.type === "edit" ? "Edit Issue" : "Issue Consumable"}
+                  </h3>
                   <button
-                    type="button"
                     className="issue-consumable-modal-close"
-                    onClick={closeIssueModal}
-                    disabled={isIssuing}
+                    onClick={close}
+                    disabled={saving}
                   >
-                    <X size={18} />
+                    <X size={20} />
                   </button>
                 </div>
-
                 <div className="issue-consumable-modal-body">
                   <div className="issue-consumable-info-panel">
                     <div className="issue-consumable-info-item">
                       <span className="issue-consumable-info-label">
-                        PO Number
-                      </span>
-                      <span className="issue-consumable-info-value">
-                        {getStockPoNumber(selectedStock)}
-                      </span>
-                    </div>
-
-                    <div className="issue-consumable-info-item issue-consumable-info-item-wide">
-                      <span className="issue-consumable-info-label">
-                        PO Description
-                      </span>
-                      <span className="issue-consumable-info-value">
-                        {getStockDescription(selectedStock)}
-                      </span>
-                    </div>
-
-                    <div className="issue-consumable-info-item">
-                      <span className="issue-consumable-info-label">
                         Consumable
                       </span>
-                      <span className="issue-consumable-info-value">
-                        {getStockConsumable(selectedStock)}
-                      </span>
+                      <strong>{master(modal.item) || "—"}</strong>
                     </div>
-
                     <div className="issue-consumable-info-item">
                       <span className="issue-consumable-info-label">
-                        Category
+                        Variety
                       </span>
-                      <span className="issue-consumable-info-value">
-                        {getStockCategory(selectedStock)}
-                      </span>
+                      <strong>{variety(modal.item) || "—"}</strong>
                     </div>
-
                     <div className="issue-consumable-info-item">
                       <span className="issue-consumable-info-label">
                         Warehouse
                       </span>
-                      <span className="issue-consumable-info-value">
-                        {getStockWarehouse(selectedStock)}
-                      </span>
+                      <strong>{warehouse(modal.item) || "—"}</strong>
                     </div>
-
-                    <div className="issue-consumable-info-item">
-                      <span className="issue-consumable-info-label">
-                        Available Quantity
-                      </span>
-                      <span className="issue-consumable-info-value">
-                        {getStockAvailable(selectedStock)}{" "}
-                        {getStockUnit(selectedStock)}
-                      </span>
-                    </div>
-
-                    <div className="issue-consumable-info-item">
-                      <span className="issue-consumable-info-label">
-                        Unit
-                      </span>
-                      <span className="issue-consumable-info-value">
-                        {getStockUnit(selectedStock)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <form
-                    className="issue-consumable-form"
-                    onSubmit={handleIssueSubmit}
-                  >
-                    {issueErrors.submit && (
-                      <div className="issue-consumable-form-error">
-                        {issueErrors.submit}
+                    {modal.type === "create" && (
+                      <div className="issue-consumable-info-item">
+                        <span className="issue-consumable-info-label">
+                          Available
+                        </span>
+                        <strong>
+                          {fmt(modal.item._available)} {unit(modal.item)}
+                        </strong>
                       </div>
                     )}
-
+                  </div>
+                  <form onSubmit={submit} className="issue-consumable-form">
+                    {formError && (
+                      <div className="issue-consumable-form-error">
+                        {formError}
+                      </div>
+                    )}
                     <div className="issue-consumable-form-grid">
-                      <label className="issue-consumable-field">
-                        <span>Department</span>
-                        <input
-                          type="text"
-                          value={issueForm.department}
-                          onChange={(e) =>
-                            handleIssueChange(
-                              "department",
-                              e.target.value,
-                            )
-                          }
-                          disabled={isIssuing}
-                        />
-                        {issueErrors.department && (
-                          <span className="issue-consumable-validation-error">
-                            {issueErrors.department}
-                          </span>
-                        )}
-                      </label>
-
-                      <label className="issue-consumable-field">
-                        <span>Employee Name</span>
-                        <input
-                          type="text"
-                          value={issueForm.employeeName}
-                          onChange={(e) =>
-                            handleIssueChange(
-                              "employeeName",
-                              e.target.value,
-                            )
-                          }
-                          disabled={isIssuing}
-                        />
-                        {issueErrors.employeeName && (
-                          <span className="issue-consumable-validation-error">
-                            {issueErrors.employeeName}
-                          </span>
-                        )}
-                      </label>
-
-                      <label className="issue-consumable-field">
-                        <span>Job Card / Production Order</span>
-                        <input
-                          type="text"
-                          value={issueForm.jobCard}
-                          onChange={(e) =>
-                            handleIssueChange(
-                              "jobCard",
-                              e.target.value,
-                            )
-                          }
-                          disabled={isIssuing}
-                        />
-                      </label>
-
-                      <label className="issue-consumable-field">
-                        <span>Quantity</span>
-                        <input
-                          type="number"
-                          min="1"
-                          max={getStockAvailable(selectedStock)}
-                          value={issueForm.quantity}
-                          onChange={(e) =>
-                            handleIssueChange(
-                              "quantity",
-                              e.target.value,
-                            )
-                          }
-                          disabled={isIssuing}
-                        />
-                        {issueErrors.quantity && (
-                          <span className="issue-consumable-validation-error">
-                            {issueErrors.quantity}
-                          </span>
-                        )}
-                      </label>
-
+                      {[
+                        ["department", "Department *"],
+                        ["employeeName", "Employee Name *"],
+                        ["jobCard", "Job Card / Production Order"],
+                        ["quantity", "Quantity *"],
+                      ].map(([key, label]) => (
+                        <label className="issue-consumable-field" key={key}>
+                          <span>{label}</span>
+                          <input
+                            type={key === "quantity" ? "number" : "text"}
+                            step={key === "quantity" ? "0.001" : undefined}
+                            min={key === "quantity" ? "0.001" : undefined}
+                            value={form[key]}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, [key]: e.target.value }))
+                            }
+                            disabled={saving}
+                          />
+                        </label>
+                      ))}
                       <label className="issue-consumable-field issue-consumable-field-full">
                         <span>Remarks</span>
                         <textarea
-                          value={issueForm.remarks}
+                          value={form.remarks}
                           onChange={(e) =>
-                            handleIssueChange(
-                              "remarks",
-                              e.target.value,
-                            )
+                            setForm((f) => ({ ...f, remarks: e.target.value }))
                           }
-                          disabled={isIssuing}
+                          disabled={saving}
                         />
                       </label>
                     </div>
-
                     <div className="issue-consumable-modal-actions">
                       <button
                         type="button"
                         className="issue-consumable-cancel-button"
-                        onClick={closeIssueModal}
-                        disabled={isIssuing}
+                        onClick={close}
                       >
                         Cancel
                       </button>
-
                       <button
-                        type="submit"
                         className="issue-consumable-save-button"
-                        disabled={isIssuing}
+                        disabled={saving}
                       >
-                        {isIssuing ? (
-                          <>
-                            <span className="issue-consumable-btn-spinner" />
-                            Saving...
-                          </>
-                        ) : (
-                          "Save"
-                        )}
+                        {saving
+                          ? "Saving..."
+                          : modal.type === "edit"
+                            ? "Save Changes"
+                            : "Create Issue"}
                       </button>
                     </div>
                   </form>
@@ -804,7 +666,7 @@ export default function IssueConsumable() {
             </div>
           )}
         </div>
-      </div>
+      </main>
     </>
   );
 }

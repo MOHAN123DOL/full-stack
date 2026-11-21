@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -11,1526 +11,694 @@ import {
   Eye,
   X,
   Download,
-  FileText,
-  FileSpreadsheet,
-  Printer,
 } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import "./ConsumableReports.css";
 
-// ---------------------------------------------------------------------
-// CONSTANTS
-// ---------------------------------------------------------------------
-
-const GENERIC_ERROR = "Something went wrong. Please try again.";
-
-const STOCK_ENDPOINT = "/erp/consumable-grn/stock/";
-const ISSUES_ENDPOINT = "/erp/consumable-grn/returnable-issues/";
-const PO_ITEMS_ENDPOINT = "/erp/consumable-grn/po-items/";
-const MOVEMENT_GROUPS_ENDPOINT = "/erp/consumable-grn/movement-groups/";
-const MOVEMENT_DETAIL_ENDPOINT = "/erp/consumable-grn/movements/detail/";
-
-const REPORT_TABS = [
-  { key: "grn", label: "GRN Report" },
-  { key: "stock", label: "Stock Report" },
-  { key: "issue", label: "Issue Report" },
-  { key: "return", label: "Return Report" },
-  { key: "movement", label: "Movement History" },
-];
-
-// ---------------------------------------------------------------------
-// SAFE STRING
-// ---------------------------------------------------------------------
-
-function toDisplayString(value) {
-  if (value === null || value === undefined) return "";
-
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return String(value);
-  if (typeof value === "boolean") return String(value);
-
-  if (typeof value === "object") {
-    const candidate =
-      value.companyName ||
-      value.company_name ||
-      value.name ||
-      value.label ||
-      value.title ||
-      value.supplier ||
-      value.description;
-
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate;
-    }
-
-    const parts = Object.values(value)
-      .filter((v) => typeof v === "string" && v.trim())
-      .slice(0, 2);
-
-    return parts.join(" — ") || "—";
-  }
-
-  return String(value);
-}
-
-function getApiError(error, fallback = GENERIC_ERROR) {
-  const data = error?.response?.data;
-
-  if (typeof data?.detail === "string") return data.detail;
-  if (typeof data?.message === "string") return data.message;
-
-  if (data && typeof data === "object") {
-    const first = Object.values(data)
-      .flat()
-      .find((v) => typeof v === "string");
-    if (first) return first;
-  }
-
-  if (error?.message) return error.message;
-  return fallback;
-}
-
-function safeArray(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.data)) return payload.data;
-  if (Array.isArray(payload?.results)) return payload.results;
-  return [];
-}
-
-// ---------------------------------------------------------------------
-// IST CONVERSION
-// ---------------------------------------------------------------------
-// The Django backend returns `created_at` in UTC. We shift it to IST
-// (UTC + 5:30) here so the user always sees India Standard Time.
-// ---------------------------------------------------------------------
-
-function toIST(dateStr, timeStr) {
-  if (!dateStr) return { date: "", time: "" };
-
-  const iso = `${dateStr}T${timeStr || "00:00:00"}Z`;
-  const utc = new Date(iso);
-
-  if (isNaN(utc.getTime())) {
-    return { date: dateStr, time: timeStr || "" };
-  }
-
-  const ist = new Date(utc.getTime() + 5.5 * 60 * 60 * 1000);
-
-  const pad = (n) => String(n).padStart(2, "0");
-
-  return {
-    date: `${ist.getUTCFullYear()}-${pad(ist.getUTCMonth() + 1)}-${pad(
-      ist.getUTCDate(),
-    )}`,
-    time: `${pad(ist.getUTCHours())}:${pad(ist.getUTCMinutes())}:${pad(
-      ist.getUTCSeconds(),
-    )}`,
-  };
-}
-
-function toISTDateTime(datetimeStr) {
-  if (!datetimeStr || datetimeStr === "—") return "—";
-
-  const [datePart, timePart] = datetimeStr.split(" ");
-  const ist = toIST(datePart, timePart ? `${timePart}:00` : "00:00:00");
-
-  return `${ist.date} ${ist.time.slice(0, 5)}`;
-}
-
-// =====================================================================
-// EXPORT HELPERS
-// =====================================================================
-
-const fmt = (value) => {
-  if (value === null || value === undefined || value === "") return "—";
-  return String(value);
+// Direct-GRN workflow. All stock and movement grouping uses variety ID + warehouse.
+const ENDPOINTS = {
+  grn: "/erp/consumable-grn/direct/",
+  stock: "/erp/consumable-grn/stock/",
+  issue: "/erp/consumable-grn/issues/",
+  return: "/erp/consumable-grn/returns/",
 };
-
-function toCSV(columns, rows) {
-  const escape = (value) => {
-    const text = fmt(value);
-    return /[",\n]/.test(text)
-      ? `"${text.replace(/"/g, '""')}"`
-      : text;
-  };
-
-  const header = columns.map((c) => c.label).join(",");
-
-  const lines = rows.map((row) =>
-    columns
-      .map((c) => escape(c.render ? c.render(row) : row[c.key]))
-      .join(","),
+const TABS = [
+  ["grn", "GRN Report"],
+  ["stock", "Stock Report"],
+  ["issue", "Issue Report"],
+  ["return", "Return Report"],
+  ["movement", "Movement History"],
+];
+const arr = (value) =>
+  Array.isArray(value)
+    ? value
+    : Array.isArray(value?.data)
+      ? value.data
+      : Array.isArray(value?.results)
+        ? value.results
+        : [];
+const pick = (row, ...keys) =>
+  keys
+    .map((k) => row?.[k])
+    .find((v) => v !== undefined && v !== null && v !== "") ?? "";
+const name = (v) =>
+  typeof v === "object" && v !== null
+    ? pick(v, "name", "categoryName", "consumableName", "label", "code")
+    : (v ?? "");
+const num = (v) => Number(v) || 0;
+const formatQty = (v) =>
+  Number(num(v).toFixed(3)).toLocaleString("en-IN", {
+    maximumFractionDigits: 3,
+  });
+const varietyId = (r) =>
+  pick(
+    r,
+    "varietyId",
+    "variety_id",
+    "consumableVarietyId",
+    "consumable_variety_id",
+    "consumable_variety",
+  ) || pick(r?.grn, "consumable_variety_id");
+const varietyName = (r) =>
+  name(
+    pick(r, "varietyName", "variety_name", "variety", "consumableVarietyName"),
+  ) || name(r?.grn?.consumable_variety);
+const warehouse = (r) => name(pick(r, "warehouse", "warehouseName"));
+const consumable = (r) =>
+  name(
+    pick(r, "consumableName", "consumable_name", "masterName", "consumable"),
   );
-
-  return [header, ...lines].join("\n");
-}
-
-function toHTMLTable(columns, rows, title) {
-  const head = columns
-    .map(
-      (c) =>
-        `<th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">${c.label}</th>`,
-    )
-    .join("");
-
-  const body = rows
-    .map(
-      (row) =>
-        `<tr>${columns
-          .map(
-            (c) =>
-              `<td style="border:1px solid #ccc;padding:6px;">${fmt(
-                c.render ? c.render(row) : row[c.key],
-              )}</td>`,
-          )
-          .join("")}</tr>`,
-    )
-    .join("");
-
-  return `
-    <html>
-      <head><meta charset="utf-8"><title>${title}</title></head>
-      <body>
-        <h2 style="font-family:sans-serif;">${title}</h2>
-        <table style="border-collapse:collapse;font-family:sans-serif;font-size:12px;width:100%;">
-          <thead><tr>${head}</tr></thead>
-          <tbody>${body}</tbody>
-        </table>
-      </body>
-    </html>
-  `;
-}
-
-function downloadBlob(content, filename, mime) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
+const category = (r) =>
+  name(pick(r, "categoryName", "category_name", "category"));
+const date = (r) => {
+  const raw = pick(
+    r,
+    "date",
+    "created_at",
+    "createdAt",
+    "receivedDate",
+    "received_date",
+  );
+  if (!raw) return "—";
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime())
+    ? String(raw)
+    : d.toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+};
+const keyFor = (r) =>
+  `${varietyId(r) || `${category(r)}|${consumable(r)}|${varietyName(r)}`}::${warehouse(r)}`;
+const grnQty = (r) =>
+  num(
+    pick(
+      r,
+      "receivedQty",
+      "received_qty",
+      "quantity_received",
+      "quantity",
+      "qty",
+    ),
+  );
+const issueQty = (r) =>
+  num(pick(r, "issuedQty", "quantity", "quantity_issued", "issued_qty"));
+const returnQty = (r) =>
+  num(pick(r, "returnQty", "quantity", "quantity_returned", "returnedQty"));
+const stockQty = (r) =>
+  num(
+    pick(
+      r,
+      "availableQty",
+      "available_qty",
+      "currentStock",
+      "current_stock",
+      "stock",
+    ),
+  );
+const text = (v) =>
+  v === undefined || v === null || v === "" ? "—" : String(name(v));
+const COLUMNS = {
+  grn: [
+    ["grnNumber", "GRN Number"],
+    ["date", "Date"],
+    ["category", "Category"],
+    ["consumable", "Consumable"],
+    ["variety", "Variety"],
+    ["warehouse", "Warehouse"],
+    ["supplier", "Supplier"],
+    ["received", "Received Qty"],
+    ["unit", "Unit"],
+  ],
+  stock: [
+    ["category", "Category"],
+    ["consumable", "Consumable"],
+    ["variety", "Variety"],
+    ["warehouse", "Warehouse"],
+    ["received", "Received"],
+    ["issued", "Issued"],
+    ["returned", "Returned"],
+    ["available", "Available"],
+    ["unit", "Unit"],
+  ],
+  issue: [
+    ["issueNumber", "Issue Number"],
+    ["date", "Date"],
+    ["consumable", "Consumable"],
+    ["variety", "Variety"],
+    ["warehouse", "Warehouse"],
+    ["department", "Department"],
+    ["employee", "Employee"],
+    ["jobCard", "Job Card"],
+    ["issued", "Issued Qty"],
+    ["returned", "Returned Qty"],
+    ["unit", "Unit"],
+  ],
+  return: [
+    ["returnNumber", "Return Number"],
+    ["date", "Date"],
+    ["issueNumber", "Issue Number"],
+    ["consumable", "Consumable"],
+    ["variety", "Variety"],
+    ["warehouse", "Warehouse"],
+    ["returnedBy", "Returned By"],
+    ["returned", "Returned Qty"],
+    ["unit", "Unit"],
+  ],
+  movement: [
+    ["category", "Category"],
+    ["consumable", "Consumable"],
+    ["variety", "Variety"],
+    ["warehouse", "Warehouse"],
+    ["received", "Received"],
+    ["issued", "Issued"],
+    ["returned", "Returned"],
+    ["available", "Available"],
+    ["unit", "Unit"],
+  ],
+};
+const escapeHTML = (value) =>
+  text(value).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+function download(content, filename, mime) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 }
-
-function exportCSV(columns, rows, title) {
-  downloadBlob(
-    toCSV(columns, rows),
-    `${title.replace(/\s+/g, "_")}.csv`,
-    "text/csv",
-  );
+function exportReport(kind, columns, rows, title) {
+  const quote = (v) => `"${text(v).replace(/"/g, '""')}"`;
+  if (kind === "csv") {
+    const csv = [
+      columns.map((c) => quote(c[1])).join(","),
+      ...rows.map((r) => columns.map((c) => quote(r[c[0]])).join(",")),
+    ].join("\r\n");
+    download("\uFEFF" + csv, `${title}.csv`, "text/csv;charset=utf-8");
+    return;
+  }
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHTML(title)}</title></head><body style="font-family:Arial,sans-serif;padding:20px"><h2>${escapeHTML(title)}</h2><table style="border-collapse:collapse;width:100%"><thead><tr>${columns.map((c) => `<th style="border:1px solid #ccc;padding:8px;background:#eee">${escapeHTML(c[1])}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${columns.map((c) => `<td style="border:1px solid #ccc;padding:8px">${escapeHTML(r[c[0]])}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+  if (kind === "excel")
+    download(html, `${title}.xls`, "application/vnd.ms-excel");
+  else {
+    const w = window.open("", "_blank");
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      w.print();
+    }
+  }
 }
-
-function exportExcel(columns, rows, title) {
-  downloadBlob(
-    toHTMLTable(columns, rows, title),
-    `${title.replace(/\s+/g, "_")}.xls`,
-    "application/vnd.ms-excel",
-  );
-}
-
-function exportPDFOrPrint(columns, rows, title) {
-  const html = toHTMLTable(columns, rows, title);
-
-  const win = window.open("", "_blank");
-  if (!win) return;
-
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-
-  setTimeout(() => win.print(), 300);
-}
-
-// =====================================================================
-// COMPONENT
-// =====================================================================
-
 export default function ConsumableReports() {
   const { accessToken } = useAuth();
-
-  const [grnRows, setGrnRows] = useState([]);
-  const [stockRows, setStockRows] = useState([]);
-  const [issueRows, setIssueRows] = useState([]);
-  const [movementGroups, setMovementGroups] = useState([]);
-
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [raw, setRaw] = useState({ grn: [], stock: [], issue: [], return: [] });
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  const [activeTab, setActiveTab] = useState("grn");
-
-  // Filters
-  const [poFilter, setPoFilter] = useState("");
-  const [descriptionFilter, setDescriptionFilter] = useState("");
-
-  // Movement drill-down
-  const [selectedMovementId, setSelectedMovementId] = useState(null);
-  const [movementDetail, setMovementDetail] = useState(null);
-  const [movementDetailLoading, setMovementDetailLoading] = useState(false);
-  const [movementDetailError, setMovementDetailError] = useState("");
-
-  // Download dropdown inside the modal
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
-
-  const authHeaders = useCallback(
-    () => ({
-      Authorization: `Bearer ${accessToken}`,
-    }),
-    [accessToken],
-  );
-
-  // -------------------------------------------------------------------
-  // FETCH EVERYTHING
-  // -------------------------------------------------------------------
+  const [tab, setTab] = useState("grn");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
   const fetchAll = useCallback(
-    async (isRefresh = false) => {
+    async (refresh = false) => {
       if (!accessToken) {
-        setIsLoading(false);
-        setRefreshing(false);
-        setError("Your session has expired. Please login again.");
+        setErrors({ auth: "Please log in again." });
+        setLoading(false);
         return;
       }
-
-      try {
-        if (isRefresh) setRefreshing(true);
-        else setIsLoading(true);
-        setError("");
-
-        const [grnRes, stockRes, issueRes, groupRes] = await Promise.all([
-          api.get(PO_ITEMS_ENDPOINT, { headers: authHeaders() }),
-          api.get(STOCK_ENDPOINT, { headers: authHeaders() }),
-          api.get(ISSUES_ENDPOINT, { headers: authHeaders() }),
-          api.get(MOVEMENT_GROUPS_ENDPOINT, { headers: authHeaders() }),
-        ]);
-
-        setGrnRows(safeArray(grnRes.data));
-        setStockRows(safeArray(stockRes.data));
-        setIssueRows(safeArray(issueRes.data));
-        setMovementGroups(safeArray(groupRes.data));
-      } catch (err) {
-        console.error("Failed to load reports:", err);
-        setGrnRows([]);
-        setStockRows([]);
-        setIssueRows([]);
-        setMovementGroups([]);
-        setError(getApiError(err, "Failed to load reports."));
-      } finally {
-        setIsLoading(false);
-        setRefreshing(false);
-      }
+      refresh ? setRefreshing(true) : setLoading(true);
+      const entries = await Promise.all(
+        Object.entries(ENDPOINTS).map(async ([key, endpoint]) => {
+          try {
+            const response = await api.get(endpoint, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            return [key, arr(response.data), ""];
+          } catch (e) {
+            return [
+              key,
+              [],
+              e.response?.data?.message ||
+                e.response?.data?.detail ||
+                `Could not load ${key} report (HTTP ${e.response?.status || "network error"}).`,
+            ];
+          }
+        }),
+      );
+      setRaw(Object.fromEntries(entries.map(([key, rows]) => [key, rows])));
+      setErrors(
+        Object.fromEntries(
+          entries.filter(([, , err]) => err).map(([key, , err]) => [key, err]),
+        ),
+      );
+      setLoading(false);
+      setRefreshing(false);
     },
-    [accessToken, authHeaders],
+    [accessToken],
   );
-
   useEffect(() => {
-    fetchAll(false);
+    fetchAll();
   }, [fetchAll]);
 
-  // -------------------------------------------------------------------
-  // RETURN ROWS
-  // -------------------------------------------------------------------
-  const returnRows = useMemo(
-    () => issueRows.filter((row) => Number(row.returnedQty) > 0),
-    [issueRows],
-  );
-
-  // -------------------------------------------------------------------
-  // KPI
-  // -------------------------------------------------------------------
-  const totalConsumables = stockRows.length;
-
-  const totalAvailableStock = stockRows.reduce(
-    (sum, item) => sum + (Number(item.availableQty) || 0),
-    0,
-  );
-
-  const totalIssued = issueRows.reduce(
-    (sum, item) => sum + (Number(item.issuedQty) || 0),
-    0,
-  );
-
-  const totalReturned = returnRows.reduce(
-    (sum, item) => sum + (Number(item.returnedQty) || 0),
-    0,
-  );
-
-  // -------------------------------------------------------------------
-  // FILTER
-  // -------------------------------------------------------------------
-  const poTerm = poFilter.trim().toLowerCase();
-  const descTerm = descriptionFilter.trim().toLowerCase();
-
-  const matchRow = useCallback(
-    (obj) => {
-      if (!poTerm && !descTerm) return true;
-
-      const poString = toDisplayString(
-        obj.poNumber || obj.po_number || obj.referenceNumber || "",
-      ).toLowerCase();
-
-      const descString = toDisplayString(
-        obj.poDescription ||
-          obj.description ||
-          obj.consumableName ||
-          "",
-      ).toLowerCase();
-
-      const poOk = !poTerm || poString.includes(poTerm);
-      const descOk = !descTerm || descString.includes(descTerm);
-
-      return poOk && descOk;
-    },
-    [poTerm, descTerm],
-  );
-
-  const filteredGrnRows = useMemo(
-    () => grnRows.filter(matchRow),
-    [grnRows, matchRow],
-  );
-
-  const filteredStockRows = useMemo(
-    () => stockRows.filter(matchRow),
-    [stockRows, matchRow],
-  );
-
-  const filteredIssueRows = useMemo(
-    () => issueRows.filter(matchRow),
-    [issueRows, matchRow],
-  );
-
-  const filteredReturnRows = useMemo(
-    () => returnRows.filter(matchRow),
-    [returnRows, matchRow],
-  );
-
-  const filteredMovementGroups = useMemo(
-    () => movementGroups.filter(matchRow),
-    [movementGroups, matchRow],
-  );
-
-  // -------------------------------------------------------------------
-  // MOVEMENT DETAIL
-  // -------------------------------------------------------------------
-  const openMovementDetail = useCallback(
-    async (row) => {
-      setSelectedMovementId(row.id);
-      setMovementDetail(null);
-      setMovementDetailError("");
-      setMovementDetailLoading(true);
-      setDownloadMenuOpen(false);
-
-      try {
-        const response = await api.get(MOVEMENT_DETAIL_ENDPOINT, {
-          params: {
-            po_number: row.poNumber === "—" ? "" : row.poNumber,
-            description:
-              row.poDescription === "—" ? "" : row.poDescription,
-          },
-          headers: authHeaders(),
-        });
-        setMovementDetail(response.data);
-      } catch (err) {
-        console.error("Failed to load movement detail:", err);
-        setMovementDetailError(
-          getApiError(err, "Failed to load movement detail."),
-        );
-      } finally {
-        setMovementDetailLoading(false);
-      }
-    },
-    [authHeaders],
-  );
-
-  const closeMovementDetail = useCallback(() => {
-    setSelectedMovementId(null);
-    setMovementDetail(null);
-    setMovementDetailError("");
-    setDownloadMenuOpen(false);
-  }, []);
-
-  // -------------------------------------------------------------------
-  // EXPORT — REPORT TABS
-  // -------------------------------------------------------------------
-  const exportConfigs = {
-    grn: {
-      title: "GRN Report",
-      columns: [
-        { key: "poNumber", label: "PO Number" },
-        { key: "itemCode", label: "Item Code" },
-        { key: "supplier", label: "Supplier" },
-        { key: "consumableName", label: "Consumable" },
-        { key: "orderedQty", label: "Ordered Qty" },
-        { key: "receivedQty", label: "Received Qty" },
-        { key: "pendingQty", label: "Pending Qty" },
-        { key: "warehouse", label: "Warehouse" },
-        { key: "status", label: "Status" },
-      ],
-      rows: filteredGrnRows,
-    },
-    stock: {
-      title: "Stock Report",
-      columns: [
-        { key: "referenceNumber", label: "Reference Number" },
-        { key: "consumableName", label: "Consumable" },
-        { key: "category", label: "Category" },
-        { key: "warehouse", label: "Warehouse" },
-        { key: "availableQty", label: "Available Qty" },
-        { key: "unit", label: "Unit" },
-        { key: "supplier", label: "Supplier" },
-        { key: "status", label: "Status" },
-      ],
-      rows: filteredStockRows,
-    },
-    issue: {
-      title: "Issue Report",
-      columns: [
-        { key: "issueNumber", label: "Issue Number" },
-        { key: "consumableName", label: "Consumable" },
-        { key: "department", label: "Department" },
-        { key: "employeeName", label: "Employee" },
-        { key: "jobCard", label: "Job Card" },
-        { key: "issuedQty", label: "Issued Qty" },
-        { key: "returnedQty", label: "Returned Qty" },
-        { key: "balanceQty", label: "Balance Qty" },
-        { key: "warehouse", label: "Warehouse" },
-        { key: "status", label: "Status" },
-      ],
-      rows: filteredIssueRows,
-    },
-    return: {
-      title: "Return Report",
-      columns: [
-        { key: "issueNumber", label: "Issue Number" },
-        { key: "consumableName", label: "Consumable" },
-        { key: "department", label: "Department" },
-        { key: "employeeName", label: "Employee" },
-        { key: "issuedQty", label: "Issued Qty" },
-        { key: "returnedQty", label: "Returned Qty" },
-        { key: "balanceQty", label: "Balance Qty" },
-        { key: "warehouse", label: "Warehouse" },
-        { key: "status", label: "Status" },
-      ],
-      rows: filteredReturnRows,
-    },
-    movement: {
-      title: "Movement History",
-      columns: [
-        { key: "poNumber", label: "PO Number" },
-        { key: "poDescription", label: "PO Description" },
-        { key: "consumableName", label: "Consumable" },
-        { key: "category", label: "Category" },
-        {
-          key: "warehouses",
-          label: "Warehouse(s)",
-          render: (row) =>
-            Array.isArray(row.warehouses)
-              ? row.warehouses.join(", ")
-              : "",
-        },
-        { key: "receivedQty", label: "Received" },
-        { key: "issuedQty", label: "Issued" },
-        { key: "returnedQty", label: "Returned" },
-        { key: "availableQty", label: "Available" },
-        { key: "unit", label: "Unit" },
-      ],
-      rows: filteredMovementGroups,
-    },
-  };
-
-  function handleExport(type) {
-    const report = exportConfigs[activeTab];
-    if (!report) return;
-
-    const { title, columns, rows } = report;
-
-    if (type === "csv") exportCSV(columns, rows, title);
-    else if (type === "excel") exportExcel(columns, rows, title);
-    else exportPDFOrPrint(columns, rows, title);
-  }
-
-  function clearFilters() {
-    setPoFilter("");
-    setDescriptionFilter("");
-  }
-
-  // -------------------------------------------------------------------
-  // EXPORT — TIMELINE MODAL (IST-converted)
-  // -------------------------------------------------------------------
-  function buildTimelineExport() {
-    if (!movementDetail) return null;
-
-    const { summary, timeline } = movementDetail;
-
-    const title = `Movement Timeline — ${summary.poNumber} — ${summary.poDescription}`;
-
-    const summaryRows = [
-      { label: "PO Number", value: summary.poNumber },
-      { label: "PO Description", value: summary.poDescription },
-      { label: "Consumable", value: summary.consumableName },
-      { label: "Category", value: summary.category },
-      { label: "Supplier", value: summary.supplier },
-      {
-        label: "GRN Receipts",
-        value: (summary.grnNumbers || []).join(", "),
-      },
-      {
-        label: "Warehouse(s)",
-        value: (summary.warehouses || []).join(", "),
-      },
-      {
-        label: "Received",
-        value: `${summary.receivedQty} ${summary.unit}`,
-      },
-      {
-        label: "Issued",
-        value: `${summary.issuedQty} ${summary.unit}`,
-      },
-      {
-        label: "Returned",
-        value: `${summary.returnedQty} ${summary.unit}`,
-      },
-      {
-        label: "Available",
-        value: `${summary.availableQty} ${summary.unit}`,
-      },
-    ];
-
-    const timelineRows = timeline.map((entry) => {
-      const ist = toIST(entry.date, entry.time);
-
-      return {
-        type: entry.type,
-        referenceNumber: entry.referenceNumber,
-        date: ist.date,
-        time: ist.time,
-        quantity: `${entry.quantity} ${entry.unit || ""}`.trim(),
-        user: entry.user || "",
-        department: entry.department || "",
-        jobCard: entry.jobCard || "",
-        warehouse: entry.warehouse || "",
-        remarks: entry.remarks || "",
+  const reports = useMemo(() => {
+    const grn = raw.grn.map((r) => ({
+      id: r.id,
+      grnNumber: text(
+        pick(
+          r,
+          "grnNumber",
+          "grn_number",
+          "referenceNumber",
+          "reference_number",
+        ),
+      ),
+      date: date(r),
+      category: category(r),
+      consumable: consumable(r),
+      variety: varietyName(r),
+      warehouse: warehouse(r),
+      supplier: text(pick(r, "supplier", "supplierName", "supplier_name")),
+      received: grnQty(r),
+      unit: text(r.unit),
+      _key: keyFor(r),
+      _raw: r,
+    }));
+    const issues = raw.issue.map((r) => ({
+      id: r.id,
+      issueNumber: text(pick(r, "issueNumber", "issue_number")),
+      date: date(r),
+      category: category(r),
+      consumable: consumable(r),
+      variety: varietyName(r),
+      warehouse: warehouse(r),
+      department: text(r.department),
+      employee: text(pick(r, "employeeName", "employee_name")),
+      jobCard: text(pick(r, "jobCard", "job_card")),
+      issued: issueQty(r),
+      returned: num(pick(r, "returnedQuantity", "returnedQty", "returned_qty")),
+      unit: text(r.unit),
+      _key: keyFor(r),
+      _raw: r,
+    }));
+    const returns = raw.return.map((r) => ({
+      id: r.id,
+      returnNumber: text(pick(r, "returnNumber", "return_number")),
+      issueNumber: text(pick(r, "issueNumber", "issue_number")),
+      date: date(r),
+      category: category(r),
+      consumable: consumable(r),
+      variety: varietyName(r),
+      warehouse: warehouse(r),
+      returnedBy: text(pick(r, "returnedBy", "returned_by")),
+      returned: returnQty(r),
+      unit: text(r.unit),
+      _key: keyFor(r),
+      _raw: r,
+    }));
+    // The stock endpoint is the authoritative combined balance, not individual GRN rows.
+    const stockMap = new Map();
+    raw.stock.forEach((r) => {
+      const key = keyFor(r);
+      const existing = stockMap.get(key);
+      const row = {
+        id: key,
+        category: category(r),
+        consumable: consumable(r),
+        variety: varietyName(r),
+        warehouse: warehouse(r),
+        received: num(
+          pick(r, "receivedQty", "totalReceived", "total_received"),
+        ),
+        issued: num(pick(r, "issuedQty", "totalIssued", "total_issued")),
+        returned: num(
+          pick(r, "returnedQty", "totalReturned", "total_returned"),
+        ),
+        available: stockQty(r),
+        unit: text(r.unit),
+        _key: key,
       };
+      if (existing) {
+        ["received", "issued", "returned", "available"].forEach((f) => {
+          existing[f] += row[f];
+        });
+      } else stockMap.set(key, row);
     });
-
-    return { title, summaryRows, timelineRows };
-  }
-
-  function handleModalDownload(type) {
-    const data = buildTimelineExport();
-    if (!data) return;
-
-    const { title, summaryRows, timelineRows } = data;
-
-    // -------- CSV --------
-    if (type === "csv") {
-      const lines = [];
-
-      lines.push("SUMMARY");
-      lines.push("Field,Value");
-      summaryRows.forEach((r) => {
-        const escape = (v) =>
-          /[",\n]/.test(String(v))
-            ? `"${String(v).replace(/"/g, '""')}"`
-            : String(v);
-        lines.push(`${escape(r.label)},${escape(r.value)}`);
-      });
-
-      lines.push("");
-      lines.push("TIMELINE");
-      lines.push(
-        "Type,Reference,Date,Time,Quantity,User,Department,Job Card,Warehouse,Remarks",
-      );
-      timelineRows.forEach((r) => {
-        const escape = (v) =>
-          /[",\n]/.test(String(v))
-            ? `"${String(v).replace(/"/g, '""')}"`
-            : String(v);
-        lines.push(
-          [
-            r.type,
-            r.referenceNumber,
-            r.date,
-            r.time,
-            r.quantity,
-            r.user,
-            r.department,
-            r.jobCard,
-            r.warehouse,
-            r.remarks,
-          ]
-            .map(escape)
-            .join(","),
+    const stock = [...stockMap.values()];
+    // Movement totals derive from transaction histories; stock comes from the stock API.
+    const movementMap = new Map(
+      stock.map((r) => [
+        r._key,
+        { ...r, received: 0, issued: 0, returned: 0, timeline: [] },
+      ]),
+    );
+    const add = (rows, kind, field) =>
+      rows.forEach((r) => {
+        let item = movementMap.get(r._key);
+        if (!item) {
+          item = {
+            ...r,
+            received: 0,
+            issued: 0,
+            returned: 0,
+            available: 0,
+            timeline: [],
+          };
+          movementMap.set(r._key, item);
+        }
+        item[field] += r[field];
+        item.timeline.push({ kind, ...r });
+        ["category", "consumable", "variety", "warehouse", "unit"].forEach(
+          (k) => {
+            if ((!item[k] || item[k] === "—") && r[k]) item[k] = r[k];
+          },
         );
       });
-
-      downloadBlob(
-        lines.join("\n"),
-        `${title.replace(/\s+/g, "_")}.csv`,
-        "text/csv",
-      );
-      setDownloadMenuOpen(false);
-      return;
-    }
-
-    // -------- HTML table (Excel + PDF/Print) --------
-    const summaryHTML = summaryRows
-      .map(
+    add(grn, "GRN", "received");
+    add(issues, "ISSUE", "issued");
+    add(returns, "RETURN", "returned");
+    const movement = [...movementMap.values()].map((r) => ({
+      ...r,
+      available: stockMap.has(r._key)
+        ? stockMap.get(r._key).available
+        : r.received - r.issued + r.returned,
+      timeline: r.timeline.sort(
+        (a, b) =>
+          new Date(pick(a._raw, "created_at", "createdAt", "date") || 0) -
+          new Date(pick(b._raw, "created_at", "createdAt", "date") || 0),
+      ),
+    }));
+    return { grn, stock, issue: issues, return: returns, movement };
+  }, [raw]);
+  const visible = useMemo(
+    () =>
+      reports[tab].filter(
         (r) =>
-          `<tr><td style="border:1px solid #ccc;padding:6px;font-weight:600;background:#f8fafc;">${r.label}</td><td style="border:1px solid #ccc;padding:6px;">${r.value}</td></tr>`,
-      )
-      .join("");
-
-    const timelineHead = `
-      <tr>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Type</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Reference</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Date</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Time</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Quantity</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">User</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Department</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Job Card</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Warehouse</th>
-        <th style="border:1px solid #ccc;padding:6px;background:#f1f5f9;text-align:left;">Remarks</th>
-      </tr>
-    `;
-
-    const timelineHTML = timelineRows
-      .map(
-        (r) =>
-          `<tr>${[
-            r.type,
-            r.referenceNumber,
-            r.date,
-            r.time,
-            r.quantity,
-            r.user,
-            r.department,
-            r.jobCard,
-            r.warehouse,
-            r.remarks,
-          ]
-            .map(
-              (v) =>
-                `<td style="border:1px solid #ccc;padding:6px;">${v}</td>`,
-            )
-            .join("")}</tr>`,
-      )
-      .join("");
-
-    const html = `
-      <html>
-        <head><meta charset="utf-8"><title>${title}</title></head>
-        <body style="font-family:sans-serif;padding:20px;">
-          <h2>${title}</h2>
-
-          <h3>Summary</h3>
-          <table style="border-collapse:collapse;font-size:12px;width:100%;">
-            ${summaryHTML}
-          </table>
-
-          <h3 style="margin-top:24px;">Timeline (IST)</h3>
-          <table style="border-collapse:collapse;font-size:12px;width:100%;">
-            <thead>${timelineHead}</thead>
-            <tbody>${timelineHTML}</tbody>
-          </table>
-        </body>
-      </html>
-    `;
-
-    if (type === "excel") {
-      downloadBlob(
-        html,
-        `${title.replace(/\s+/g, "_")}.xls`,
-        "application/vnd.ms-excel",
-      );
-    } else if (type === "pdf") {
-      const win = window.open("", "_blank");
-      if (!win) return;
-      win.document.write(html);
-      win.document.close();
-      win.focus();
-      setTimeout(() => win.print(), 300);
-    }
-
-    setDownloadMenuOpen(false);
-  }
-
-  // ===================================================================
-  // RENDER
-  // ===================================================================
+          !search.trim() ||
+          Object.entries(r)
+            .filter(([k]) => !k.startsWith("_") && k !== "timeline")
+            .some(([, v]) =>
+              String(v).toLowerCase().includes(search.trim().toLowerCase()),
+            ),
+      ),
+    [reports, tab, search],
+  );
+  const kpis = [
+    ["Total Consumables", reports.stock.length, Boxes, "crpt-kpi-blue"],
+    [
+      "Available Stock",
+      formatQty(reports.stock.reduce((s, r) => s + r.available, 0)),
+      PackageCheck,
+      "crpt-kpi-green",
+    ],
+    [
+      "Total Issued",
+      formatQty(reports.issue.reduce((s, r) => s + r.issued, 0)),
+      Send,
+      "crpt-kpi-orange",
+    ],
+    [
+      "Total Returned",
+      formatQty(reports.return.reduce((s, r) => s + r.returned, 0)),
+      Undo2,
+      "crpt-kpi-purple",
+    ],
+  ];
   return (
     <>
       <Header />
-
-      <div className="crpt-page">
-        <Link to="/inventory/consumable" className="erp-back-button">
-          <ArrowLeft size={16} />
-          Back
+      <main className="crpt-page">
+        <Link to="/inventory/consumable" className="crpt-back-link">
+          <ArrowLeft size={17} /> Back
         </Link>
-
         <section className="crpt-header-card">
-          <div className="crpt-header-content">
-            <span className="crpt-eyebrow">Consumables</span>
-            <h1 className="crpt-title">Consumable Reports</h1>
-            <p className="crpt-subtitle">
-              Live reporting across GRN, Stock, Issue, Return, and Movement
-              History. Every row reflects the current state of the module.
-            </p>
-          </div>
+          <span className="crpt-eyebrow">Consumables</span>
+          <h1 className="crpt-title">Consumable Reports</h1>
+          <p className="crpt-subtitle">
+            Direct GRN, combined variety-wise warehouse stock, issue history,
+            return history and movement timeline. No purchase order required.
+          </p>
         </section>
-
-        {/* ============== KPI ============== */}
         <section className="crpt-kpi-grid">
-          <div className="crpt-kpi-card crpt-kpi-blue">
-            <div className="crpt-kpi-pattern"></div>
-            <div className="crpt-kpi-icon">
-              <Boxes size={22} />
+          {kpis.map(([label, value, Icon, color]) => (
+            <div className={`crpt-kpi-card ${color}`} key={label}>
+              <div className="crpt-kpi-icon">
+                <Icon size={24} />
+              </div>
+              <div className="crpt-kpi-content">
+                <span className="crpt-kpi-value">{value}</span>
+                <span className="crpt-kpi-label">{label}</span>
+              </div>
             </div>
-            <div className="crpt-kpi-content">
-              <span className="crpt-kpi-value">{totalConsumables}</span>
-              <span className="crpt-kpi-label">Total Consumables</span>
-            </div>
-          </div>
-
-          <div className="crpt-kpi-card crpt-kpi-green">
-            <div className="crpt-kpi-pattern"></div>
-            <div className="crpt-kpi-icon">
-              <PackageCheck size={22} />
-            </div>
-            <div className="crpt-kpi-content">
-              <span className="crpt-kpi-value">{totalAvailableStock}</span>
-              <span className="crpt-kpi-label">Available Stock</span>
-            </div>
-          </div>
-
-          <div className="crpt-kpi-card crpt-kpi-orange">
-            <div className="crpt-kpi-pattern"></div>
-            <div className="crpt-kpi-icon">
-              <Send size={22} />
-            </div>
-            <div className="crpt-kpi-content">
-              <span className="crpt-kpi-value">{totalIssued}</span>
-              <span className="crpt-kpi-label">Total Issued</span>
-            </div>
-          </div>
-
-          <div className="crpt-kpi-card crpt-kpi-purple">
-            <div className="crpt-kpi-pattern"></div>
-            <div className="crpt-kpi-icon">
-              <Undo2 size={22} />
-            </div>
-            <div className="crpt-kpi-content">
-              <span className="crpt-kpi-value">{totalReturned}</span>
-              <span className="crpt-kpi-label">Total Returned</span>
-            </div>
-          </div>
+          ))}
         </section>
-
-        {/* ============== TOOLBAR ============== */}
         <section className="crpt-toolbar-card">
           <div className="crpt-toolbar-top">
-            <div className="crpt-filter-group">
-              <div className="crpt-search-box">
-                <Search size={16} />
-                <input
-                  type="text"
-                  placeholder="Filter by PO number..."
-                  value={poFilter}
-                  onChange={(e) => setPoFilter(e.target.value)}
-                  disabled={isLoading}
-                />
-                {poFilter && (
-                  <button
-                    type="button"
-                    className="crpt-filter-clear"
-                    onClick={() => setPoFilter("")}
-                    aria-label="Clear PO filter"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-
-              <div className="crpt-search-box">
-                <Search size={16} />
-                <input
-                  type="text"
-                  placeholder="Filter by description..."
-                  value={descriptionFilter}
-                  onChange={(e) =>
-                    setDescriptionFilter(e.target.value)
-                  }
-                  disabled={isLoading}
-                />
-                {descriptionFilter && (
-                  <button
-                    type="button"
-                    className="crpt-filter-clear"
-                    onClick={() => setDescriptionFilter("")}
-                    aria-label="Clear description filter"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-
-              {(poFilter || descriptionFilter) && (
-                <button
-                  type="button"
-                  className="crpt-clear-all-btn"
-                  onClick={clearFilters}
-                >
-                  Clear filters
-                </button>
-              )}
+            <div className="crpt-search-box">
+              <Search size={17} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search category, consumable, variety, warehouse or reference..."
+              />
             </div>
-
             <button
-              type="button"
               className="crpt-refresh-button"
               onClick={() => fetchAll(true)}
-              disabled={isLoading || refreshing}
-              title="Refresh reports"
+              disabled={loading || refreshing}
             >
-              <RefreshCw
-                size={16}
-                className={refreshing ? "crpt-spin" : ""}
-              />
-              <span>{refreshing ? "Refreshing..." : "Refresh"}</span>
+              <RefreshCw size={16} className={refreshing ? "crpt-spin" : ""} />
+              {refreshing ? "Refreshing..." : "Refresh"}
             </button>
           </div>
-
           <div className="crpt-tabs">
-            {REPORT_TABS.map((tab) => (
+            {TABS.map(([key, label]) => (
               <button
-                key={tab.key}
-                type="button"
-                className={
-                  activeTab === tab.key
-                    ? "crpt-tab crpt-tab-active"
-                    : "crpt-tab"
-                }
-                onClick={() => setActiveTab(tab.key)}
+                key={key}
+                className={`crpt-tab ${tab === key ? "crpt-tab-active" : ""}`}
+                onClick={() => setTab(key)}
               >
-                {tab.label}
+                {label}
               </button>
             ))}
-
             <div className="crpt-export-bar">
-              <button
-                type="button"
-                className="crpt-export-btn"
-                onClick={() => handleExport("pdf")}
-              >
-                Export PDF
-              </button>
-              <button
-                type="button"
-                className="crpt-export-btn"
-                onClick={() => handleExport("excel")}
-              >
-                Export Excel
-              </button>
-              <button
-                type="button"
-                className="crpt-export-btn"
-                onClick={() => handleExport("csv")}
-              >
-                Export CSV
-              </button>
-              <button
-                type="button"
-                className="crpt-export-btn"
-                onClick={() => handleExport("print")}
-              >
-                Print
-              </button>
+              {[
+                ["pdf", "Print / PDF"],
+                ["excel", "Excel"],
+                ["csv", "CSV"],
+              ].map(([kind, label]) => (
+                <button
+                  className="crpt-export-btn"
+                  key={kind}
+                  onClick={() =>
+                    exportReport(
+                      kind,
+                      COLUMNS[tab],
+                      visible,
+                      TABS.find(([k]) => k === tab)?.[1] || "Report",
+                    )
+                  }
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         </section>
-
-        {/* ============== ERROR ============== */}
-        {error && !isLoading && (
+        {errors.auth && <div className="crpt-error-box">{errors.auth}</div>}
+        {errors[tab] && (
           <div className="crpt-error-box">
-            <Error onRetry={() => fetchAll(false)} />
+            {errors[tab]}{" "}
+            {tab === "grn" &&
+              "Confirm that GET /erp/consumable-grn/direct/ is enabled."}
           </div>
         )}
-
-        {/* ============== TABLE ============== */}
-        {!error && (
-          <div className="crpt-table-card">
-            {isLoading && (
-              <div className="crpt-loading-wrapper">
-                <Loading />
-              </div>
-            )}
-
-            {/* ---------- GRN ---------- */}
-            {!isLoading && activeTab === "grn" && (
-              <div className="crpt-table-wrapper">
-                <table className="crpt-table">
-                  <thead>
-                    <tr>
-                      <th>PO Number</th>
-                      <th>Item Code</th>
-                      <th>Supplier</th>
-                      <th>Consumable</th>
-                      <th>Ordered Qty</th>
-                      <th>Received Qty</th>
-                      <th>Pending Qty</th>
-                      <th>Warehouse</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredGrnRows.map((po) => (
-                      <tr key={po.id}>
-                        <td>{toDisplayString(po.poNumber) || "—"}</td>
-                        <td>{toDisplayString(po.itemCode) || "—"}</td>
-                        <td>{toDisplayString(po.supplier) || "—"}</td>
-                        <td>{toDisplayString(po.consumableName) || "—"}</td>
-                        <td>{po.orderedQty}</td>
-                        <td>{po.receivedQty}</td>
-                        <td>{po.pendingQty}</td>
-                        <td>{toDisplayString(po.warehouse) || "—"}</td>
-                        <td>
-                          <span className="crpt-status-chip">
-                            {po.status}
-                          </span>
-                        </td>
-                      </tr>
+        {tab === "movement" &&
+          (errors.grn || errors.issue || errors.return || errors.stock) && (
+            <div className="crpt-error-box">
+              Movement totals may be incomplete because one or more report
+              endpoints failed.
+            </div>
+          )}
+        <section className="crpt-table-card">
+          {loading ? (
+            <div className="crpt-loading-wrapper">
+              <Loading />
+            </div>
+          ) : (
+            <div className="crpt-table-wrapper">
+              <table className="crpt-table">
+                <thead>
+                  <tr>
+                    {COLUMNS[tab].map(([key, label]) => (
+                      <th key={key}>{label}</th>
                     ))}
-                    {filteredGrnRows.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="crpt-empty-row">
-                          No GRN records found.
+                    {tab === "movement" && <th>Action</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((r, index) => (
+                    <tr key={`${r.id ?? r._key}-${index}`}>
+                      {COLUMNS[tab].map(([key]) => (
+                        <td key={key}>
+                          {[
+                            "received",
+                            "issued",
+                            "returned",
+                            "available",
+                          ].includes(key)
+                            ? formatQty(r[key])
+                            : text(r[key])}
                         </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* ---------- STOCK ---------- */}
-            {!isLoading && activeTab === "stock" && (
-              <div className="crpt-table-wrapper">
-                <table className="crpt-table">
-                  <thead>
-                    <tr>
-                      <th>Reference Number</th>
-                      <th>Consumable</th>
-                      <th>Category</th>
-                      <th>Warehouse</th>
-                      <th>Available Qty</th>
-                      <th>Unit</th>
-                      <th>Supplier</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredStockRows.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          {toDisplayString(item.referenceNumber) || "—"}
-                        </td>
-                        <td>
-                          {toDisplayString(item.consumableName) || "—"}
-                        </td>
-                        <td>{toDisplayString(item.category) || "—"}</td>
-                        <td>{toDisplayString(item.warehouse) || "—"}</td>
-                        <td>{item.availableQty}</td>
-                        <td>{toDisplayString(item.unit) || "—"}</td>
-                        <td>{toDisplayString(item.supplier) || "—"}</td>
-                        <td>
-                          <span className="crpt-status-chip">
-                            {item.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredStockRows.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="crpt-empty-row">
-                          No stock records found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* ---------- ISSUE ---------- */}
-            {!isLoading && activeTab === "issue" && (
-              <div className="crpt-table-wrapper">
-                <table className="crpt-table">
-                  <thead>
-                    <tr>
-                      <th>Issue Number</th>
-                      <th>Consumable</th>
-                      <th>Department</th>
-                      <th>Employee</th>
-                      <th>Job Card</th>
-                      <th>Issued Qty</th>
-                      <th>Returned Qty</th>
-                      <th>Balance Qty</th>
-                      <th>Warehouse</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredIssueRows.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          {toDisplayString(item.issueNumber) || "—"}
-                        </td>
-                        <td>
-                          {toDisplayString(item.consumableName) || "—"}
-                        </td>
-                        <td>
-                          {toDisplayString(item.department) || "—"}
-                        </td>
-                        <td>
-                          {toDisplayString(item.employeeName) || "—"}
-                        </td>
-                        <td>{toDisplayString(item.jobCard) || "-"}</td>
-                        <td>{item.issuedQty}</td>
-                        <td>{item.returnedQty}</td>
-                        <td>{item.balanceQty}</td>
-                        <td>
-                          {toDisplayString(item.warehouse) || "—"}
-                        </td>
-                        <td>
-                          <span className="crpt-status-chip">
-                            {item.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredIssueRows.length === 0 && (
-                      <tr>
-                        <td colSpan={10} className="crpt-empty-row">
-                          No issue records found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* ---------- RETURN ---------- */}
-            {!isLoading && activeTab === "return" && (
-              <div className="crpt-table-wrapper">
-                <table className="crpt-table">
-                  <thead>
-                    <tr>
-                      <th>Issue Number</th>
-                      <th>Consumable</th>
-                      <th>Department</th>
-                      <th>Employee</th>
-                      <th>Issued Qty</th>
-                      <th>Returned Qty</th>
-                      <th>Balance Qty</th>
-                      <th>Warehouse</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredReturnRows.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          {toDisplayString(item.issueNumber) || "—"}
-                        </td>
-                        <td>
-                          {toDisplayString(item.consumableName) || "—"}
-                        </td>
-                        <td>
-                          {toDisplayString(item.department) || "—"}
-                        </td>
-                        <td>
-                          {toDisplayString(item.employeeName) || "—"}
-                        </td>
-                        <td>{item.issuedQty}</td>
-                        <td>{item.returnedQty}</td>
-                        <td>{item.balanceQty}</td>
-                        <td>
-                          {toDisplayString(item.warehouse) || "—"}
-                        </td>
-                        <td>
-                          <span className="crpt-status-chip">
-                            {item.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredReturnRows.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="crpt-empty-row">
-                          No return records found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* ---------- MOVEMENT ---------- */}
-            {!isLoading && activeTab === "movement" && (
-              <div className="crpt-table-wrapper">
-                <table className="crpt-table">
-                  <thead>
-                    <tr>
-                      <th>PO Number</th>
-                      <th>PO Description</th>
-                      <th>Consumable</th>
-                      <th>Category</th>
-                      <th>Warehouse(s)</th>
-                      <th>Received</th>
-                      <th>Issued</th>
-                      <th>Returned</th>
-                      <th>Available</th>
-                      <th>Unit</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredMovementGroups.map((row) => (
-                      <tr key={row.id}>
-                        <td>{toDisplayString(row.poNumber) || "—"}</td>
-                        <td>
-                          {toDisplayString(row.poDescription) || "—"}
-                        </td>
-                        <td>
-                          {toDisplayString(row.consumableName) || "—"}
-                        </td>
-                        <td>{toDisplayString(row.category) || "—"}</td>
-                        <td>
-                          {Array.isArray(row.warehouses) &&
-                          row.warehouses.length > 0
-                            ? row.warehouses.join(", ")
-                            : "—"}
-                        </td>
-                        <td>{row.receivedQty}</td>
-                        <td>{row.issuedQty}</td>
-                        <td>{row.returnedQty}</td>
-                        <td>
-                          <span className="crpt-status-chip">
-                            {row.availableQty}
-                          </span>
-                        </td>
-                        <td>{toDisplayString(row.unit) || "—"}</td>
+                      ))}
+                      {tab === "movement" && (
                         <td>
                           <button
                             type="button"
                             className="crpt-eye-btn"
-                            onClick={() => openMovementDetail(row)}
-                            title="View full movement timeline"
-                            aria-label="View movement timeline"
+                            onClick={() => setSelected(r)}
+                            title="View movement timeline"
                           >
-                            <Eye size={16} />
+                            <Eye size={17} />
                           </button>
                         </td>
-                      </tr>
-                    ))}
-                    {filteredMovementGroups.length === 0 && (
-                      <tr>
-                        <td colSpan={11} className="crpt-empty-row">
-                          No PO description records found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ============== MOVEMENT DETAIL MODAL ============== */}
-        {selectedMovementId && (
-          <div
-            className="crpt-modal-overlay"
-            onClick={closeMovementDetail}
-          >
-            <div
-              className="crpt-modal"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="crpt-modal-header">
-                <div className="crpt-modal-header-left">
-                  <h3 className="crpt-modal-title">
-                    Movement Timeline
-                  </h3>
-                  {movementDetail?.summary && (
-                    <p className="crpt-modal-subtitle">
-                      {toDisplayString(
-                        movementDetail.summary.poNumber,
-                      )}{" "}
-                      —{" "}
-                      {toDisplayString(
-                        movementDetail.summary.poDescription,
                       )}
-                    </p>
-                  )}
-                </div>
-
-                <div className="crpt-modal-header-actions">
-                  {movementDetail && (
-                    <div className="crpt-download-wrap">
-                      <button
-                        type="button"
-                        className="crpt-download-btn"
-                        onClick={() =>
-                          setDownloadMenuOpen((v) => !v)
+                    </tr>
+                  ))}
+                  {!visible.length && (
+                    <tr>
+                      <td
+                        className="crpt-empty-row"
+                        colSpan={
+                          COLUMNS[tab].length + (tab === "movement" ? 1 : 0)
                         }
                       >
-                        <Download size={16} />
-                        <span>Download</span>
-                      </button>
-
-                      {downloadMenuOpen && (
-                        <div className="crpt-download-menu">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleModalDownload("csv")
-                            }
-                          >
-                            <FileText size={14} />
-                            <span>Download CSV</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleModalDownload("excel")
-                            }
-                          >
-                            <FileSpreadsheet size={14} />
-                            <span>Download Excel</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleModalDownload("pdf")
-                            }
-                          >
-                            <Printer size={14} />
-                            <span>Print / PDF</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                        No {tab} records found.
+                      </td>
+                    </tr>
                   )}
-
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+        {selected && (
+          <div className="crpt-modal-overlay" onClick={() => setSelected(null)}>
+            <div className="crpt-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="crpt-modal-header">
+                <div>
+                  <h3 className="crpt-modal-title">Movement Timeline</h3>
+                  <p className="crpt-modal-subtitle">
+                    {selected.consumable} · {selected.variety} ·{" "}
+                    {selected.warehouse}
+                  </p>
+                </div>
+                <div className="crpt-modal-header-actions">
                   <button
-                    type="button"
+                    className="crpt-download-btn"
+                    onClick={() =>
+                      exportReport(
+                        "csv",
+                        [
+                          ["kind", "Type"],
+                          ["date", "Date"],
+                          ["grnNumber", "GRN"],
+                          ["issueNumber", "Issue"],
+                          ["returnNumber", "Return"],
+                          ["received", "Received"],
+                          ["issued", "Issued"],
+                          ["returned", "Returned"],
+                        ],
+                        selected.timeline,
+                        "Consumable_Movement_Timeline",
+                      )
+                    }
+                  >
+                    <Download size={16} /> CSV
+                  </button>
+                  <button
                     className="crpt-modal-close"
-                    onClick={closeMovementDetail}
+                    onClick={() => setSelected(null)}
                   >
                     <X size={18} />
                   </button>
                 </div>
               </div>
-
               <div className="crpt-modal-body">
-                {movementDetailLoading && (
-                  <div className="crpt-loading-wrapper">
-                    <Loading />
-                  </div>
-                )}
-
-                {!movementDetailLoading && movementDetailError && (
-                  <div className="crpt-modal-error">
-                    {movementDetailError}
-                  </div>
-                )}
-
-                {!movementDetailLoading && movementDetail && (
-                  <>
-                    <div className="crpt-modal-summary">
-                      <div className="crpt-modal-summary-item">
-                        <span className="crpt-modal-summary-label">
-                          Received
-                        </span>
-                        <span className="crpt-modal-summary-value">
-                          {movementDetail.summary.receivedQty}{" "}
-                          {movementDetail.summary.unit}
-                        </span>
-                      </div>
-
-                      <div className="crpt-modal-summary-item">
-                        <span className="crpt-modal-summary-label">
-                          Issued
-                        </span>
-                        <span className="crpt-modal-summary-value">
-                          {movementDetail.summary.issuedQty}{" "}
-                          {movementDetail.summary.unit}
-                        </span>
-                      </div>
-
-                      <div className="crpt-modal-summary-item">
-                        <span className="crpt-modal-summary-label">
-                          Returned
-                        </span>
-                        <span className="crpt-modal-summary-value">
-                          {movementDetail.summary.returnedQty}{" "}
-                          {movementDetail.summary.unit}
-                        </span>
-                      </div>
-
-                      <div className="crpt-modal-summary-item crpt-modal-summary-highlight">
-                        <span className="crpt-modal-summary-label">
-                          Available
-                        </span>
-                        <span className="crpt-modal-summary-value">
-                          {movementDetail.summary.availableQty}{" "}
-                          {movementDetail.summary.unit}
-                        </span>
-                      </div>
+                <div className="crpt-modal-summary">
+                  {[
+                    ["Received", selected.received],
+                    ["Issued", selected.issued],
+                    ["Returned", selected.returned],
+                    ["Available", selected.available],
+                  ].map(([label, qty]) => (
+                    <div className="crpt-modal-summary-item" key={label}>
+                      <span className="crpt-modal-summary-label">{label}</span>
+                      <span className="crpt-modal-summary-value">
+                        {formatQty(qty)} {selected.unit}
+                      </span>
                     </div>
-
-                    <div className="crpt-modal-meta">
-                      <div>
-                        <span className="crpt-modal-meta-label">
-                          GRN Receipts
-                        </span>
-                        <span className="crpt-modal-meta-value">
-                          {movementDetail.summary.grnNumbers?.join(
-                            ", ",
-                          ) || "—"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="crpt-modal-meta-label">
-                          Warehouse(s)
-                        </span>
-                        <span className="crpt-modal-meta-value">
-                          {movementDetail.summary.warehouses?.join(
-                            ", ",
-                          ) || "—"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="crpt-modal-meta-label">
-                          Supplier
-                        </span>
-                        <span className="crpt-modal-meta-value">
-                          {toDisplayString(
-                            movementDetail.summary.supplier,
-                          )}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="crpt-modal-meta-label">
-                          Category
-                        </span>
-                        <span className="crpt-modal-meta-value">
-                          {toDisplayString(
-                            movementDetail.summary.category,
-                          )}
-                        </span>
-                      </div>
-                    </div>
-
-                    <h4 className="crpt-modal-timeline-title">
-                      Timeline (IST)
-                    </h4>
-
-                    <div className="crpt-timeline">
-                      {movementDetail.timeline.map((entry, idx) => {
-                        const ist = toIST(entry.date, entry.time);
-                        const typeClass = String(
-                          entry.type || "",
-                        ).toLowerCase();
-
-                        return (
-                          <div
-                            key={`${entry.referenceNumber}-${idx}`}
-                            className={`crpt-timeline-item crpt-timeline-${typeClass}`}
-                          >
-                            <div className="crpt-timeline-badge">
-                              {entry.type}
-                            </div>
-
-                            <div className="crpt-timeline-content">
-                              <div className="crpt-timeline-head">
-                                <span className="crpt-timeline-ref">
-                                  {entry.referenceNumber}
-                                </span>
-                                <span className="crpt-timeline-qty">
-                                  {entry.quantity} {entry.unit}
-                                </span>
-                              </div>
-
-                              <div className="crpt-timeline-time">
-                                {ist.date} · {ist.time}
-                              </div>
-
-                              <div className="crpt-timeline-meta">
-                                {entry.user && (
-                                  <span>
-                                    By: <strong>{entry.user}</strong>
-                                  </span>
-                                )}
-                                {entry.department && (
-                                  <span>
-                                    Dept:{" "}
-                                    <strong>
-                                      {entry.department}
-                                    </strong>
-                                  </span>
-                                )}
-                                {entry.jobCard && (
-                                  <span>
-                                    Job Card:{" "}
-                                    <strong>{entry.jobCard}</strong>
-                                  </span>
-                                )}
-                                {entry.warehouse && (
-                                  <span>
-                                    Warehouse:{" "}
-                                    <strong>
-                                      {entry.warehouse}
-                                    </strong>
-                                  </span>
-                                )}
-                              </div>
-
-                              {entry.remarks && (
-                                <div className="crpt-timeline-remarks">
-                                  “{entry.remarks}”
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {movementDetail.timeline.length === 0 && (
-                        <div className="crpt-empty-row">
-                          No movements recorded yet.
+                  ))}
+                </div>
+                <h4 className="crpt-modal-timeline-title">Transactions</h4>
+                <div className="crpt-timeline">
+                  {selected.timeline.map((event, i) => (
+                    <div
+                      key={i}
+                      className={`crpt-timeline-item crpt-timeline-${event.kind.toLowerCase()}`}
+                    >
+                      <span className="crpt-timeline-badge">{event.kind}</span>
+                      <div className="crpt-timeline-content">
+                        <div className="crpt-timeline-head">
+                          <strong>
+                            {text(
+                              event.grnNumber ||
+                                event.issueNumber ||
+                                event.returnNumber,
+                            )}
+                          </strong>
+                          <span className="crpt-timeline-qty">
+                            {formatQty(
+                              event.received || event.issued || event.returned,
+                            )}{" "}
+                            {event.unit}
+                          </span>
                         </div>
-                      )}
+                        <div className="crpt-timeline-time">{event.date}</div>
+                        {event.department && event.department !== "—" && (
+                          <div className="crpt-timeline-meta">
+                            Department: {event.department} · Employee:{" "}
+                            {event.employee}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </>
-                )}
+                  ))}
+                  {!selected.timeline.length && (
+                    <div className="crpt-empty-row">
+                      No transaction history available.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         )}
-      </div>
+      </main>
     </>
   );
 }

@@ -1,11 +1,18 @@
 from django.urls import path
 
-from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAdvanceRepaymentHistoryAPIView, AdminAdvanceReportAPIView, AdminAttendanceAPIView, AdminAttendanceDailyCountsAPIView,  AdminBufferStockAPIView, AdminContactRequestsAPIView, AdminCustomSalaryReportAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminEmployeeAdvanceHistoryAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdminProjectStatusDetailAPIView,   AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableDashboardView, ConsumableGRNDirectCreateAPIView, ConsumableGRNPOItemListAPIView, ConsumableGRNReceiveAPIView, ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, ConsumableReturnCreateAPIView, ConsumableReturnableIssueListAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeCodePreviewAPIView, EmployeeCodeSettingsAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
+from .views import ( AccountsModulesAPIView, AccountsReportAPIView, AccountsReportStatusAPIView, AdminAdvanceRepaymentHistoryAPIView, AdminAdvanceReportAPIView, AdminAttendanceAPIView, AdminAttendanceDailyCountsAPIView,  AdminBufferStockAPIView, 
+                    AdminContactRequestsAPIView, AdminCustomSalaryReportAPIView, AdminDocumentNumberDetailAPIView, AdminDocumentNumberListAPIView, AdminDocumentNumberUsedAPIView, AdminEmployeeAdvanceHistoryAPIView, AdminModulesAPIView, AdminPaymentStatusUpdateAPIView, AdminPendingPaymentsAPIView, AdminPoPendingGRnAPIView, AdminProjectStatusAPIView, AdminProjectStatusDetailAPIView,
+                          AssemblyDetailAPIView, AssemblyListCreateAPIView, AssemblyProjectListAPIView, AssemblySourcesListAPIView, BOMBatchSaveAPIView, BOMItemDetailAPIView, BOMItemListCreateAPIView,  ChangePasswordAPIView, CompanyBankDetailsAPIView, ConsumableCategoryAPIView, ConsumableCategoryDetailAPIView, ConsumableDashboardView, ConsumableGRNDetailAPIView, ConsumableGRNDirectCreateAPIView, ConsumableIssueDetailAPIView, ConsumableIssueHistoryAPIView, ConsumableMasterAPIView, ConsumableMasterDetailAPIView,  ConsumableMovementDetailAPIView, ConsumableMovementGroupListAPIView, 
+                          ConsumableReturnCreateAPIView, ConsumableReturnDetailAPIView, ConsumableReturnHistoryAPIView, ConsumableReturnableIssueListAPIView, ConsumableVarietyAPIView, ConsumableVarietyDetailAPIView, ContactUsAPIView, CustomerAPIView, DeliveryChallanConfirmAPIView, DeliveryChallanCreateAPIView, DeliveryChallanCustomerAPIView, DeliveryChallanNextNumberAPIView, 
+                          DrawingDetailAPIView, DrawingListCreateAPIView, DummyPurchaseOrderCreateAPIView, EmployeeArchiveAPIView, EmployeeCodePreviewAPIView, EmployeeCodeSettingsAPIView, EmployeeDetailAPIView, EmployeeListCreateAPIView, EmployeePhotoAPIView, FilterOptionsAPIView, JobWorkReceiveCreateAPIView, JobWorkReceiveHistoryAPIView, JobWorkReceiveListAPIView, 
+                          JournalAPIView, JournalDetailAPIView, JournalPOOptionsAPIView, 
                     LoginAPIView ,InventoryAPIView, LoginVerifyOTPView, LogoutAPIView, MaterialGRNCreateAPIView, MaterialGRNDetailAPIView, MaterialMenuAPIView, MaterialReceiveListAPIView, MaterialStockDetailAPIView, MaterialStockFromGRNAPIView, MaterialStockListAPIView, MaterialStockMovementListAPIView, MyAttendanceAPIView,
-                      NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, ProformaInvoiceDetailAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
+                      NextPurchaseOrderNumberAPIView, ProductionAvailableListAPIView, ProductionIssueCreateAPIView, ProductionIssueListAPIView, ProductionOperationActionAPIView, ProductionOperationDetailAPIView, ProductionOperationListAPIView, ProfileAPIView, ProfilePhotoDeleteAPIView, ProformaInvoiceConfirmAPIView, ProformaInvoiceCreateAPIView, ProformaInvoiceCustomerAPIView, 
+                      ProformaInvoiceDetailAPIView, ProformaInvoiceNextNumberAPIView, ProjectDetailAPIView, ProjectIntegrationCreateAPIView, ProjectIntegrationListAPIView, ProjectIntegrationSaveAPIView, ProjectListCreateAPIView, ProjectPOItemListAPIView, PurchaseOrderConfirmAPIView, 
                         PurchaseOrderListCreateAPIView, QuotationConfirmAPIView, QuotationCreateAPIView, QuotationCustomerAPIView,
-                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView, SalaryCalculateAPIView, SalaryConfirmAPIView, SalaryPaymentStatusAPIView,  SendPasswordChangeOTPView,  TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceDetailAPIView, TaxInvoiceNextNumberAPIView, TwoStepSendOTPView, TwoStepVerifyOTPView, UserProfileDetailAPIView, 
-                          UserProfileListCreateAPIView, AttendanceEmployeeView,
+                          QuotationNextNumberAPIView, RefreshTokenAPIView, ReworkCancelAPIView, ReworkCompleteAPIView, ReworkDetailAPIView, ReworkListAPIView, ReworkQcAPIView, ReworkStartAPIView, SalaryCalculateAPIView, SalaryConfirmAPIView, SalaryPaymentStatusAPIView,  SendPasswordChangeOTPView, 
+                            TaxInvoiceConfirmAPIView, TaxInvoiceCreateAPIView, TaxInvoiceCustomerAPIView, TaxInvoiceDetailAPIView, TaxInvoiceNextNumberAPIView, TwoStepSendOTPView, TwoStepVerifyOTPView, UserProfileDetailAPIView, 
+                          UserProfileListCreateAPIView, 
     AttendanceViewSet,
     
     ConsumableStockAPIView,
@@ -455,47 +462,165 @@ path(
         ConsumableDashboardView.as_view(),
         name="consumable-dashboard"
     ),
-    #consumable grn po items list
-    path("consumable-grn/po-items/",ConsumableGRNPOItemListAPIView.as_view(),name="consumable-grn-po-items",),
-   
-   
-    # Receive quantity against one PO item
-    path(
-        "consumable-grn/receive/<int:item_id>/",
-        ConsumableGRNReceiveAPIView.as_view(),
-        name="consumable-grn-receive",
-    ),
+  # ============================================================
+# CONSUMABLE CATEGORY
+# ============================================================
 
-    path(
-        "consumable-grn/direct/",
-        ConsumableGRNDirectCreateAPIView.as_view(),
-        name="consumable-grn-direct",
-    ),
+path(
+    "consumable/categories/",
+    ConsumableCategoryAPIView.as_view(),
+    name="consumable-categories",
+),
+
+path(
+    "consumable/categories/<int:pk>/",
+    ConsumableCategoryDetailAPIView.as_view(),
+    name="consumable-category-detail",
+),
 
 
-    path(
+# ============================================================
+# CONSUMABLE MASTER
+# ============================================================
+
+path(
+    "consumable/masters/",
+    ConsumableMasterAPIView.as_view(),
+    name="consumable-masters",
+),
+
+path(
+    "consumable/masters/<int:pk>/",
+    ConsumableMasterDetailAPIView.as_view(),
+    name="consumable-master-detail",
+),
+
+
+# ============================================================
+# CONSUMABLE VARIETIES
+# ============================================================
+
+path(
+    "consumable/varieties/",
+    ConsumableVarietyAPIView.as_view(),
+    name="consumable-varieties",
+),
+
+path(
+    "consumable/varieties/<int:pk>/",
+    ConsumableVarietyDetailAPIView.as_view(),
+    name="consumable-variety-detail",
+),
+
+
+# ============================================================
+# DIRECT CONSUMABLE GRN
+# ============================================================
+
+# Create GRN without Purchase Order
+path(
+    "consumable-grn/direct/",
+    ConsumableGRNDirectCreateAPIView.as_view(),
+    name="consumable-grn-direct",
+),
+
+# View / Edit existing GRN
+path(
+    "consumable-grn/<int:pk>/",
+    ConsumableGRNDetailAPIView.as_view(),
+    name="consumable-grn-detail",
+),
+
+
+# ============================================================
+# CONSUMABLE STOCK
+# ============================================================
+
+path(
     "consumable-grn/stock/",
     ConsumableStockAPIView.as_view(),
-        name="consumable-stock",
-    ),
-    path(
-        "consumable-grn/issue-stock/",
-        ConsumableIssueStockAPIView.as_view(),
-        name="consumable-issue-stock",
-    ),
-    path(
-        "consumable-grn/issue/<int:grn_id>/",
-        ConsumableIssueCreateAPIView.as_view(),
-        name="consumable-issue-create",
-    ),
+    name="consumable-stock",
+),
 
-    path("consumable-grn/returnable-issues/", ConsumableReturnableIssueListAPIView.as_view(), name="consumable-returnable-issues"),
-path("consumable-grn/return/<int:issue_id>/", ConsumableReturnCreateAPIView.as_view(), name="consumable-return-create"),
+path(
+    "consumable-grn/issue-stock/",
+    ConsumableIssueStockAPIView.as_view(),
+    name="consumable-issue-stock",
+),
+
+
+# ============================================================
+# ISSUE CONSUMABLE
+# ============================================================
+
+# New: Issue by variety and warehouse
+path(
+    "consumable-grn/issue/",
+    ConsumableIssueCreateAPIView.as_view(),
+    name="consumable-issue-create",
+),
+
+# Existing: Issue against a specific GRN
+path(
+    "consumable-grn/issue/<int:grn_id>/",
+    ConsumableIssueCreateAPIView.as_view(),
+    name="consumable-issue-create-by-grn",
+),
+
+# Edit existing Issue
+path(
+    "consumable-grn/issues/<int:pk>/",
+    ConsumableIssueDetailAPIView.as_view(),
+    name="consumable-issue-detail",
+),
+path(
+    "consumable-grn/issues/",
+    ConsumableIssueHistoryAPIView.as_view(),
+    name="consumable-issue-history",
+),
+
+
+# ============================================================
+# RETURN CONSUMABLE
+# ============================================================
+
+# List issued consumables
+path(
+    "consumable-grn/returnable-issues/",
+    ConsumableReturnableIssueListAPIView.as_view(),
+    name="consumable-returnable-issues",
+),
+
+# Create Return
+path(
+    "consumable-grn/return/<int:issue_id>/",
+    ConsumableReturnCreateAPIView.as_view(),
+    name="consumable-return-create",
+),
+
+# Edit existing Return
+path(
+    "consumable-grn/returns/<int:pk>/",
+    ConsumableReturnDetailAPIView.as_view(),
+    name="consumable-return-detail",
+),
+path(
+    "consumable-grn/returns/",
+    ConsumableReturnHistoryAPIView.as_view(),
+    name="consumable-return-history",
+),
+
+
+# ============================================================
+# CONSUMABLE MOVEMENT HISTORY
+# ============================================================
+
 path(
     "consumable-grn/movement-groups/",
     ConsumableMovementGroupListAPIView.as_view(),
     name="consumable-movement-groups",
 ),
+
 path(
     "consumable-grn/movements/detail/",
     ConsumableMovementDetailAPIView.as_view(),

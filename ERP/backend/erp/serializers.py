@@ -2401,21 +2401,374 @@ class AttendanceEmployeeSerializer(serializers.ModelSerializer):
         ]
 
 #for consumable
-from rest_framework import serializers
+# ============================================================
+# CONSUMABLE SERIALIZERS
+# ============================================================
 
+from django.db import transaction
+from rest_framework import serializers
+from decimal import Decimal
 from .models import (
+    ConsumableCategory,
+    ConsumableMaster,
+    ConsumableVariety,
     ConsumableGRN,
-    PurchaseOrderItem,
+    ConsumableIssue,
+    ConsumableReturn,
 )
 
 
+# ============================================================
+# HELPERS
+# ============================================================
+
+def normalize_consumable_text(value):
+    """
+    Normalize text to prevent duplicate entries caused
+    by extra spaces or capitalization differences.
+    """
+    return " ".join(str(value or "").strip().split())
+
+
+def generate_variety_code(index):
+    """
+    Generate Excel-style variety codes.
+
+    1  -> A
+    2  -> B
+    26 -> Z
+    27 -> AA
+    28 -> AB
+    """
+    result = ""
+
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        result = chr(65 + remainder) + result
+
+    return result
+
+
+# ============================================================
+# 1. CONSUMABLE CATEGORY SERIALIZER
+# ============================================================
+
+class ConsumableCategorySerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ConsumableCategory
+
+        fields = [
+            "id",
+            "name",
+            "description",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+
+        value = normalize_consumable_text(value)
+
+        if not value:
+            raise serializers.ValidationError(
+                "Category name is required."
+            )
+
+        queryset = ConsumableCategory.objects.filter(
+            name__iexact=value
+        )
+
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "This category already exists."
+            )
+
+        return value
+
+
+# ============================================================
+# 2. CONSUMABLE MASTER SERIALIZER
+# ============================================================
+
+class ConsumableMasterSerializer(serializers.ModelSerializer):
+
+    category_name = serializers.CharField(
+        source="category.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = ConsumableMaster
+
+        fields = [
+            "id",
+            "category",
+            "category_name",
+            "name",
+            "unit",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "category_name",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+
+        value = normalize_consumable_text(value)
+
+        if not value:
+            raise serializers.ValidationError(
+                "Consumable name is required."
+            )
+
+        return value
+
+    def validate_unit(self, value):
+
+        value = normalize_consumable_text(value)
+
+        if not value:
+            raise serializers.ValidationError(
+                "Unit is required."
+            )
+
+        return value
+
+    def validate(self, attrs):
+
+        category = attrs.get(
+            "category",
+            getattr(self.instance, "category", None),
+        )
+
+        name = attrs.get(
+            "name",
+            getattr(self.instance, "name", ""),
+        )
+
+        if category and name:
+
+            queryset = ConsumableMaster.objects.filter(
+                category=category,
+                name__iexact=name,
+            )
+
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                raise serializers.ValidationError({
+                    "name": (
+                        "This consumable already exists "
+                        "in the selected category."
+                    )
+                })
+
+        return attrs
+
+
+# ============================================================
+# 3. CONSUMABLE VARIETY SERIALIZER
+# ============================================================
+
+class ConsumableVarietySerializer(serializers.ModelSerializer):
+
+    consumable_name = serializers.CharField(
+        source="consumable.name",
+        read_only=True,
+    )
+
+    category_name = serializers.CharField(
+        source="consumable.category.name",
+        read_only=True,
+    )
+
+    unit = serializers.CharField(
+        source="consumable.unit",
+        read_only=True,
+    )
+
+    class Meta:
+        model = ConsumableVariety
+
+        fields = [
+            "id",
+            "consumable",
+            "consumable_name",
+            "category_name",
+            "variety_code",
+            "size",
+            "description",
+            "unit",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "consumable_name",
+            "category_name",
+            "variety_code",
+            "unit",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_size(self, value):
+
+        value = normalize_consumable_text(value)
+
+        if not value:
+            raise serializers.ValidationError(
+                "Size is required."
+            )
+
+        return value
+
+    def validate_description(self, value):
+
+        value = normalize_consumable_text(value)
+
+        if not value:
+            raise serializers.ValidationError(
+                "Description is required."
+            )
+
+        return value
+
+    def validate(self, attrs):
+
+        consumable = attrs.get(
+            "consumable",
+            getattr(self.instance, "consumable", None),
+        )
+
+        size = attrs.get(
+            "size",
+            getattr(self.instance, "size", ""),
+        )
+
+        description = attrs.get(
+            "description",
+            getattr(self.instance, "description", ""),
+        )
+
+        if consumable and size and description:
+
+            queryset = ConsumableVariety.objects.filter(
+                consumable=consumable,
+                size__iexact=size,
+                description__iexact=description,
+            )
+
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                raise serializers.ValidationError(
+                    "This consumable variety already exists."
+                )
+
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+
+        consumable = validated_data["consumable"]
+
+        # Lock the parent consumable so two concurrent
+        # requests cannot generate the same variety code.
+        ConsumableMaster.objects.select_for_update().get(
+            pk=consumable.pk
+        )
+
+        existing = ConsumableVariety.objects.filter(
+            consumable=consumable
+        )
+
+        used_codes = set(
+            existing.values_list("variety_code", flat=True)
+        )
+
+        index = 1
+
+        while generate_variety_code(index) in used_codes:
+            index += 1
+
+        validated_data["variety_code"] = (
+            generate_variety_code(index)
+        )
+
+        return ConsumableVariety.objects.create(
+            **validated_data
+        )
+
+
+# ============================================================
+# 4. CONSUMABLE GRN SERIALIZER
+# ============================================================
+
 class ConsumableGRNSerializer(serializers.ModelSerializer):
+
+    category_name = serializers.CharField(
+        source="consumable_variety.consumable.category.name",
+        read_only=True,
+    )
+
+    consumable_display_name = serializers.CharField(
+        source="consumable_variety.consumable.name",
+        read_only=True,
+    )
+
+    variety_code = serializers.CharField(
+        source="consumable_variety.variety_code",
+        read_only=True,
+    )
+
+    size = serializers.CharField(
+        source="consumable_variety.size",
+        read_only=True,
+    )
+
+    variety_description = serializers.CharField(
+        source="consumable_variety.description",
+        read_only=True,
+    )
 
     class Meta:
         model = ConsumableGRN
+
         fields = "__all__"
+
         read_only_fields = [
+            "id",
             "grn_number",
+            "grn_type",
+            "purchase_order_item",
+            "po_number",
+            "po_description",
+            "consumable_name",
+            "category",
+            "unit",
+            "ordered_quantity",
             "received_quantity",
             "pending_quantity",
             "status",
@@ -2423,13 +2776,160 @@ class ConsumableGRNSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def validate(self, attrs):
 
+        variety = attrs.get(
+            "consumable_variety",
+            getattr(self.instance, "consumable_variety", None),
+        )
+
+        if not variety:
+            raise serializers.ValidationError({
+                "consumable_variety": (
+                    "Consumable variety is required."
+                )
+            })
+
+        if not variety.is_active:
+            raise serializers.ValidationError({
+                "consumable_variety": (
+                    "Selected variety is inactive."
+                )
+            })
+
+        if not variety.consumable.is_active:
+            raise serializers.ValidationError({
+                "consumable_variety": (
+                    "Selected consumable is inactive."
+                )
+            })
+
+        if not variety.consumable.category.is_active:
+            raise serializers.ValidationError({
+                "consumable_variety": (
+                    "Selected category is inactive."
+                )
+            })
+
+        warehouse = attrs.get(
+            "warehouse",
+            getattr(self.instance, "warehouse", ""),
+        )
+
+        allowed_warehouses = {
+            "Unit One",
+            "Unit Two",
+        }
+
+        if warehouse not in allowed_warehouses:
+            raise serializers.ValidationError({
+                "warehouse": (
+                    "Select Unit One or Unit Two."
+                )
+            })
+
+        return attrs
+
+
+# ============================================================
+# 5. MANUAL CONSUMABLE GRN INPUT SERIALIZER
+# ============================================================
+
+class ConsumableGRNCreateSerializer(serializers.Serializer):
+
+    consumable_variety = serializers.PrimaryKeyRelatedField(
+        queryset=ConsumableVariety.objects.filter(
+            is_active=True
+        ),
+    )
+
+    supplier = serializers.CharField(
+        max_length=255,
+    )
+
+    supplier_invoice_number = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+
+    quantity = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        min_value=Decimal("0.001"),
+    )
+
+    warehouse = serializers.ChoiceField(
+        choices=ConsumableGRN.WAREHOUSE_CHOICES,
+    )
+
+    received_by = serializers.CharField(
+        max_length=255,
+    )
+
+    received_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+    )
+
+    buffer_stock_limit = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        min_value=0,
+        required=False,
+        allow_null=True,
+    )
+
+    remarks = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+
+    def validate_consumable_variety(self, value):
+
+        if not value.consumable.is_active:
+            raise serializers.ValidationError(
+                "Selected consumable is inactive."
+            )
+
+        if not value.consumable.category.is_active:
+            raise serializers.ValidationError(
+                "Selected category is inactive."
+            )
+
+        return value
+
+
+# ============================================================
+# 6. CONSUMABLE ISSUE SERIALIZER
+# ============================================================
 
 class ConsumableIssueSerializer(serializers.ModelSerializer):
+
+    variety_code = serializers.CharField(
+        source="grn.consumable_variety.variety_code",
+        read_only=True,
+    )
+
+    size = serializers.CharField(
+        source="grn.consumable_variety.size",
+        read_only=True,
+    )
+
+    variety_description = serializers.CharField(
+        source="grn.consumable_variety.description",
+        read_only=True,
+    )
+
     class Meta:
         model = ConsumableIssue
+
         fields = "__all__"
+
         read_only_fields = [
+            "id",
             "issue_number",
             "grn",
             "po_number",
@@ -2443,11 +2943,34 @@ class ConsumableIssueSerializer(serializers.ModelSerializer):
         ]
 
 
+# ============================================================
+# 7. CONSUMABLE RETURN SERIALIZER
+# ============================================================
+
 class ConsumableReturnSerializer(serializers.ModelSerializer):
+
+    variety_code = serializers.CharField(
+        source="issue.grn.consumable_variety.variety_code",
+        read_only=True,
+    )
+
+    size = serializers.CharField(
+        source="issue.grn.consumable_variety.size",
+        read_only=True,
+    )
+
+    variety_description = serializers.CharField(
+        source="issue.grn.consumable_variety.description",
+        read_only=True,
+    )
+
     class Meta:
         model = ConsumableReturn
+
         fields = "__all__"
+
         read_only_fields = [
+            "id",
             "return_number",
             "issue",
             "issue_number",
@@ -2457,6 +2980,7 @@ class ConsumableReturnSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
 
 #for material dwgbom
 from rest_framework import serializers

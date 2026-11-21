@@ -1,244 +1,332 @@
-
-
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminCard from "./components/AdminCard";
 import AdminDataTable from "./components/AdminDataTable";
 import Loading from "../../components/loading";
 import ErrorState from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
-
 import "./AdminBufferStock.css";
 
-const BUFFER_STOCK_ENDPOINT = "/erp/admin/buffer-stock/";
+const ENDPOINT = "/erp/admin/buffer-stock/";
+const numberText = (value) =>
+  Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 3 });
+const label = (value) =>
+  value === null || value === undefined || value === "" ? "—" : String(value);
+const apiMessage = (error) =>
+  error?.response?.data?.message ||
+  error?.response?.data?.detail ||
+  "Unable to save buffer limit.";
 
 export default function AdminBufferStock() {
   const { accessToken } = useAuth();
-  
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [drafts, setDrafts] = useState({});
+  const [savingId, setSavingId] = useState(null);
+  const [rowErrors, setRowErrors] = useState({});
+  const [notice, setNotice] = useState("");
 
-  // Edit Modal State
-  const [editRow, setEditRow] = useState(null);
-  const [editValue, setEditValue] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const loadData = useCallback(async () => {
-    if (!accessToken) return;
-    try {
-      setLoading(true);
-      setError("");
-      const response = await api.get(BUFFER_STOCK_ENDPOINT, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (response.data?.success) {
-        setRows(response.data.data);
+  const loadData = useCallback(
+    async (initial = false) => {
+      if (!accessToken) {
+        setError("Please log in again.");
+        setLoading(false);
+        return;
       }
-    } catch (err) {
-      setError(err?.response?.data?.message || "Failed to load buffer stock data.");
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken]);
+      if (initial) setLoading(true);
+      else setRefreshing(true);
+      try {
+        setError("");
+        const response = await api.get(ENDPOINT, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const items = response.data?.data;
+        if (!response.data?.success || !Array.isArray(items)) {
+          throw new Error("Unexpected buffer stock response.");
+        }
+        setRows(items);
+        setDrafts(
+          Object.fromEntries(
+            items.map((row) => [String(row.id), String(row.bufferQty ?? 0)]),
+          ),
+        );
+        setRowErrors({});
+      } catch (err) {
+        setError(
+          err?.response?.data?.message ||
+            err.message ||
+            "Failed to load buffer stock.",
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [accessToken],
+  );
 
   useEffect(() => {
-    loadData();
+    loadData(true);
   }, [loadData]);
 
-  // Save the updated buffer limit
-  const handleSaveEdit = async () => {
-    if (!editRow) return;
+  const visibleRows = useMemo(
+    () =>
+      rows.filter((row) =>
+        [
+          row.category,
+          row.consumableName,
+          row.varietyName,
+          row.description,
+          row.materialCode,
+          row.warehouse,
+        ].some((field) =>
+          String(field ?? "")
+            .toLowerCase()
+            .includes(query.trim().toLowerCase()),
+        ),
+      ),
+    [rows, query],
+  );
+
+  const updateDraft = (id, value) => {
+    setDrafts((previous) => ({ ...previous, [String(id)]: value }));
+    setRowErrors((previous) => ({ ...previous, [String(id)]: "" }));
+    setNotice("");
+  };
+
+  const saveLimit = async (row) => {
+    const key = String(row.id);
+    const raw = String(drafts[key] ?? "").trim();
+    const value = Number(raw);
+    if (!raw || !Number.isFinite(value) || value < 0) {
+      setRowErrors((previous) => ({
+        ...previous,
+        [key]: "Enter a valid number (0 or more).",
+      }));
+      return;
+    }
+    if (value === Number(row.bufferQty ?? 0)) return;
     try {
-      setSaving(true);
-      await api.patch(
-        `${BUFFER_STOCK_ENDPOINT}${editRow.id}/`,
-        { buffer_stock_limit: editValue },
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+      setSavingId(key);
+      setNotice("");
+      const response = await api.patch(
+        `${ENDPOINT}${row.id}/`,
+        { buffer_stock_limit: raw },
+        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
-      setEditRow(null); // Close modal
-      loadData(); // Reload table to update colors
+      if (response.data?.success === false)
+        throw new Error(response.data.message || "Save failed.");
+      await loadData(false);
+      setNotice(
+        `Buffer limit saved for ${row.consumableName || row.description || "consumable"} (${row.warehouse || "warehouse"}).`,
+      );
     } catch (err) {
-      alert(err?.response?.data?.message || "Failed to update buffer limit.");
+      setRowErrors((previous) => ({ ...previous, [key]: apiMessage(err) }));
     } finally {
-      setSaving(false);
+      setSavingId(null);
     }
   };
 
-  const COLUMNS = [
-    { key: "materialCode", header: "GRN / Code", mono: true },
+  const columns = [
     {
-      key: "description",
-      header: "Description",
-      render: (row) => <span className="admin-cell-wrap">{row.description}</span>,
-    },
-    { key: "warehouse", header: "Warehouse" },
-    { key: "unit", header: "Unit" },
-    {
-      key: "availableQty",
-      header: "Available Qty",
-      align: "right",
-      render: (row) => {
-        // Rule: If available quantity is under 100, make it red and bold
-        const isLow = row.availableQty < 100;
-        
-        return (
-          <span
-            style={{
-              color: isLow ? "#ef4444" : "inherit", // Red if under 100, else default
-              fontWeight: isLow ? "bold" : "normal",
-            }}
-          >
-            {row.availableQty}
-          </span>
-        );
-      },
+      key: "category",
+      header: "Category",
+      render: (row) => label(row.category),
     },
     {
-      key: "bufferQty",
-      header: "Buffer Limit",
-      align: "right",
+      key: "consumableName",
+      header: "Consumable",
       render: (row) => (
-        <span style={{ color: row.bufferQty > 0 ? "inherit" : "#94a3b8" }}>
-          {row.bufferQty > 0 ? row.bufferQty : "—"}
+        <span className="admin-cell-wrap">
+          {label(row.consumableName || row.description)}
         </span>
       ),
     },
     {
-      key: "status",
-      header: "Status",
-      render: (row) =>
-        row.isLow ? (
-          <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: "11px", backgroundColor: "#fee2e2", padding: "4px 8px", borderRadius: "4px" }}>
-            ⚠️ LOW STOCK
-          </span>
-        ) : (
-          <span style={{ color: "#10b981", fontSize: "12px", fontWeight: "bold" }}>OK</span>
-        ),
+      key: "varietyName",
+      header: "Variety",
+      render: (row) => label(row.varietyName),
     },
     {
-      key: "actions",
-      header: "Edit",
-      align: "center",
+      key: "warehouse",
+      header: "Warehouse",
+      render: (row) => label(row.warehouse),
+    },
+    {
+      key: "receivedQty",
+      header: "Received",
+      align: "right",
+      render: (row) => numberText(row.receivedQty),
+    },
+    {
+      key: "issuedQty",
+      header: "Issued",
+      align: "right",
+      render: (row) => numberText(row.issuedQty),
+    },
+    {
+      key: "returnedQty",
+      header: "Returned",
+      align: "right",
+      render: (row) => numberText(row.returnedQty),
+    },
+    {
+      key: "availableQty",
+      header: "Available",
+      align: "right",
       render: (row) => (
-        <button
-          onClick={() => {
-            setEditRow(row);
-            setEditValue(row.bufferQty || 0);
-          }}
-          style={{
-            background: "none",
-            border: "1px solid #cbd5e1",
-            borderRadius: "6px",
-            padding: "4px 8px",
-            cursor: "pointer",
-            fontSize: "12px",
-            color: "#475569",
-          }}
+        <strong className={row.isLow ? "buffer-qty-low" : ""}>
+          {numberText(row.availableQty)}{" "}
+          {label(row.unit) !== "—" ? row.unit : ""}
+        </strong>
+      ),
+    },
+    {
+      key: "bufferQty",
+      header: "Buffer Quantity (Editable)",
+      render: (row) => {
+        const key = String(row.id);
+        const dirty = String(drafts[key] ?? "") !== String(row.bufferQty ?? 0);
+        const busy = savingId !== null;
+        return (
+          <div className="buffer-input-cell">
+            <div className="buffer-input-actions">
+              <input
+                aria-label={`Buffer quantity for ${row.consumableName || row.description} ${row.varietyName || ""} ${row.warehouse || ""}`}
+                type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
+                className="buffer-inline-input"
+                value={drafts[key] ?? ""}
+                disabled={busy || refreshing}
+                onChange={(event) => updateDraft(row.id, event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") saveLimit(row);
+                }}
+              />
+              <button
+                type="button"
+                className="buffer-inline-save"
+                disabled={!dirty || busy || refreshing}
+                onClick={() => saveLimit(row)}
+              >
+                {savingId === key ? "Saving…" : "Save"}
+              </button>
+            </div>
+            {rowErrors[key] && (
+              <small className="buffer-row-error" role="alert">
+                {rowErrors[key]}
+              </small>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => (
+        <span
+          className={`buffer-status ${row.isLow ? "buffer-status-low" : "buffer-status-ok"}`}
         >
-          ✏️ Edit
-        </button>
+          {row.isLow ? "Low Stock" : "Sufficient"}
+        </span>
       ),
     },
   ];
 
+  const lowCount = rows.filter((row) => row.isLow).length;
   return (
     <div className="admin-buffer-stock-page">
-      <section className="buffer-stock-hero" style={{ backgroundImage: "url('/buffer_stock/buffer_stock_hero.png')" }}>
+      <section
+        className="buffer-stock-hero"
+        style={{
+          backgroundImage: "url('/buffer_stock/buffer_stock_hero.png')",
+        }}
+      >
         <div className="buffer-stock-hero-overlay" />
         <div className="buffer-stock-hero-content">
           <span className="buffer-stock-eyebrow">INVENTORY CONTROL</span>
           <h1>Buffer Stock</h1>
-          <p>Monitor material availability and maintain sufficient buffer levels to support uninterrupted production.</p>
+          <p>
+            Set alert quantities for each consumable variety and warehouse.
+            Saving a buffer limit does not change available stock.
+          </p>
         </div>
-        <img src="/buffer_stock/buffer_stock_icon.png" alt="" className="buffer-stock-hero-icon" aria-hidden="true" />
+        <img
+          src="/buffer_stock/buffer_stock_icon.png"
+          alt=""
+          className="buffer-stock-hero-icon"
+          aria-hidden="true"
+        />
       </section>
-
       <AdminCard>
-        <div className="buffer-stock-card-header">
+        <div className="buffer-stock-card-header buffer-stock-header-flex">
           <div className="buffer-stock-card-heading">
-            <span className="buffer-stock-card-eyebrow">INVENTORY REGISTER</span>
-            <h2>Material Buffer List</h2>
-            <p>Monitor available quantities against the required buffer stock level.</p>
+            <span className="buffer-stock-card-eyebrow">
+              INVENTORY REGISTER
+            </span>
+            <h2>Category &amp; Variety Buffer Levels</h2>
+            <p>
+              Combined quantities by variety and warehouse; edit the alert limit
+              directly in the table.
+            </p>
           </div>
-          <div className="buffer-stock-record-count">
-            <span className="buffer-stock-record-icon">◇</span>
-            <span>{rows.length} Records</span>
+          <div className="buffer-header-controls">
+            <input
+              className="buffer-search"
+              type="search"
+              placeholder="Search category, variety, warehouse…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <button
+              className="buffer-refresh"
+              type="button"
+              disabled={refreshing || savingId !== null}
+              onClick={() => loadData(false)}
+            >
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+            <span className="buffer-stock-record-count">
+              {visibleRows.length} Records · {lowCount} Low
+            </span>
           </div>
         </div>
-
+        {notice && (
+          <div className="buffer-notice" role="status">
+            {notice}
+          </div>
+        )}
         <div className="buffer-stock-table-wrapper">
           {loading ? (
-            <div style={{ padding: "40px 0", display: "flex", justifyContent: "center" }}><Loading /></div>
+            <div className="buffer-state">
+              <Loading />
+            </div>
           ) : error ? (
-            <div style={{ padding: "40px 0" }}><ErrorState onRetry={loadData} /></div>
+            <div className="buffer-state">
+              <p>{error}</p>
+              <ErrorState onRetry={() => loadData(false)} />
+            </div>
           ) : (
-            <AdminDataTable columns={COLUMNS} rows={rows} rowKey="id" emptyTitle="No buffer stock data" minWidth={800} />
+            <AdminDataTable
+              columns={columns}
+              rows={visibleRows}
+              rowKey="id"
+              emptyTitle="No buffer stock records found"
+              minWidth={1250}
+            />
           )}
         </div>
       </AdminCard>
-
-      {/* EDIT MODAL OVERLAY */}
-      {editRow && (
-        <div
-          style={{
-            position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 1000,
-            display: "flex", alignItems: "center", justifyContent: "center", padding: "16px"
-          }}
-          onClick={() => setEditRow(null)}
-        >
-          <div
-            style={{
-              background: "#fff", borderRadius: "12px", padding: "24px", width: "100%", maxWidth: "400px",
-              boxShadow: "0 20px 40px rgba(0,0,0,0.2)"
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ margin: "0 0 8px 0", fontSize: "18px", color: "#0f172a" }}>Set Buffer Limit</h3>
-            <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#64748b" }}>
-              {editRow.description} ({editRow.materialCode})
-            </p>
-
-            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#475569", marginBottom: "6px" }}>
-              Minimum Quantity Alert Level ({editRow.unit})
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              style={{
-                width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1",
-                fontSize: "14px", marginBottom: "20px", boxSizing: "border-box"
-              }}
-            />
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-              <button
-                onClick={() => setEditRow(null)}
-                style={{ padding: "8px 16px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                disabled={saving}
-                style={{
-                  padding: "8px 16px", borderRadius: "6px", border: "none",
-                  background: "#4f46e5", color: "#fff", fontWeight: "600",
-                  cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1
-                }}
-              >
-                {saving ? "Saving..." : "Save Limit"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="buffer-stock-page-note">
-        Buffer stock levels help maintain material availability and reduce the risk of production interruptions.
+        Low stock is flagged when available quantity is at or below the
+        configured buffer quantity. A limit of 0 disables low-stock alerts in
+        the current backend.
       </div>
     </div>
   );

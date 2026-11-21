@@ -3014,6 +3014,163 @@ class PurchaseOrderItem(models.Model):
         return f"{self.po_number} - {self.description}"
 
 
+
+
+
+from django.db import models
+from django.db.models import Q
+from decimal import Decimal
+
+
+# ============================================================
+# 1. CONSUMABLE CATEGORY
+# ============================================================
+
+class ConsumableCategory(models.Model):
+
+    name = models.CharField(
+        max_length=150,
+        unique=True,
+    )
+
+    description = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "Consumable Categories"
+
+    def __str__(self):
+        return self.name
+
+
+# ============================================================
+# 2. CONSUMABLE MASTER
+# ============================================================
+
+class ConsumableMaster(models.Model):
+
+    category = models.ForeignKey(
+        ConsumableCategory,
+        on_delete=models.PROTECT,
+        related_name="consumables",
+    )
+
+    name = models.CharField(
+        max_length=255,
+    )
+
+    unit = models.CharField(
+        max_length=50,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["category", "name"],
+                name="unique_consumable_per_category",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.category.name} - {self.name}"
+
+
+# ============================================================
+# 3. CONSUMABLE VARIETY
+# ============================================================
+
+class ConsumableVariety(models.Model):
+
+    consumable = models.ForeignKey(
+        ConsumableMaster,
+        on_delete=models.PROTECT,
+        related_name="varieties",
+    )
+
+    variety_code = models.CharField(
+        max_length=20,
+    )
+
+    size = models.CharField(
+        max_length=150,
+    )
+
+    description = models.TextField()
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["consumable", "id"]
+
+        constraints = [
+
+            models.UniqueConstraint(
+                fields=["consumable", "variety_code"],
+                name="unique_consumable_variety_code",
+            ),
+
+            models.UniqueConstraint(
+                fields=[
+                    "consumable",
+                    "size",
+                    "description",
+                ],
+                name="unique_consumable_specification",
+            ),
+
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.consumable.name} - "
+            f"Variety {self.variety_code} - "
+            f"{self.size}"
+        )
+
+
+# ============================================================
+# 4. CONSUMABLE GRN
+# ============================================================
+
 class ConsumableGRN(models.Model):
 
     class GRNType(models.TextChoices):
@@ -3030,31 +3187,57 @@ class ConsumableGRN(models.Model):
         ("Unit Two", "Unit Two"),
     ]
 
-    grn_number = models.CharField(max_length=100, unique=True)
+    # --------------------------------------------------------
+    # GRN NUMBER
+    # --------------------------------------------------------
+
+    grn_number = models.CharField(
+        max_length=100,
+        unique=True,
+    )
+
+    # --------------------------------------------------------
+    # GRN TYPE
+    # New records will use DIRECT.
+    # PO retained for historical compatibility.
+    # --------------------------------------------------------
 
     grn_type = models.CharField(
         max_length=20,
         choices=GRNType.choices,
-        default=GRNType.PO,
+        default=GRNType.DIRECT,
     )
 
+    # --------------------------------------------------------
+    # EXISTING PO RELATION
+    # Retained for historical data only.
+    # --------------------------------------------------------
+
     purchase_order_item = models.ForeignKey(
-        PurchaseOrderItem,
+        "PurchaseOrderItem",
         on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="grns",
         db_index=True,
-
     )
-    buffer_stock_limit = models.DecimalField(
-    max_digits=15,
-    decimal_places=3,
-    null=True,
-    blank=True,
-    default=None,
-    help_text="Trigger an email alert when available stock drops to or below this level."
-)
+
+    # --------------------------------------------------------
+    # NEW CONSUMABLE VARIETY RELATION
+    # --------------------------------------------------------
+
+    consumable_variety = models.ForeignKey(
+        ConsumableVariety,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="grns",
+        db_index=True,
+    )
+
+    # --------------------------------------------------------
+    # EXISTING PO SNAPSHOT FIELDS
+    # --------------------------------------------------------
 
     po_number = models.CharField(
         max_length=100,
@@ -3068,11 +3251,26 @@ class ConsumableGRN(models.Model):
         default="",
     )
 
+    # --------------------------------------------------------
+    # SUPPLIER
+    # --------------------------------------------------------
+
     supplier = models.CharField(
         max_length=255,
         blank=True,
         default="",
     )
+
+    supplier_invoice_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    # --------------------------------------------------------
+    # CONSUMABLE SNAPSHOT FIELDS
+    # Retained for existing APIs and historical reports.
+    # --------------------------------------------------------
 
     consumable_name = models.CharField(
         max_length=255,
@@ -3092,6 +3290,10 @@ class ConsumableGRN(models.Model):
         default="",
     )
 
+    # --------------------------------------------------------
+    # QUANTITIES
+    # --------------------------------------------------------
+
     ordered_quantity = models.DecimalField(
         max_digits=15,
         decimal_places=3,
@@ -3110,6 +3312,10 @@ class ConsumableGRN(models.Model):
         default=0,
     )
 
+    # --------------------------------------------------------
+    # WAREHOUSE
+    # --------------------------------------------------------
+
     warehouse = models.CharField(
         max_length=50,
         choices=WAREHOUSE_CHOICES,
@@ -3118,12 +3324,36 @@ class ConsumableGRN(models.Model):
         db_index=True,
     )
 
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
+
     status = models.CharField(
         max_length=30,
         choices=Status.choices,
-        default=Status.PENDING,
+        default=Status.FULLY_RECEIVED,
         db_index=True,
     )
+
+    # --------------------------------------------------------
+    # BUFFER STOCK LIMIT
+    # --------------------------------------------------------
+
+    buffer_stock_limit = models.DecimalField(
+        max_digits=15,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Trigger an email alert when available stock "
+            "drops to or below this level."
+        ),
+    )
+
+    # --------------------------------------------------------
+    # RECEIVED DETAILS
+    # --------------------------------------------------------
 
     received_by = models.CharField(
         max_length=255,
@@ -3131,27 +3361,81 @@ class ConsumableGRN(models.Model):
         default="",
     )
 
+    received_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+
     remarks = models.TextField(
         blank=True,
         default="",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    # --------------------------------------------------------
+    # TIMESTAMPS
+    # --------------------------------------------------------
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    # --------------------------------------------------------
+    # META
+    # --------------------------------------------------------
 
     class Meta:
+
         ordering = ["-created_at"]
+
         indexes = [
-            models.Index(fields=["purchase_order_item", "received_quantity"],
-                         name="cgrn_item_qty_idx"),                # ← add (aggregate)
-            models.Index(fields=["po_number", "po_description"],
-                         name="cgrn_po_desc_idx"),                 # ← add (movement group key)
-            models.Index(fields=["-created_at"], name="cgrn_created_desc_idx"),  # ← add
+
+            models.Index(
+                fields=[
+                    "purchase_order_item",
+                    "received_quantity",
+                ],
+                name="cgrn_item_qty_idx",
+            ),
+
+            models.Index(
+                fields=[
+                    "po_number",
+                    "po_description",
+                ],
+                name="cgrn_po_desc_idx",
+            ),
+
+            models.Index(
+                fields=["-created_at"],
+                name="cgrn_created_desc_idx",
+            ),
+
+            models.Index(
+                fields=[
+                    "consumable_variety",
+                    "warehouse",
+                ],
+                name="cgrn_variety_wh_idx",
+            ),
+
         ]
 
     def __str__(self):
-        return f"{self.grn_number} - {self.po_number}"
-    
+
+        if self.consumable_variety_id:
+            return (
+                f"{self.grn_number} - "
+                f"{self.consumable_variety}"
+            )
+
+        return (
+            f"{self.grn_number} - "
+            f"{self.consumable_name or self.po_number}"
+        )
 
     
 #for buffer stock alert email log
@@ -3176,6 +3460,14 @@ class ConsumableEmailLog(models.Model):
         blank=True,
         default="",
     )
+
+    consumable_variety = models.ForeignKey(
+    "ConsumableVariety",
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name="email_logs",
+)
 
     category = models.CharField(
         max_length=100,
@@ -3266,6 +3558,19 @@ class ConsumableEmailLog(models.Model):
         )
 
 
+class ConsumableIssueAllocation(models.Model):
+
+    issue = models.ForeignKey('ConsumableIssue', on_delete=models.PROTECT, related_name='source_allocations')
+    grn = models.ForeignKey('ConsumableGRN', on_delete=models.PROTECT, related_name='original_allocations')
+    source_return = models.ForeignKey('ConsumableReturn', on_delete=models.PROTECT, null=True, blank=True, related_name='reissue_allocations')
+    quantity = models.DecimalField(max_digits=15, decimal_places=3)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['grn', 'source_return'])]
+
+
+
 class ConsumableIssue(models.Model):
 
     class Status(models.TextChoices):
@@ -3296,6 +3601,13 @@ class ConsumableIssue(models.Model):
     quantity_issued = models.DecimalField(
         max_digits=15, decimal_places=3, default=0,
     )
+    consumable_variety = models.ForeignKey(
+    "ConsumableVariety",
+    on_delete=models.PROTECT,
+    null=True,
+    blank=True,
+    related_name="issues",
+)
 
     # Overall lifecycle status (stored, updated on every return)
     status = models.CharField(

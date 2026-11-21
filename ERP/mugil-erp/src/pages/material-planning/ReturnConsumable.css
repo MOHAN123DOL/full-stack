@@ -792,3 +792,13 @@
   cursor: not-allowed;
   opacity: 0.75;
 }
+/* Return history and edit controls */
+.rcn-history-section { margin-top: 28px; }
+.rcn-history-heading { gap: 16px; flex-wrap: wrap; }
+.rcn-history-search { padding: 18px 26px; max-width: 600px; }
+.rcn-edit-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 10px; padding: 10px 16px; background: #2563eb; color: #fff; cursor: pointer; font-weight: 600; white-space: nowrap; }
+.rcn-edit-btn:hover { background: #1d4ed8; }
+.rcn-edit-locked { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; background: #f1f5f9; color: #64748b; border-radius: 9px; white-space: nowrap; font-size: 12px; font-weight: 700; }
+.rcn-history-error { margin: 0 26px 16px; padding: 14px; border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; border-radius: 10px; overflow-wrap: anywhere; }
+.rcn-edit-note { margin: 20px 0 0; font-size: 13px; color: #64748b; line-height: 1.6; }
+@media(max-width: 768px) { .rcn-history-search { padding: 16px; } .rcn-history-heading { padding: 18px; } }

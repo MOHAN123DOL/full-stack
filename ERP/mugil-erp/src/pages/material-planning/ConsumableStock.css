@@ -529,3 +529,20 @@
   }
 
 }
+/* Combined variety / warehouse register enhancements */
+.cons-stock-table-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:22px 24px;border-bottom:1px solid #e2e8f0;}
+.cons-stock-table-heading h2 {margin:0;font-size:19px;color:#0f172a;}
+.cons-stock-table-heading span {font-size:13px;color:#64748b;}
+.cons-stock-table-grid {min-width:1550px;}
+.cons-stock-table-cell {white-space:nowrap;}
+.cons-stock-table-cell:nth-child(5) {white-space:normal;min-width:180px;max-width:300px;}
+.cons-stock-subline {display:block;margin-top:4px;color:#64748b;font-size:12px;}
+.cons-stock-refresh-button {display:inline-flex;align-items:center;justify-content:center;gap:9px;height:48px;padding:0 18px;border:1px solid #dbe4ee;border-radius:12px;background:#fff;color:#1d4ed8;font-weight:700;cursor:pointer;}
+.cons-stock-refresh-button:hover {background:#eff6ff;}
+.cons-stock-refresh-button:disabled {opacity:.6;cursor:not-allowed;}
+.cons-stock-spin {animation:consStockSpin 1s linear infinite;}
+@keyframes consStockSpin {to {transform:rotate(360deg);}}
+.cons-stock-error-box {padding:16px 20px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;color:#991b1b;}
+.cons-stock-error-box button {margin-left:12px;border:0;background:#991b1b;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;}
+.cons-stock-note {font-size:12px;color:#64748b;line-height:1.6;margin:0;}
+@media(max-width:768px){.cons-stock-table-heading{padding:16px;}.cons-stock-table-heading h2{font-size:16px;}.cons-stock-toolbar-filterarea{width:100%;}.cons-stock-refresh-button{width:100%;}}

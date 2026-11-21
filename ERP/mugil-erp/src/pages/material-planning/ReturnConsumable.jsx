@@ -6,6 +6,8 @@ import {
   Undo2,
   X,
   RefreshCw,
+  Pencil,
+  LockKeyhole,
 } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
@@ -21,6 +23,7 @@ import "./ReturnConsumable.css";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 const ISSUES_ENDPOINT = "/erp/consumable-grn/returnable-issues/";
 const RETURN_ENDPOINT = "/erp/consumable-grn/return/";
+const RETURN_HISTORY_ENDPOINT = "/erp/consumable-grn/returns/";
 
 // ---------------------------------------------------------------------
 // SAFE STRING — some fields may arrive as objects.
@@ -98,6 +101,14 @@ export default function ReturnConsumable() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [search, setSearch] = useState("");
+  const [returnHistory, setReturnHistory] = useState([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyError, setHistoryError] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [editingReturn, setEditingReturn] = useState(null);
+  const [editForm, setEditForm] = useState({ returnQty: "", remarks: "" });
+  const [editError, setEditError] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [returnForm, setReturnForm] = useState(initialReturnForm);
@@ -165,6 +176,72 @@ export default function ReturnConsumable() {
   useEffect(() => {
     fetchIssues(false);
   }, [fetchIssues]);
+
+  const fetchReturnHistory = useCallback(async () => {
+    if (!accessToken) { setHistoryLoading(false); return; }
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const response = await api.get(RETURN_HISTORY_ENDPOINT, { headers: authHeaders() });
+      const payload = response.data;
+      const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.results) ? payload.results : [];
+      setReturnHistory(rows);
+    } catch (err) {
+      setHistoryError(getApiError(err, "Could not load return history. Ensure GET /erp/consumable-grn/returns/ is configured."));
+      setReturnHistory([]);
+    } finally { setHistoryLoading(false); }
+  }, [accessToken, authHeaders]);
+
+  useEffect(() => { fetchReturnHistory(); }, [fetchReturnHistory]);
+
+  const field = (obj, ...keys) => keys.map(k => obj?.[k]).find(v => v !== undefined && v !== null) ?? "";
+  const num = (v) => Number(v) || 0;
+  const historyQty = (r) => num(field(r, "returnQty", "returnedQty", "quantity_returned", "quantity"));
+  const canEditReturn = (r) => {
+    const explicit = field(r, "can_edit", "canEdit");
+    if (explicit !== "") return explicit === true || explicit === "true";
+    // Without server-provided permission, do not assume that reissued returns are editable.
+    return false;
+  };
+  const filteredHistory = returnHistory.filter(r => [
+    field(r, "returnNumber", "return_number"),
+    field(r, "issueNumber", "issue_number"),
+    field(r, "consumableName", "consumable_name"),
+    field(r, "returnedBy", "returned_by"),
+  ].map(toDisplayString).join(" ").toLowerCase().includes(historySearch.trim().toLowerCase()));
+
+  function openEditReturn(row) {
+    if (!canEditReturn(row)) return;
+    setEditingReturn(row);
+    setEditForm({ returnQty: String(historyQty(row)), remarks: toDisplayString(field(row, "remarks")) });
+    setEditError("");
+  }
+  function closeEditReturn() {
+    if (savingEdit) return;
+    setEditingReturn(null);
+    setEditError("");
+  }
+  async function submitEditReturn(event) {
+    event.preventDefault();
+    if (!editingReturn || savingEdit) return;
+    const quantity = Number(editForm.returnQty);
+    if (!Number.isFinite(quantity) || quantity <= 0) { setEditError("Enter a positive return quantity."); return; }
+    const id = field(editingReturn, "id");
+    if (!id) { setEditError("Missing return record ID."); return; }
+    setSavingEdit(true);
+    setEditError("");
+    try {
+      await api.patch(`/erp/consumable-grn/returns/${id}/`, {
+        returnQty: quantity,
+        remarks: editForm.remarks,
+      }, { headers: authHeaders() });
+      setEditingReturn(null);
+      await Promise.all([fetchIssues(true), fetchReturnHistory()]);
+    } catch (err) {
+      setEditError(getApiError(err, "Failed to edit return. The quantity may have already been reissued."));
+    } finally { setSavingEdit(false); }
+  }
+
 
   // ---------------------------------------------------------------
   // FILTERING
@@ -265,7 +342,7 @@ export default function ReturnConsumable() {
       closeReturnModal();
 
       // Refresh so statuses and balances update
-      await fetchIssues(true);
+      await Promise.all([fetchIssues(true), fetchReturnHistory()]);
     } catch (err) {
       console.error("Return failed:", err);
       setReturnErrors({
@@ -517,6 +594,81 @@ export default function ReturnConsumable() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* ============== RETURN HISTORY / EDIT ============== */}
+        <section className="rcn-table-card rcn-history-section">
+          <div className="rcn-table-header rcn-history-heading">
+            <div>
+              <h2 className="rcn-table-title">Return History</h2>
+              <p className="rcn-table-subtitle">Edit individual return transactions until their quantities have been reissued.</p>
+            </div>
+            <button type="button" className="rcn-refresh-button" onClick={() => { fetchReturnHistory(); fetchIssues(true); }} disabled={historyLoading}>
+              <RefreshCw size={16} className={historyLoading ? "rcn-spin" : ""} /> Refresh
+            </button>
+          </div>
+          <div className="rcn-history-search">
+            <div className="rcn-search-box"><Search size={16} />
+              <input value={historySearch} onChange={e => setHistorySearch(e.target.value)} placeholder="Search return number, issue, consumable, employee..." />
+            </div>
+          </div>
+          {historyError && <div className="rcn-history-error">{historyError}</div>}
+          <div className="rcn-table-wrapper">
+            <table className="rcn-table">
+              <thead><tr>
+                <th>Return Number</th><th>Issue Number</th><th>Consumable</th><th>Warehouse</th>
+                <th>Returned Qty</th><th>Returned By</th><th>Remarks</th><th>Action</th>
+              </tr></thead>
+              <tbody>
+                {historyLoading ? <tr><td colSpan={8} className="rcn-empty-row"><Loading /></td></tr> :
+                  filteredHistory.length === 0 ? <tr><td colSpan={8} className="rcn-empty-row">No return history found.</td></tr> :
+                  filteredHistory.map((row, index) => (
+                    <tr key={field(row, "id") || index}>
+                      <td className="rcn-issue-number">{toDisplayString(field(row, "returnNumber", "return_number")) || `#${field(row, "id")}`}</td>
+                      <td>{toDisplayString(field(row, "issueNumber", "issue_number")) || "—"}</td>
+                      <td>{toDisplayString(field(row, "consumableName", "consumable_name")) || "—"}</td>
+                      <td>{toDisplayString(field(row, "warehouse")) || "—"}</td>
+                      <td><span className="rcn-qty">{historyQty(row)} {toDisplayString(field(row, "unit"))}</span></td>
+                      <td>{toDisplayString(field(row, "returnedBy", "returned_by")) || "—"}</td>
+                      <td>{toDisplayString(field(row, "remarks")) || "—"}</td>
+                      <td>{canEditReturn(row) ?
+                        <button type="button" className="rcn-edit-btn" onClick={() => openEditReturn(row)}><Pencil size={15} /> Edit</button> :
+                        <span className="rcn-edit-locked" title="Editing disabled by backend"><LockKeyhole size={14} /> Edit Locked</span>}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {editingReturn && (
+          <div className="rcn-modal-overlay" onClick={closeEditReturn}>
+            <div className="rcn-modal" onClick={e => e.stopPropagation()}>
+              <div className="rcn-modal-header">
+                <h3 className="rcn-modal-title">Edit Return {toDisplayString(field(editingReturn, "returnNumber", "return_number"))}</h3>
+                <button type="button" className="rcn-modal-close" onClick={closeEditReturn} disabled={savingEdit}><X size={18} /></button>
+              </div>
+              <form className="rcn-modal-body" onSubmit={submitEditReturn}>
+                {editError && <div className="rcn-form-error">{editError}</div>}
+                <div className="rcn-form-grid">
+                  <label className="rcn-field"><span className="rcn-field-label">Return Quantity</span>
+                    <input type="number" min="0.001" step="0.001" required value={editForm.returnQty} disabled={savingEdit}
+                      onChange={e => setEditForm(prev => ({ ...prev, returnQty: e.target.value }))} />
+                  </label>
+                  <label className="rcn-field rcn-field-full"><span className="rcn-field-label">Remarks</span>
+                    <textarea value={editForm.remarks} disabled={savingEdit}
+                      onChange={e => setEditForm(prev => ({ ...prev, remarks: e.target.value }))} />
+                  </label>
+                </div>
+                <p className="rcn-edit-note">The server validates the issue balance and prevents reducing a return below any quantity already reissued.</p>
+                <div className="rcn-modal-actions">
+                  <button type="button" className="rcn-cancel-btn" onClick={closeEditReturn} disabled={savingEdit}>Cancel</button>
+                  <button type="submit" className="rcn-save-btn" disabled={savingEdit}>{savingEdit ? "Saving..." : "Save Changes"}</button>
+                </div>
+              </form>
             </div>
           </div>
         )}

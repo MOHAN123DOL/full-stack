@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -20,16 +19,13 @@ import Error from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 
-
 /* ============================================================
    CONSTANTS
    ============================================================ */
 
 const CONSUMABLE_ENDPOINT = "/erp/consumable/";
 
-const GENERIC_ERROR =
-  "Something went wrong. Please try again.";
-
+const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 /* ============================================================
    DEFAULT ACTIONS
@@ -74,7 +70,6 @@ const DEFAULT_CONSUMABLE_ACTIONS = [
   },
 ];
 
-
 /* ============================================================
    ICON MAP
    API returns data, but icons remain frontend controlled.
@@ -88,7 +83,6 @@ const ACTION_ICONS = {
   RPT: BarChart3,
 };
 
-
 /* ============================================================
    CONSUMABLE PAGE
    ============================================================ */
@@ -99,12 +93,11 @@ export default function Consumable() {
   const { accessToken } = useAuth();
 
   const [consumableActions, setConsumableActions] = useState(
-    DEFAULT_CONSUMABLE_ACTIONS
+    DEFAULT_CONSUMABLE_ACTIONS,
   );
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-
 
   /* ============================================================
      AUTH HEADERS
@@ -114,9 +107,8 @@ export default function Consumable() {
     () => ({
       Authorization: `Bearer ${accessToken}`,
     }),
-    [accessToken]
+    [accessToken],
   );
-
 
   /* ============================================================
      LOAD CONSUMABLE DASHBOARD
@@ -125,9 +117,7 @@ export default function Consumable() {
   const refresh = useCallback(async () => {
     if (!accessToken) {
       setConsumableActions([]);
-      setError(
-        "Your session has expired. Please login again."
-      );
+      setError("Your session has expired. Please login again.");
       setIsLoading(false);
       return;
     }
@@ -136,12 +126,9 @@ export default function Consumable() {
       setIsLoading(true);
       setError("");
 
-      const response = await api.get(
-        CONSUMABLE_ENDPOINT,
-        {
-          headers: authHeaders(),
-        }
-      );
+      const response = await api.get(CONSUMABLE_ENDPOINT, {
+        headers: authHeaders(),
+      });
 
       const responseData = response.data;
 
@@ -163,30 +150,22 @@ export default function Consumable() {
       if (actions.length > 0) {
         const formattedActions = actions.map((action) => ({
           ...action,
-          icon:
-            ACTION_ICONS[action.code] ||
-            Boxes,
+          icon: ACTION_ICONS[action.code] || Boxes,
         }));
 
         setConsumableActions(formattedActions);
       } else {
         setConsumableActions(DEFAULT_CONSUMABLE_ACTIONS);
       }
-
     } catch (err) {
-      console.error(
-        "Failed to load consumable module:",
-        err
-      );
+      console.error("Failed to load consumable module:", err);
 
       setConsumableActions([]);
       setError(GENERIC_ERROR);
-
     } finally {
       setIsLoading(false);
     }
   }, [accessToken, authHeaders]);
-
 
   /* ============================================================
      INITIAL LOAD
@@ -195,7 +174,6 @@ export default function Consumable() {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
 
   /* ============================================================
      NAVIGATION
@@ -207,9 +185,8 @@ export default function Consumable() {
 
       navigate(path);
     },
-    [navigate]
+    [navigate],
   );
-
 
   /* ============================================================
      RENDER
@@ -221,20 +198,14 @@ export default function Consumable() {
 
       <div className="consumable-page">
         <div className="consumable-layout">
-
           {/* ====================================================
               SIDEBAR
               ==================================================== */}
 
           <aside className="consumable-sidebar">
-
             <div className="consumable-sidebar-brand">
-
               <div className="consumable-sidebar-brand-icon">
-                <PackagePlus
-                  size={21}
-                  strokeWidth={1.8}
-                />
+                <PackagePlus size={21} strokeWidth={1.8} />
               </div>
 
               <div>
@@ -242,22 +213,13 @@ export default function Consumable() {
                   Inventory Module
                 </span>
 
-                <h2 className="consumable-sidebar-title">
-                  Consumables
-                </h2>
+                <h2 className="consumable-sidebar-title">Consumables</h2>
               </div>
-
             </div>
 
-
             <nav className="consumable-sidebar-nav">
-
               {consumableActions.map((action) => {
-
-                const Icon =
-                  action.icon ||
-                  ACTION_ICONS[action.code] ||
-                  Boxes;
+                const Icon = action.icon || ACTION_ICONS[action.code] || Boxes;
 
                 return (
                   <div
@@ -267,30 +229,20 @@ export default function Consumable() {
                         ? "consumable-sidebar-item-active"
                         : ""
                     }`}
-                    onClick={() =>
-                      handleNavigate(action.path)
-                    }
+                    onClick={() => handleNavigate(action.path)}
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" ||
-                        e.key === " "
-                      ) {
+                      if (e.key === "Enter" || e.key === " ") {
                         handleNavigate(action.path);
                       }
                     }}
                   >
-
                     <span className="consumable-sidebar-item-icon">
-                      <Icon
-                        size={18}
-                        strokeWidth={1.8}
-                      />
+                      <Icon size={18} strokeWidth={1.8} />
                     </span>
 
                     <span className="consumable-sidebar-item-content">
-
                       <span className="consumable-sidebar-item-code">
                         {action.code}
                       </span>
@@ -298,77 +250,48 @@ export default function Consumable() {
                       <span className="consumable-sidebar-item-title">
                         {action.title}
                       </span>
-
                     </span>
-
                   </div>
                 );
               })}
-
             </nav>
 
-
             <div className="consumable-sidebar-footer">
-
               <div className="consumable-sidebar-footer-icon">
-                <Boxes
-                  size={19}
-                  strokeWidth={1.8}
-                />
+                <Boxes size={19} strokeWidth={1.8} />
               </div>
 
               <div>
-                <strong>
-                  Consumable Operations
-                </strong>
+                <strong>Consumable Operations</strong>
 
-                <span>
-                  Inventory workflows in one place.
-                </span>
+                <span>Inventory workflows in one place.</span>
               </div>
-
             </div>
-
           </aside>
-
 
           {/* ====================================================
               MAIN CONTENT
               ==================================================== */}
 
           <main className="consumable-main">
-
             <div className="inventory-top-row">
-
-              <Link
-                to="/inventory"
-                className="consumable-back-link"
-              >
+              <Link to="/inventory" className="consumable-back-link">
                 <ArrowLeft size={15} />
                 Inventory
               </Link>
 
               <InventoryModuleSwitcher />
-
             </div>
 
-
             <header className="consumable-header">
+              <span className="consumable-eyebrow">Consumables</span>
 
-              <span className="consumable-eyebrow">
-                Consumables
-              </span>
-
-              <h1 className="consumable-title">
-                Consumable Inventory
-              </h1>
+              <h1 className="consumable-title">Consumable Inventory</h1>
 
               <p className="consumable-subtitle">
                 Manage all production consumables.
               </p>
-
             </header>
-
 
             {/* ==================================================
                 LOADING
@@ -380,7 +303,6 @@ export default function Consumable() {
               </div>
             )}
 
-
             {/* ==================================================
                 ERROR
                 ================================================== */}
@@ -391,197 +313,126 @@ export default function Consumable() {
               </div>
             )}
 
-
             {/* ==================================================
                 CONTENT
                 ================================================== */}
 
-            {!isLoading &&
-              !error &&
-              consumableActions.length > 0 && (
-                <>
-
-                  {/* ============================================
+            {!isLoading && !error && consumableActions.length > 0 && (
+              <>
+                {/* ============================================
                       FEATURED STOCK
                       ============================================ */}
 
-                  {consumableActions
-                    .filter(
-                      (action) =>
-                        action.code === "STK"
-                    )
-                    .map((action) => {
+                {consumableActions
+                  .filter((action) => action.code === "STK")
+                  .map((action) => {
+                    const Icon = action.icon || Boxes;
 
-                      const Icon =
-                        action.icon ||
-                        Boxes;
-
-                      return (
-                        <section
-                          className="consumable-featured"
-                          key={action.code}
-                          onClick={() =>
-                            handleNavigate(
-                              action.path
-                            )
+                    return (
+                      <section
+                        className="consumable-featured"
+                        key={action.code}
+                        onClick={() => handleNavigate(action.path)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            handleNavigate(action.path);
                           }
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (
-                              e.key === "Enter" ||
-                              e.key === " "
-                            ) {
-                              handleNavigate(
-                                action.path
-                              );
-                            }
-                          }}
-                        >
-
-                          <div className="consumable-featured-header">
-
-                            <div className="consumable-featured-icon">
-                              <Icon
-                                size={26}
-                                strokeWidth={1.8}
-                              />
-                            </div>
-
-                            <div className="consumable-featured-heading">
-
-                              <span className="consumable-code">
-                                {action.code}
-                              </span>
-
-                              <h2 className="consumable-featured-title">
-                                {action.title}
-                              </h2>
-
-                              <p className="consumable-featured-desc">
-                                {action.description}
-                              </p>
-
-                            </div>
-
+                        }}
+                      >
+                        <div className="consumable-featured-header">
+                          <div className="consumable-featured-icon">
+                            <Icon size={26} strokeWidth={1.8} />
                           </div>
 
-                        </section>
-                      );
-                    })}
+                          <div className="consumable-featured-heading">
+                            <span className="consumable-code">
+                              {action.code}
+                            </span>
 
+                            <h2 className="consumable-featured-title">
+                              {action.title}
+                            </h2>
 
-                  {/* ============================================
+                            <p className="consumable-featured-desc">
+                              {action.description}
+                            </p>
+                          </div>
+                        </div>
+                      </section>
+                    );
+                  })}
+
+                {/* ============================================
                       ACTION CARDS
                       ============================================ */}
 
-                  <div className="consumable-grid">
+                <div className="consumable-grid">
+                  {consumableActions
+                    .filter((action) => action.code !== "STK")
+                    .map((action) => {
+                      const Icon = action.icon || Boxes;
 
-                    {consumableActions
-                      .filter(
-                        (action) =>
-                          action.code !== "STK"
-                      )
-                      .map((action) => {
-
-                        const Icon =
-                          action.icon ||
-                          Boxes;
-
-                        return (
-                          <div
-                            className="consumable-card"
-                            key={action.code}
-                            onClick={() =>
-                              handleNavigate(
-                                action.path
-                              )
+                      return (
+                        <div
+                          className="consumable-card"
+                          key={action.code}
+                          onClick={() => handleNavigate(action.path)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              handleNavigate(action.path);
                             }
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (
-                                e.key === "Enter" ||
-                                e.key === " "
-                              ) {
-                                handleNavigate(
-                                  action.path
-                                );
-                              }
-                            }}
-                          >
-
-                            <div className="consumable-card-top">
-
-                              <div className="consumable-icon">
-                                <Icon
-                                  size={22}
-                                  strokeWidth={1.8}
-                                />
-                              </div>
-
-                              <span className="consumable-code">
-                                {action.code}
-                              </span>
-
+                          }}
+                        >
+                          <div className="consumable-card-top">
+                            <div className="consumable-icon">
+                              <Icon size={22} strokeWidth={1.8} />
                             </div>
 
-                            <h3 className="consumable-card-title">
-                              {action.title}
-                            </h3>
-
-                            <p className="consumable-card-desc">
-                              {action.description}
-                            </p>
-
+                            <span className="consumable-code">
+                              {action.code}
+                            </span>
                           </div>
-                        );
-                      })}
 
-                  </div>
+                          <h3 className="consumable-card-title">
+                            {action.title}
+                          </h3>
 
-                </>
-              )}
-
+                          <p className="consumable-card-desc">
+                            {action.description}
+                          </p>
+                        </div>
+                      );
+                    })}
+                </div>
+              </>
+            )}
 
             {/* ==================================================
                 EMPTY STATE
                 ================================================== */}
 
-            {!isLoading &&
-              !error &&
-              consumableActions.length === 0 && (
-                <div className="consumable-empty-state">
-                  <div className="consumable-empty-icon">
-                    <Boxes
-                      size={32}
-                      strokeWidth={1.5}
-                    />
-                  </div>
-
-                  <h3>
-                    No consumable operations available
-                  </h3>
-
-                  <p>
-                    There are currently no consumable
-                    operations configured.
-                  </p>
-
-                  <button
-                    type="button"
-                    onClick={refresh}
-                  >
-                    Retry
-                  </button>
+            {!isLoading && !error && consumableActions.length === 0 && (
+              <div className="consumable-empty-state">
+                <div className="consumable-empty-icon">
+                  <Boxes size={32} strokeWidth={1.5} />
                 </div>
-              )}
 
+                <h3>No consumable operations available</h3>
+
+                <p>There are currently no consumable operations configured.</p>
+
+                <button type="button" onClick={refresh}>
+                  Retry
+                </button>
+              </div>
+            )}
           </main>
-
         </div>
       </div>
     </>
   );
 }
-

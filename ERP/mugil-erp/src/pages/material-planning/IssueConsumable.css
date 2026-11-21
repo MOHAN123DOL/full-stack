@@ -838,3 +838,19 @@
     font-size: 12px;
   }
 }
+/* Combined stock and editable issue history */
+.issue-consumable-section { margin: 0 0 28px; }
+.issue-consumable-section-heading { display:flex; justify-content:space-between; align-items:center; gap:18px; flex-wrap:wrap; margin:0 0 16px; }
+.issue-consumable-section-heading h2 { display:flex; align-items:center; gap:10px; margin:0 0 6px; color:#111827; font-size:22px; }
+.issue-consumable-section-heading p { margin:0; color:#64748b; font-size:14px; }
+.issue-consumable-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.issue-consumable-unit-totals { display:flex; gap:10px; flex-wrap:wrap; padding:14px 4px; }
+.issue-consumable-unit-totals span { padding:8px 12px; background:#eaf2ff; border-radius:10px; color:#1e40af; font-weight:700; font-size:13px; }
+.issue-consumable-edit-button { display:inline-flex; align-items:center; gap:7px; background:#eef4ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; white-space:nowrap; }
+.issue-consumable-edit-button:hover { background:#dbeafe; }
+.issue-consumable-locked { display:inline-flex; align-items:center; gap:6px; padding:8px 11px; border-radius:10px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
+.issue-consumable-issue-button:disabled { opacity:.5; cursor:not-allowed; }
+.issue-consumable-modal { max-height:calc(100vh - 30px); overflow:auto; }
+.issue-consumable-summary-card { background:white; border:1px solid #e2e8f0; }
+.issue-consumable-info-item strong { overflow-wrap:anywhere; }
+@media(max-width:700px) { .issue-consumable-section-heading, .issue-consumable-actions { align-items:stretch; flex-direction:column; } .issue-consumable-search-box { width:100%; } .issue-consumable-modal-overlay { padding:10px; } }

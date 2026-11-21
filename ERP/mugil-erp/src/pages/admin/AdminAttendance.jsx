@@ -42,6 +42,7 @@ import "./AdminAttendance.css";
 const ATTENDANCE_ENDPOINT = "/erp/admin/attendance/";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 const DAILY_ERROR = "Unable to load daily attendance.";
+const DAILY_LIST_ERROR = "Unable to load attendance for the selected date.";
 
 /* ============================================================
    DATE / FORMAT HELPERS
@@ -145,6 +146,45 @@ const formatHours = (value) => {
   return `${n.toFixed(2)} h`;
 };
 
+/* Hours value that keeps a real 0 visible ("0 h") and a missing value as "—". */
+const formatHourValue = (value) => {
+  if (value == null || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${Number(n.toFixed(2))} h`;
+};
+
+/* Backend keeps 24-hour strings ("09:00", "18:30:00", ISO). Display only is 12-hour. */
+const format12h = (value) => {
+  if (value == null || value === "") return "—";
+  const m = String(value).match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?/);
+  if (!m) return String(value);
+  let h = Number(m[1]);
+  if (m[3]) return `${h}:${m[2]} ${m[3].toUpperCase()}`;
+  if (h > 23) return String(value);
+  const suffix = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${String(h).padStart(2, "0")}:${m[2]} ${suffix}`;
+};
+
+/* Move an ISO date by N days (local calendar, no timezone drift). */
+const shiftISODate = (iso, days) => {
+  const p = parseISO(iso);
+  if (!p) return iso;
+  const d = new Date(p.y, p.m - 1, p.d + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+};
+
+const formatWeekday = (iso) => {
+  const p = parseISO(iso);
+  if (!p) return "";
+  return new Date(p.y, p.m - 1, p.d).toLocaleDateString("en-IN", {
+    weekday: "long",
+  });
+};
+
 const formatCurrency = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return "—";
@@ -231,8 +271,21 @@ const ATTENDANCE_STATUS_OPTIONS = [
   { value: "all", label: "All Status" },
   { value: "PRESENT", label: "Present" },
   { value: "HALF_DAY", label: "Half Day" },
+  { value: "ABSENT", label: "Absent" },
+  { value: "NOT_MARKED", label: "Not Marked" },
+  { value: "PAID_LEAVE", label: "Paid Leave" },
+  { value: "UNPAID_LEAVE", label: "Unpaid Leave" },
+  { value: "HOLIDAY", label: "Holiday" },
+  { value: "WEEKLY_OFF", label: "Weekly Off" },
   { value: "WFH", label: "Work From Home" },
-  { value: "ON_LEAVE", label: "On Leave" },
+];
+
+/* Every status that counts as "on leave". */
+const LEAVE_STATUS_CODES = ["PAID_LEAVE", "UNPAID_LEAVE", "ON_LEAVE"];
+
+const VIEW_OPTIONS = [
+  { value: "daily", label: "Daily Attendance" },
+  { value: "monthly", label: "Monthly Attendance" },
 ];
 
 const MONTH_OPTIONS = MONTHS_LONG.map((label, index) => ({
@@ -241,6 +294,22 @@ const MONTH_OPTIONS = MONTHS_LONG.map((label, index) => ({
 }));
 
 /* Year dropdown: current year −10 … +2 (newest first). */
+/* Static list + any department the API actually returned (e.g. "Production"). */
+const buildDepartmentOptions = (rows, selected) => {
+  const known = new Set(DEPARTMENT_OPTIONS.map((o) => o.value));
+  const extra = new Set();
+  rows.forEach((row) => {
+    if (row?.department && !known.has(row.department))
+      extra.add(row.department);
+  });
+  if (selected && selected !== "all" && !known.has(selected))
+    extra.add(selected);
+  return [
+    ...DEPARTMENT_OPTIONS,
+    ...[...extra].sort().map((value) => ({ value, label: value })),
+  ];
+};
+
 const buildYearOptions = () => {
   const current = new Date().getFullYear();
   const out = [];
@@ -352,7 +421,7 @@ const loginTimeColumn = {
   key: "login_time",
   header: "Login Time",
   render: (row) => (
-    <span className="attendance-login-cell">{row.login_time || "—"}</span>
+    <span className="attendance-login-cell">{format12h(row.login_time)}</span>
   ),
 };
 
@@ -405,36 +474,35 @@ const makeCountColumn = (key, header) => ({
   render: (row) => <span className="attendance-numeric">{row[key] ?? 0}</span>,
 });
 
-const makeMonthlyColumns = (onView) => [
-  { key: "employee_name", header: "Employee Name", render: personCell },
-  roleColumn,
-  departmentColumn,
-  {
-    key: "status",
-    header: "Status",
-    sortValue: (row) => row.status_label || row.status || "",
-    render: (row) => (
-      <AttendancePill code={row.status} label={row.status_label} />
-    ),
-  },
-  {
-    key: "days_worked",
-    header: "Days Worked",
+const makeHoursFieldColumn = (key, header, ...fallbackKeys) => {
+  const read = (row) => {
+    for (const k of [key, ...fallbackKeys]) {
+      if (row[k] != null && row[k] !== "") return row[k];
+    }
+    return null;
+  };
+  return {
+    key,
+    header,
     align: "right",
-    sortValue: (row) => Number(row.days_worked) || 0,
+    sortValue: (row) => Number(read(row)) || 0,
     render: (row) => (
-      <>
-        <strong className="attendance-numeric">{row.days_worked ?? 0}</strong>
-        {Number(row.half_days) > 0 && (
-          <span className="admin-cell-secondary">{row.half_days} half-day</span>
-        )}
-      </>
+      <span className="attendance-numeric">{formatHourValue(read(row))}</span>
     ),
-  },
-  makeCountColumn("leave_days", "Leave"),
-  makeCountColumn("absent_days", "Absent"),
-  makeCountColumn("not_marked_days", "Not Marked"),
-  makeHoursColumn(true),
+  };
+};
+
+const makeMonthlyColumns = (onView) => [
+  { key: "employee_name", header: "Employee", render: personCell },
+  departmentColumn,
+  makeCountColumn("days_worked", "Days Worked"),
+  makeCountColumn("half_days", "Half Days"),
+  makeCountColumn("leave_days", "Leave Days"),
+  makeCountColumn("absent_days", "Absent Days"),
+  makeCountColumn("not_marked_days", "Not Marked Days"),
+  makeHoursFieldColumn("normal_hours", "Normal Hours"),
+  makeHoursFieldColumn("approved_ot_hours", "OT Hours", "ot_hours"),
+  makeHoursFieldColumn("total_hours", "Total Hours", "working_hours"),
   makeWageColumn(true),
   {
     key: "daily_view",
@@ -457,6 +525,149 @@ const makeMonthlyColumns = (onView) => [
           <Eye size={16} strokeWidth={2} />
         </button>
       </span>
+    ),
+  },
+];
+
+/* ------------------------------------------------------------
+   Daily attendance (default view) — rows + columns
+   ------------------------------------------------------------ */
+
+const firstDefined = (...values) =>
+  values.find((v) => v !== undefined && v !== null && v !== "");
+
+/* Adds only presentation keys; never invents values. */
+const normalizeDailyRow = (row, index, fallbackDate, fallbackStatus) => {
+  const status =
+    row.status && (STATUS_TEXT[row.status] || row.status_label)
+      ? row.status
+      : fallbackStatus;
+  return {
+    ...row,
+    _key: `${firstDefined(row.employee_code, row.employee_id, row.id, "row")}-${index}`,
+    status,
+    date: firstDefined(row.date, row.from_date, fallbackDate),
+    normal_hours: firstDefined(row.normal_hours) ?? null,
+    ot_hours: firstDefined(row.approved_ot_hours, row.ot_hours) ?? null,
+    total_hours: firstDefined(row.total_hours, row.working_hours) ?? null,
+  };
+};
+
+/* complete=true  → backend returned daily_attendance[] (every eligible employee).
+   complete=false → only present[] + leave[] exist, so Absent / Not Marked
+                    employees cannot be listed (backend change required). */
+const buildDailyDataset = (data, date) => {
+  if (!data) return { rows: [], complete: false };
+  if (Array.isArray(data.daily_attendance)) {
+    return {
+      complete: true,
+      rows: data.daily_attendance.map((row, i) =>
+        normalizeDailyRow(row, i, date, "NOT_MARKED"),
+      ),
+    };
+  }
+  const seen = new Set();
+  const rows = [];
+  const push = (row, fallbackStatus) => {
+    const id = firstDefined(row.employee_code, row.employee_id, row.id);
+    if (id != null && seen.has(String(id))) return;
+    if (id != null) seen.add(String(id));
+    rows.push(normalizeDailyRow(row, rows.length, date, fallbackStatus));
+  };
+  (data.present ?? []).forEach((row) => push(row, "PRESENT"));
+  (data.leave ?? []).forEach((row) => push(row, "ON_LEAVE"));
+  return { rows, complete: false };
+};
+
+const dailyColumns = [
+  {
+    key: "employee_code",
+    header: "Employee ID",
+    sortValue: (row) => row.employee_code || "",
+    render: (row) => (
+      <strong className="attendance-dv-code">{row.employee_code || "—"}</strong>
+    ),
+  },
+  {
+    key: "employee_name",
+    header: "Name",
+    sortValue: (row) => row.employee_name || "",
+    render: (row) => (
+      <span className="admin-cell-primary">{row.employee_name || "—"}</span>
+    ),
+  },
+  departmentColumn,
+  roleColumn,
+  {
+    key: "date",
+    header: "Date",
+    sortValue: (row) => row.date || "",
+    render: (row) => (
+      <span className="attendance-dates-cell">{formatISODate(row.date)}</span>
+    ),
+  },
+  {
+    key: "status",
+    header: "Attendance Status",
+    sortValue: (row) => row.status_label || STATUS_TEXT[row.status] || "",
+    render: (row) => (
+      <AttendancePill code={row.status} label={row.status_label} />
+    ),
+  },
+  {
+    key: "login_time",
+    header: "Login Time",
+    render: (row) => (
+      <span className="attendance-login-cell">{format12h(row.login_time)}</span>
+    ),
+  },
+  {
+    key: "logout_time",
+    header: "Logout Time",
+    render: (row) => (
+      <span className="attendance-login-cell">
+        {format12h(row.logout_time)}
+      </span>
+    ),
+  },
+  {
+    key: "normal_hours",
+    header: "Normal Hours",
+    align: "right",
+    sortValue: (row) => Number(row.normal_hours) || 0,
+    render: (row) => (
+      <span className="attendance-numeric">
+        {formatHourValue(row.normal_hours)}
+      </span>
+    ),
+  },
+  {
+    key: "ot_hours",
+    header: "OT Hours",
+    align: "right",
+    sortValue: (row) => Number(row.ot_hours) || 0,
+    render: (row) => (
+      <span className="attendance-numeric">{formatHourValue(row.ot_hours)}</span>
+    ),
+  },
+  {
+    key: "total_hours",
+    header: "Total Hours",
+    align: "right",
+    sortValue: (row) => Number(row.total_hours) || 0,
+    render: (row) => (
+      <span className="attendance-numeric">
+        {formatHourValue(row.total_hours)}
+      </span>
+    ),
+  },
+  {
+    key: "daily_wage",
+    header: "Daily Wage",
+    align: "right",
+    sortValue: (row) => Number(row.daily_wage) || 0,
+    render: (row) => (
+      <span className="attendance-numeric">{formatCurrency(row.daily_wage)}</span>
     ),
   },
 ];
@@ -499,7 +710,13 @@ function DailyAttendanceModal({
   const rows = data?.daily_attendance ?? [];
   const totals = data?.totals;
   const showLogout = Boolean(data?.supports_logout);
-  const colCount = showLogout ? 7 : 6;
+  const showSplit = rows.some(
+    (r) =>
+      r.normal_hours != null ||
+      r.approved_ot_hours != null ||
+      r.ot_hours != null,
+  );
+  const colCount = 6 + (showLogout ? 1 : 0) + (showSplit ? 2 : 0);
 
   const chips = totals
     ? [
@@ -593,6 +810,12 @@ function DailyAttendanceModal({
                   <th>Status</th>
                   <th>Login Time</th>
                   {showLogout && <th>Logout Time</th>}
+                  {showSplit && (
+                    <th className="attendance-th-right">Normal Hours</th>
+                  )}
+                  {showSplit && (
+                    <th className="attendance-th-right">OT Hours</th>
+                  )}
                   <th className="attendance-th-right">Working Hours</th>
                   <th className="attendance-th-right">Daily Wage</th>
                 </tr>
@@ -618,8 +841,21 @@ function DailyAttendanceModal({
                         </span>
                       )}
                     </td>
-                    <td>{item.login_time || "—"}</td>
-                    {showLogout && <td>{item.logout_time || "—"}</td>}
+                    <td>{format12h(item.login_time)}</td>
+                    {showLogout && <td>{format12h(item.logout_time)}</td>}
+                    {showSplit && (
+                      <td className="attendance-td-right">
+                        {formatHourValue(item.normal_hours)}
+                      </td>
+                    )}
+                    {showSplit && (
+                      <td className="attendance-td-right">
+                        {formatHourValue(
+                          firstDefined(item.approved_ot_hours, item.ot_hours) ??
+                            null,
+                        )}
+                      </td>
+                    )}
                     <td className="attendance-td-right">
                       {formatHours(item.working_hours)}
                     </td>
@@ -5056,10 +5292,13 @@ export default function AdminAttendance() {
   const now = new Date();
 
   const [adminTab, setAdminTab] = useState("attendance");
+  /* Daily Attendance is the default landing view. */
+  const [view, setView] = useState("daily");
   /* Bumped whenever advances change so the Advance tab reloads. */
   const [advanceVersion, setAdvanceVersion] = useState(0);
   const bumpAdvances = useCallback(() => setAdvanceVersion((v) => v + 1), []);
   const [date, setDate] = useState(todayISO);
+  /* Monthly view owns the period-based report (month / week / quarter / year / custom). */
   const [period, setPeriod] = useState("month");
   const [year, setYear] = useState(String(now.getFullYear()));
   const [month, setMonth] = useState(
@@ -5075,6 +5314,15 @@ export default function AdminAttendance() {
   const [leaveSearch, setLeaveSearch] = useState("");
   const [presentSearch, setPresentSearch] = useState("");
   const [monthlySearch, setMonthlySearch] = useState("");
+
+  /* Daily Attendance view */
+  const [dailyDate, setDailyDate] = useState(todayISO);
+  const [dailySearch, setDailySearch] = useState("");
+  const [dayData, setDayData] = useState(null);
+  const [dayLoading, setDayLoading] = useState(true);
+  const [dayError, setDayError] = useState("");
+  const dayRequestRef = useRef(0);
+  const dayAbortRef = useRef(null);
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -5099,6 +5347,7 @@ export default function AdminAttendance() {
      ========================================================== */
 
   const loadAttendance = useCallback(async () => {
+    if (view !== "monthly") return;
     if (!accessToken) {
       setData(null);
       setLoading(false);
@@ -5169,6 +5418,7 @@ export default function AdminAttendance() {
     }
   }, [
     accessToken,
+    view,
     date,
     period,
     year,
@@ -5188,9 +5438,68 @@ export default function AdminAttendance() {
     () => () => {
       abortRef.current?.abort();
       dailyAbortRef.current?.abort();
+      dayAbortRef.current?.abort();
     },
     [],
   );
+
+  /* ==========================================================
+     FETCH — one date, every employee (Daily Attendance view)
+     Server filtering is only used for the date; department /
+     status / search are applied locally so the summary cards
+     always describe the complete population for that date.
+     ========================================================== */
+
+  const loadDaily = useCallback(async () => {
+    if (!accessToken) {
+      setDayData(null);
+      setDayLoading(false);
+      return;
+    }
+
+    dayAbortRef.current?.abort();
+    const controller = new AbortController();
+    dayAbortRef.current = controller;
+    const requestId = ++dayRequestRef.current;
+
+    setDayLoading(true);
+    setDayError("");
+
+    try {
+      const params = new URLSearchParams({ period: "day", date: dailyDate });
+      const response = await api.get(
+        `${ATTENDANCE_ENDPOINT}?${params.toString()}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        },
+      );
+
+      if (requestId !== dayRequestRef.current) return;
+
+      if (!response.data?.success) {
+        throw new Error("Invalid daily attendance response.");
+      }
+      setDayData(response.data);
+    } catch (err) {
+      if (requestId !== dayRequestRef.current || isAbortError(err)) return;
+      console.error("Failed to load daily attendance:", err);
+      setDayData(null);
+      setDayError(errorMessage(err, DAILY_LIST_ERROR));
+    } finally {
+      if (requestId === dayRequestRef.current) setDayLoading(false);
+    }
+  }, [accessToken, dailyDate]);
+
+  useEffect(() => {
+    if (view === "daily") loadDaily();
+  }, [view, loadDaily]);
+
+  const changeDailyDate = useCallback((value) => {
+    if (!isValidISODate(value)) return;
+    const today = todayISO();
+    setDailyDate(value > today ? today : value);
+  }, []);
 
   /* ==========================================================
      FETCH — one employee's calendar (Eye button)
@@ -5271,9 +5580,9 @@ export default function AdminAttendance() {
      DATA SOURCE
      ========================================================== */
 
-  const leave = data?.leave ?? [];
-  const present = data?.present ?? [];
-  const employees = data?.employees ?? [];
+  const leave = useMemo(() => data?.leave ?? [], [data]);
+  const present = useMemo(() => data?.present ?? [], [data]);
+  const employees = useMemo(() => data?.employees ?? [], [data]);
   const summary = data?.summary;
   const dayTotals = data?.day_totals;
   const config = data?.config;
@@ -5348,8 +5657,12 @@ export default function AdminAttendance() {
 
       /* Monthly rows are already status-filtered by the API. */
       if (attendanceStatusFilter !== "all" && type !== "monthly") {
-        if (attendanceStatusFilter === "ON_LEAVE") {
-          matchesStatus = type === "leave";
+        if (LEAVE_STATUS_CODES.includes(attendanceStatusFilter)) {
+          matchesStatus =
+            type === "leave" &&
+            (attendanceStatusFilter === "ON_LEAVE" ||
+              !LEAVE_STATUS_CODES.includes(row.status) ||
+              row.status === attendanceStatusFilter);
         } else {
           matchesStatus =
             type === "present" && row.status === attendanceStatusFilter;
@@ -5376,6 +5689,218 @@ export default function AdminAttendance() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [employees, monthlySearch, departmentFilter],
   );
+
+  /* ==========================================================
+     DAILY VIEW — derived data
+     ========================================================== */
+
+  const dailyDataset = useMemo(
+    () => buildDailyDataset(dayData, dailyDate),
+    [dayData, dailyDate],
+  );
+
+  const dailyStats = useMemo(() => {
+    const { rows, complete } = dailyDataset;
+    const s = dayData?.summary || {};
+    const dt = dayData?.day_totals || {};
+    const count = (fn) => rows.filter(fn).length;
+    const sum = (key) => rows.reduce((total, r) => total + num(r[key]), 0);
+    const hasHours = (key) => rows.some((r) => r[key] != null);
+
+    /* Complete list → count rows. Otherwise trust only what the server reports. */
+    const pick = (computed, ...server) =>
+      complete ? computed : (firstDefined(...server) ?? null);
+
+    return {
+      total: pick(rows.length, s.total_active),
+      present: pick(
+        count((r) => r.status === "PRESENT" || r.status === "WFH"),
+        s.present,
+      ),
+      absent: pick(
+        count((r) => r.status === "ABSENT"),
+        s.absent,
+        dt.absent_days,
+      ),
+      onLeave: pick(
+        count((r) => LEAVE_STATUS_CODES.includes(r.status)),
+        s.on_leave,
+      ),
+      notMarked: pick(
+        count((r) => r.status === "NOT_MARKED"),
+        s.not_marked,
+        dt.not_marked_days,
+      ),
+      halfDay: count((r) => r.status === "HALF_DAY"),
+      normalHours: hasHours("normal_hours") ? sum("normal_hours") : null,
+      otHours: hasHours("ot_hours") ? sum("ot_hours") : null,
+    };
+  }, [dailyDataset, dayData]);
+
+  const dailyDepartmentOptions = useMemo(
+    () => buildDepartmentOptions(dailyDataset.rows, departmentFilter),
+    [dailyDataset, departmentFilter],
+  );
+
+  const dailyRows = useMemo(
+    () =>
+      dailyDataset.rows.filter((row) => {
+        if (
+          !matchesQuery(
+            dailySearch,
+            row.employee_name,
+            row.employee_code,
+            row.designation,
+            row.department,
+          )
+        )
+          return false;
+        if (departmentFilter !== "all" && row.department !== departmentFilter)
+          return false;
+        if (
+          attendanceStatusFilter !== "all" &&
+          row.status !== attendanceStatusFilter
+        )
+          return false;
+        return true;
+      }),
+    [dailyDataset, dailySearch, departmentFilter, attendanceStatusFilter],
+  );
+
+  /* The server did not send the employees behind Absent / Not Marked. */
+  const dailyListIncomplete =
+    Boolean(dayData) && !dailyDataset.complete && !dayLoading && !dayError;
+  const hiddenByBackend =
+    num(dailyStats.absent) + num(dailyStats.notMarked) > 0;
+
+  const dailyEmptyMessage = (() => {
+    if (
+      dailyListIncomplete &&
+      (attendanceStatusFilter === "ABSENT" ||
+        attendanceStatusFilter === "NOT_MARKED")
+    ) {
+      return "The server did not return the employee list for this status. The backend must send daily_attendance[] with every eligible employee.";
+    }
+    if (dailySearch) return "No employees match your search.";
+    return "No attendance records match the selected filters for this date.";
+  })();
+
+  const isToday = dailyDate >= todayISO();
+  const fileStamp = new Date().toISOString().slice(0, 10);
+
+  const exportDaily = () => {
+    csvDownload(`attendance-daily-${dailyDate}.csv`, [
+      [
+        "Employee ID",
+        "Name",
+        "Department",
+        "Designation",
+        "Date",
+        "Status",
+        "Login Time",
+        "Logout Time",
+        "Normal Hours",
+        "OT Hours",
+        "Total Hours",
+        "Daily Wage",
+      ],
+      ...dailyRows.map((r) => [
+        r.employee_code,
+        r.employee_name,
+        r.department,
+        r.designation,
+        r.date,
+        r.status_label || STATUS_TEXT[r.status] || r.status,
+        format12h(r.login_time),
+        format12h(r.logout_time),
+        r.normal_hours,
+        r.ot_hours,
+        r.total_hours,
+        r.daily_wage,
+      ]),
+    ]);
+  };
+
+  const exportMonthly = () => {
+    if (isMonthView) {
+      csvDownload(`attendance-monthly-${year}-${month}-${fileStamp}.csv`, [
+        [
+          "Employee ID",
+          "Name",
+          "Department",
+          "Days Worked",
+          "Half Days",
+          "Leave Days",
+          "Absent Days",
+          "Not Marked Days",
+          "Normal Hours",
+          "OT Hours",
+          "Total Hours",
+          "Total Wage",
+        ],
+        ...monthlyRows.map((r) => [
+          r.employee_code,
+          r.employee_name,
+          r.department,
+          r.days_worked,
+          r.half_days,
+          r.leave_days,
+          r.absent_days,
+          r.not_marked_days,
+          r.normal_hours,
+          firstDefined(r.approved_ot_hours, r.ot_hours),
+          firstDefined(r.total_hours, r.working_hours),
+          r.daily_wage,
+        ]),
+      ]);
+      return;
+    }
+    csvDownload(`attendance-${windowPeriod}-${windowFrom}-${windowTo}.csv`, [
+      [
+        "Employee ID",
+        "Name",
+        "Department",
+        "Status",
+        "From",
+        "To",
+        "Days Worked",
+        "Total Hours",
+        "Total Wage",
+      ],
+      ...presentRows.map((r) => [
+        r.employee_code,
+        r.employee_name,
+        r.department,
+        r.status_label || STATUS_TEXT[r.status] || r.status,
+        firstDefined(r.from_date, r.date, windowFrom),
+        firstDefined(r.to_date, r.date, windowTo),
+        r.days_worked,
+        r.working_hours,
+        r.daily_wage,
+      ]),
+    ]);
+  };
+
+  const monthlyPeriodOptions = PERIOD_OPTIONS.filter((p) => p.value !== "day");
+  const monthlyDepartmentOptions = useMemo(
+    () =>
+      buildDepartmentOptions(
+        [...employees, ...present, ...leave],
+        departmentFilter,
+      ),
+    [employees, present, leave, departmentFilter],
+  );
+
+  const dailyCards = [
+    { key: "total", label: "Total Eligible Employees", value: dailyStats.total, tone: "total", icon: <Users size={18} /> },
+    { key: "present", label: "Present", value: dailyStats.present, tone: "present", icon: <CheckCircle2 size={18} /> },
+    { key: "absent", label: "Absent", value: dailyStats.absent, tone: "absent", icon: <X size={18} /> },
+    { key: "leave", label: "On Leave", value: dailyStats.onLeave, tone: "leave", icon: <CalendarDays size={18} /> },
+    { key: "notmarked", label: "Not Marked", value: dailyStats.notMarked, tone: "notmarked", icon: <Pencil size={18} /> },
+    { key: "half", label: "Half Day", value: dailyStats.halfDay, tone: "half", icon: <CalendarDays size={18} /> },
+    { key: "normal", label: "Total Normal Hours", value: dailyStats.normalHours == null ? null : formatHourValue(dailyStats.normalHours), tone: "hours", icon: <Banknote size={18} /> },
+    { key: "ot", label: "Total OT Hours", value: dailyStats.otHours == null ? null : formatHourValue(dailyStats.otHours), tone: "ot", icon: <RefreshCw size={18} /> },
+  ];
 
   /* ==========================================================
      RENDER
@@ -5430,12 +5955,196 @@ export default function AdminAttendance() {
         />
       ) : (
         <>
+          {/* VIEW SWITCHER */}
+          <div className="attendance-view-switch" role="tablist" aria-label="Attendance view">
+            {VIEW_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="tab"
+                aria-selected={view === option.value}
+                className={`attendance-view-switch-btn${
+                  view === option.value ? " attendance-view-switch-btn--active" : ""
+                }`}
+                onClick={() => setView(option.value)}
+              >
+                {option.value === "daily" ? <CalendarDays size={16} /> : <Users size={16} />}
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          {/* DAILY ATTENDANCE (default) */}
+          {view === "daily" ? (
+            <div className="attendance-dv">
+              <AdminToolbar>
+                <div className="attendance-dv-filters">
+                  <div className="attendance-dv-datebar" role="group" aria-label="Select date">
+                    <button
+                      type="button"
+                      className="attendance-dv-nav"
+                      onClick={() => changeDailyDate(shiftISODate(dailyDate, -1))}
+                      aria-label="Previous day"
+                      title="Previous day"
+                    >
+                      <ChevronLeft size={17} />
+                    </button>
+                    <label className="attendance-dv-datefield">
+                      <span>Date</span>
+                      <input
+                        type="date"
+                        value={dailyDate}
+                        max={todayISO()}
+                        onChange={(e) => changeDailyDate(e.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="attendance-dv-nav"
+                      onClick={() => changeDailyDate(shiftISODate(dailyDate, 1))}
+                      disabled={isToday}
+                      aria-label="Next day"
+                      title={isToday ? "Future dates are not available" : "Next day"}
+                    >
+                      <ChevronRight size={17} />
+                    </button>
+                    <button
+                      type="button"
+                      className="attendance-dv-today"
+                      onClick={() => changeDailyDate(todayISO())}
+                      disabled={isToday}
+                    >
+                      Today
+                    </button>
+                  </div>
+
+                  <div className="attendance-filter-row">
+                    <label className="attendance-select-field">
+                      <span>Department</span>
+                      <select
+                        value={departmentFilter}
+                        onChange={(e) => setDepartmentFilter(e.target.value)}
+                      >
+                        {dailyDepartmentOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="attendance-select-field">
+                      <span>Status</span>
+                      <select
+                        value={attendanceStatusFilter}
+                        onChange={(e) => setAttendanceStatusFilter(e.target.value)}
+                      >
+                        {ATTENDANCE_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+                <div className="attendance-toolbar-actions">
+                  <button
+                    type="button"
+                    className="attendance-dv-btn attendance-dv-btn--outline"
+                    onClick={loadDaily}
+                    disabled={dayLoading}
+                  >
+                    <RefreshCw size={15} className={dayLoading ? "attendance-dv-spin" : ""} /> Refresh
+                  </button>
+                  <button
+                    type="button"
+                    className="attendance-dv-btn attendance-dv-btn--outline"
+                    onClick={exportDaily}
+                    disabled={dayLoading || Boolean(dayError) || !dailyRows.length}
+                  >
+                    <Download size={15} /> Export CSV
+                  </button>
+                </div>
+              </AdminToolbar>
+
+              <div className="attendance-dv-caption" role="status" aria-live="polite">
+                <CalendarDays size={15} />
+                <strong>{formatWeekday(dailyDate)}, {formatISODate(dailyDate)}</strong>
+                {dayLoading && <span className="attendance-dv-caption-state">Loading…</span>}
+              </div>
+
+              {dailyListIncomplete && (
+                <div className="attendance-dv-notice" role="note">
+                  <strong>Backend data incomplete.</strong>{" "}
+                  This response has no <code>daily_attendance[]</code> list, so only Present and
+                  Leave employees can be listed.
+                  {hiddenByBackend
+                    ? " Absent / Not Marked employees exist for this date but their rows were not returned."
+                    : ""}{" "}
+                  Required: every eligible employee with <code>status</code> (incl. <code>ABSENT</code>
+                  / <code>NOT_MARKED</code>), <code>normal_hours</code>, <code>approved_ot_hours</code>,
+                  <code>total_hours</code>, <code>login_time</code>, <code>logout_time</code>.
+                </div>
+              )}
+
+              <div className="attendance-dv-cards" aria-busy={dayLoading}>
+                {dailyCards.map((card) => (
+                  <div
+                    key={card.key}
+                    className={`attendance-dv-card attendance-dv-card--${card.tone}${
+                      dayLoading ? " attendance-dv-card--loading" : ""
+                    }`}
+                  >
+                    <span className="attendance-dv-card-icon">{card.icon}</span>
+                    <div>
+                      <small>{card.label}</small>
+                      <strong>
+                        {dayLoading || dayError || card.value == null ? "—" : card.value}
+                      </strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <AdminCard
+                title="Daily Attendance"
+                tone="success"
+                count={dayLoading || dayError ? undefined : dailyRows.length}
+                subtitle={
+                  <div className="attendance-table-search">
+                    <Search size={15} strokeWidth={2} />
+                    <input
+                      type="text"
+                      value={dailySearch}
+                      onChange={(e) => setDailySearch(e.target.value)}
+                      placeholder="Search name, ID, department..."
+                      aria-label="Search daily attendance"
+                    />
+                  </div>
+                }
+              >
+                <AdminDataTable
+                  columns={dailyColumns}
+                  rows={dailyRows}
+                  totalCount={dailyDataset.rows.length}
+                  rowKey="_key"
+                  loading={dayLoading}
+                  error={dayError || null}
+                  onRetry={loadDaily}
+                  emptyTitle="No attendance records"
+                  emptyMessage={dailyEmptyMessage}
+                  minWidth={1320}
+                />
+              </AdminCard>
+            </div>
+          ) : (
+            <>
           {/* TOOLBAR */}
           <AdminToolbar>
             <div className="attendance-toolbar-filters">
               {/* PERIOD */}
               <div className="attendance-period-filter">
-                {PERIOD_OPTIONS.map((item) => (
+                {monthlyPeriodOptions.map((item) => (
                   <button
                     key={item.value}
                     type="button"
@@ -5460,7 +6169,7 @@ export default function AdminAttendance() {
                     value={departmentFilter}
                     onChange={(e) => setDepartmentFilter(e.target.value)}
                   >
-                    {DEPARTMENT_OPTIONS.map((option) => (
+                    {monthlyDepartmentOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -5584,6 +6293,20 @@ export default function AdminAttendance() {
                   )}
                 </div>
               </div>
+            </div>
+            <div className="attendance-toolbar-actions">
+              <button
+                type="button"
+                className="attendance-dv-btn attendance-dv-btn--outline"
+                onClick={exportMonthly}
+                disabled={
+                  displayLoading ||
+                  Boolean(displayError) ||
+                  !(isMonthView ? monthlyRows.length : presentRows.length)
+                }
+              >
+                <Download size={15} /> Export CSV
+              </button>
             </div>
           </AdminToolbar>
 
@@ -5787,6 +6510,9 @@ export default function AdminAttendance() {
                 minWidth={1080}
               />
             </AdminCard>
+          )}
+
+            </>
           )}
 
           {/* DAILY MODAL */}

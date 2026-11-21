@@ -1134,3 +1134,12 @@
     min-width: 160px;
   }
 }
+/* Direct-GRN report enhancements */
+.crpt-toolbar-top .crpt-search-box { flex: 1; min-width: 230px; }
+.crpt-table td { white-space: nowrap; }
+.crpt-table-card { overflow: hidden; }
+.crpt-modal-summary-value { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .crpt-toolbar-top .crpt-search-box { min-width: 0; width: 100%; }
+  .crpt-modal { max-height: 94vh; }
+}

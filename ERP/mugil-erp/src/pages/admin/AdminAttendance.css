@@ -1895,3 +1895,470 @@
   .nx-salary-detail-head .nx-pane-actions { width: 100%; }
   .nx-salary-chips > span { flex: 1 1 40%; }
 }
+/* ==========================================================================
+   NXT GENZ — ATTENDANCE: DAILY / MONTHLY VIEWS
+   All classes below are new and prefixed `attendance-view-` / `attendance-dv-`
+   so nothing here can collide with salary / advance (`nx-*`) styles.
+   ========================================================================== */
+
+/* ---- View switcher ---- */
+.attendance-view-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 14px;
+  max-width: 100%;
+
+  border: 1px solid rgba(124, 58, 237, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 6px 18px rgba(124, 58, 237, 0.07);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.attendance-view-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 18px;
+
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #526579;
+
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.attendance-view-switch-btn:hover {
+  background: #f1ecff;
+  color: #6d28d9;
+}
+
+.attendance-view-switch-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
+.attendance-view-switch-btn--active,
+.attendance-view-switch-btn--active:hover {
+  color: #ffffff;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+/* ---- Toolbar pieces ---- */
+.attendance-dv-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.attendance-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.admin-attendance-page .admin-toolbar .attendance-toolbar-actions {
+  margin-top: 0;
+}
+
+.attendance-dv-datebar {
+  display: inline-flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.attendance-dv-datefield {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attendance-dv-datefield span {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  color: #64758a;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.attendance-dv-datefield input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #d8e3ec;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #24384d;
+  font: inherit;
+  font-size: 12.5px;
+  box-sizing: border-box;
+}
+
+.attendance-dv-datefield input:focus {
+  outline: none;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.14);
+}
+
+.attendance-dv-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+
+  border: 1px solid #d8e3ec;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease,
+    transform 0.15s ease;
+}
+
+.attendance-dv-nav:hover:not(:disabled) {
+  background: #f1ecff;
+  border-color: #c4b5fd;
+  color: #6d28d9;
+  transform: translateY(-1px);
+}
+
+.attendance-dv-nav:disabled,
+.attendance-dv-today:disabled,
+.attendance-dv-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.attendance-dv-today {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #c4b5fd;
+  border-radius: 8px;
+  background: #f5f3ff;
+  color: #6d28d9;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.attendance-dv-today:hover:not(:disabled) {
+  background: #ede9fe;
+}
+
+.attendance-dv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+
+  border: 1px solid #d8e3ec;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease,
+    box-shadow 0.2s ease, transform 0.15s ease;
+}
+
+.attendance-dv-btn--outline:hover:not(:disabled) {
+  background: #f5f3ff;
+  border-color: #c4b5fd;
+  color: #6d28d9;
+  box-shadow: 0 4px 10px rgba(124, 58, 237, 0.12);
+  transform: translateY(-1px);
+}
+
+.attendance-dv-spin {
+  animation: attendance-dv-spin 0.9s linear infinite;
+}
+
+@keyframes attendance-dv-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- Caption + notice ---- */
+.attendance-dv-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  margin: 2px 2px 14px;
+  padding: 10px 14px;
+
+  font-size: 13px;
+  color: #475569;
+
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #7c3aed;
+  border-radius: 8px;
+}
+
+.attendance-dv-caption strong {
+  color: #0f172a;
+}
+
+.attendance-dv-caption svg {
+  color: #7c3aed;
+}
+
+.attendance-dv-caption-state {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7c3aed;
+  animation: attendance-dv-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes attendance-dv-pulse {
+  50% { opacity: 0.4; }
+}
+
+.attendance-dv-notice {
+  margin: 0 2px 14px;
+  padding: 10px 14px;
+
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #92400e;
+
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-left: 3px solid #f59e0b;
+  border-radius: 8px;
+}
+
+.attendance-dv-notice code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.16);
+  font-size: 11.5px;
+}
+
+/* ---- Summary cards ---- */
+.attendance-dv-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.attendance-dv-card {
+  --dv-accent: #7c3aed;
+  --dv-soft: rgba(124, 58, 237, 0.12);
+
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  overflow: hidden;
+
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.attendance-dv-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--dv-accent);
+}
+
+.attendance-dv-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.1);
+}
+
+.attendance-dv-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--dv-accent);
+  background: var(--dv-soft);
+}
+
+.attendance-dv-card small {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.attendance-dv-card strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.attendance-dv-card--loading strong {
+  color: #94a3b8;
+  animation: attendance-dv-pulse 1.2s ease-in-out infinite;
+}
+
+.attendance-dv-card--total     { --dv-accent: #6366f1; --dv-soft: rgba(99, 102, 241, 0.13); }
+.attendance-dv-card--present   { --dv-accent: #059669; --dv-soft: rgba(16, 185, 129, 0.15); }
+.attendance-dv-card--absent    { --dv-accent: #dc2626; --dv-soft: rgba(239, 68, 68, 0.14); }
+.attendance-dv-card--leave     { --dv-accent: #7c3aed; --dv-soft: rgba(124, 58, 237, 0.13); }
+.attendance-dv-card--notmarked { --dv-accent: #64748b; --dv-soft: rgba(100, 116, 139, 0.15); }
+.attendance-dv-card--half      { --dv-accent: #d97706; --dv-soft: rgba(245, 158, 11, 0.16); }
+.attendance-dv-card--hours     { --dv-accent: #0891b2; --dv-soft: rgba(34, 211, 238, 0.18); }
+.attendance-dv-card--ot        { --dv-accent: #db2777; --dv-soft: rgba(236, 72, 153, 0.14); }
+
+/* ---- Table ---- */
+.attendance-dv-code {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  color: #4c1d95;
+}
+
+.attendance-dv .admin-data-table tbody tr {
+  transition: background 0.15s ease;
+}
+
+.attendance-dv .admin-data-table tbody tr:hover {
+  background: rgba(124, 58, 237, 0.05);
+}
+
+.attendance-dv .attendance-pill {
+  min-height: 24px;
+  padding: 4px 11px;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 1100px) {
+  .attendance-dv-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .attendance-dv-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .attendance-dv-card {
+    padding: 12px;
+  }
+
+  .attendance-dv-card strong {
+    font-size: 19px;
+  }
+
+  .attendance-dv-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .attendance-toolbar-actions {
+    width: 100%;
+  }
+
+  .attendance-toolbar-actions .attendance-dv-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .attendance-view-switch {
+    display: flex;
+    width: 100%;
+  }
+
+  .attendance-view-switch-btn {
+    flex: 1 1 0;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .attendance-dv-datebar {
+    width: 100%;
+  }
+
+  .attendance-dv-datefield {
+    flex: 1 1 140px;
+  }
+
+  .attendance-dv-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .attendance-dv-card-icon {
+    display: none;
+  }
+
+  .attendance-dv .attendance-table-search {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attendance-dv-card,
+  .attendance-dv-nav,
+  .attendance-dv-btn,
+  .attendance-view-switch-btn {
+    transition: none;
+  }
+
+  .attendance-dv-spin,
+  .attendance-dv-caption-state,
+  .attendance-dv-card--loading strong {
+    animation: none;
+  }
+}

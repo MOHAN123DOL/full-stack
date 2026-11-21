@@ -1,1213 +1,143 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import "./ConsumableGRN.css";
-import {
-  ArrowLeft,
-  PackagePlus,
-  Search,
-  ClipboardList,
-  Clock,
-  CheckCircle2,
-  X,
-  RefreshCw,
-} from "lucide-react";
+import { ArrowLeft, PackagePlus, Search, RefreshCw, Pencil, X, Plus, ClipboardList, Layers, Boxes, Warehouse } from "lucide-react";
 import Header from "../../components/Header";
 import Loading from "../../components/loading";
-import Error from "../../components/error";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
+import "./ConsumableGRN.css";
 
-// ---------------------------------------------------------------------
-// CONSTANTS
-// ---------------------------------------------------------------------
-
+const BASE = "/erp/consumable-grn";
+const MASTER = "/erp/consumable";
 const WAREHOUSES = ["Unit One", "Unit Two"];
-
-const GENERIC_ERROR = "Something went wrong. Please try again.";
-
-const API_BASE = "/erp/consumable-grn";
-
-// ---------------------------------------------------------------------
-// API ERROR HELPER
-// ---------------------------------------------------------------------
-
-function getApiError(error, fallback = GENERIC_ERROR) {
-  const data = error?.response?.data;
-
-  if (typeof data?.detail === "string") {
-    return data.detail;
-  }
-
-  if (typeof data?.message === "string") {
-    return data.message;
-  }
-
-  if (data && typeof data === "object") {
-    const firstFieldError = Object.values(data)
-      .flat()
-      .find((value) => typeof value === "string");
-
-    if (firstFieldError) {
-      return firstFieldError;
-    }
-  }
-
-  if (error?.message) {
-    return error.message;
-  }
-
-  return fallback;
-}
-
-// ---------------------------------------------------------------------
-// SAFE STRING
-// ----------------------------------------------------------------
-// PurchaseOrder.vendor is a JSONField, so the backend may send back an
-// object (e.g. { companyName, address1, gst, ... }) where the frontend
-// expects a string. Rendering an object as a React child crashes with:
-//   "Objects are not valid as a React child"
-// This helper converts ANY value into a safe display string.
-// ---------------------------------------------------------------------
-
-function toDisplayString(value) {
-  if (value === null || value === undefined) return "";
-
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return String(value);
-  if (typeof value === "boolean") return String(value);
-
-  if (typeof value === "object") {
-    const candidate =
-      value.companyName ||
-      value.company_name ||
-      value.name ||
-      value.label ||
-      value.title ||
-      value.supplier ||
-      value.description;
-
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate;
-    }
-
-    const parts = Object.values(value)
-      .filter((v) => typeof v === "string" && v.trim())
-      .slice(0, 2);
-
-    return parts.join(" — ") || "—";
-  }
-
-  return String(value);
-}
-
-// ---------------------------------------------------------------------
-// LINE HELPERS
-// ---------------------------------------------------------------------
-
-function getLineDescription(line) {
-  return (
-    toDisplayString(
-      line.description ||
-        line.poDescription ||
-        line.itemDescription ||
-        line.consumableName,
-    ) || "—"
-  );
-}
-
-function getLineQuantities(line) {
-  const ordered = Number(line.orderedQty) || 0;
-  const received = Number(line.receivedQty) || 0;
-  const pending = Math.max(ordered - received, 0);
-  return { ordered, received, pending };
-}
-
-function getLineStatus(line) {
-  const { ordered, received } = getLineQuantities(line);
-
-  if (line.status) {
-    return line.status;
-  }
-
-  if (received <= 0) return "Pending";
-  if (received >= ordered) return "Fully Received";
-  return "Partially Received";
-}
-
-// ---------------------------------------------------------------------
-// INITIAL FORM STATES
-// ---------------------------------------------------------------------
-
-const initialReceiveForm = {
-  quantityReceived: "",
-  warehouse: "",
-  receivedBy: "",
-  remarks: "",
+const TODAY = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const blank = () => ({ category_id: "", consumable_id: "", consumable_variety: "", supplier: "", supplier_invoice_number: "", quantity: "", warehouse: "", received_by: "", received_date: TODAY(), buffer_stock_limit: "", remarks: "" });
+const safeList = (data) => Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : Array.isArray(data?.data) ? data.data : [];
+const text = (v) => typeof v === "string" ? v : v == null ? "" : typeof v === "object" ? (v.name || v.companyName || v.company_name || JSON.stringify(v)) : String(v);
+const errorText = (err) => {
+  const d = err?.response?.data;
+  if (typeof d === "string") return d;
+  if (d?.detail || d?.message) return text(d.detail || d.message);
+  if (d && typeof d === "object") return Object.entries(d).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : text(v)}`).join(" | ");
+  return err?.message || "Request failed.";
 };
-
-const initialDirectForm = {
-  supplier: "",
-  consumableName: "",
-  category: "",
-  unit: "",
-  quantity: "",
-  warehouse: "",
-  receivedBy: "",
-  remarks: "",
-};
-
-// =====================================================================
-// COMPONENT
-// =====================================================================
+const formatQty = (n) => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
 
 export default function ConsumableGRN() {
   const { accessToken } = useAuth();
-
-  // ---------------------------------------------------------------
-  // STATE
-  // ---------------------------------------------------------------
-  const [purchaseOrders, setPurchaseOrders] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [categories, setCategories] = useState([]);
+  const [masters, setMasters] = useState([]);
+  const [varieties, setVarieties] = useState([]);
+  const [grns, setGrns] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
+  const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [modal, setModal] = useState(null); // 'create' or 'edit'
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [addKind, setAddKind] = useState(null);
+  const [addForm, setAddForm] = useState({ name: "", unit: "Nos", size: "", description: "" });
+  const [addError, setAddError] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
 
-  // Receive modal
-  const [selectedLine, setSelectedLine] = useState(null);
-  const [receiveForm, setReceiveForm] = useState(initialReceiveForm);
-  const [receiveErrors, setReceiveErrors] = useState({});
-  const [isReceiving, setIsReceiving] = useState(false);
+  const headers = useMemo(() => ({ Authorization: `Bearer ${accessToken}` }), [accessToken]);
+  const fetchAll = useCallback(async (refresh = false) => {
+    if (!accessToken) { setError("Please log in again."); setLoading(false); return; }
+    refresh ? setRefreshing(true) : setLoading(true);
+    setError("");
+    try {
+      const [c, m, v, g] = await Promise.all([
+        api.get(`${MASTER}/categories/`, { headers }),
+        api.get(`${MASTER}/masters/`, { headers }),
+        api.get(`${MASTER}/varieties/`, { headers }),
+        api.get(`${BASE}/direct/`, { headers }),
+      ]);
+      setCategories(safeList(c.data)); setMasters(safeList(m.data)); setVarieties(safeList(v.data)); setGrns(safeList(g.data));
+    } catch (e) { setError(errorText(e)); }
+    finally { setLoading(false); setRefreshing(false); }
+  }, [accessToken, headers]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Direct GRN modal
-  const [showDirectModal, setShowDirectModal] = useState(false);
-  const [directForm, setDirectForm] = useState(initialDirectForm);
-  const [directErrors, setDirectErrors] = useState({});
-  const [isCreatingDirect, setIsCreatingDirect] = useState(false);
+  const categoryMasters = masters.filter(m => String(m.category?.id ?? m.category) === String(form.category_id));
+  const masterVarieties = varieties.filter(v => String(v.consumable?.id ?? v.consumable) === String(form.consumable_id));
+  const chosenMaster = masters.find(m => String(m.id) === String(form.consumable_id));
+  const chosenVariety = varieties.find(v => String(v.id) === String(form.consumable_variety));
+  const filtered = grns.filter(g => [g.grn_number, g.supplier, g.consumable_name, g.category, g.warehouse, g.supplier_invoice_number, g.consumable_variety?.size, g.consumable_variety?.description, g.variety_size, g.variety_description].map(text).join(" ").toLowerCase().includes(search.toLowerCase().trim()));
+  const stats = { grns: grns.length, quantity: grns.reduce((a, g) => a + Number(g.received_quantity || 0), 0), varieties: new Set(grns.map(g => g.consumable_variety?.id ?? g.consumable_variety).filter(Boolean)).size, warehouses: new Set(grns.map(g => g.warehouse).filter(Boolean)).size };
 
-  // ---------------------------------------------------------------
-  // AUTH HEADERS
-  // ---------------------------------------------------------------
-  const authHeaders = useCallback(
-    () => ({
-      Authorization: `Bearer ${accessToken}`,
-    }),
-    [accessToken],
-  );
+  const openCreate = () => { setEditing(null); setForm(blank()); setFormError(""); setModal("create"); };
+  const openEdit = (g) => {
+    setEditing(g); setForm({ ...blank(), supplier: g.supplier || "", supplier_invoice_number: g.supplier_invoice_number || "", quantity: String(g.received_quantity ?? ""), warehouse: g.warehouse || "", received_by: g.received_by || "", received_date: g.received_date || TODAY(), buffer_stock_limit: g.buffer_stock_limit == null ? "" : String(g.buffer_stock_limit), remarks: g.remarks || "" });
+    setFormError(""); setModal("edit");
+  };
+  const change = (key, value) => setForm(prev => ({ ...prev, [key]: value, ...(key === "category_id" ? { consumable_id: "", consumable_variety: "" } : {}), ...(key === "consumable_id" ? { consumable_variety: "" } : {}) }));
+  const close = () => { if (!busy) { setModal(null); setEditing(null); } };
 
-  // ---------------------------------------------------------------
-  // FETCH PO ITEMS
-  // ---------------------------------------------------------------
-  const fetchPOItems = useCallback(
-    async (isRefresh = false) => {
-      if (!accessToken) {
-        setPurchaseOrders([]);
-        setError("Your session has expired. Please login again.");
-        setIsLoading(false);
-        setRefreshing(false);
-        return;
+  const submit = async (e) => {
+    e.preventDefault(); if (busy) return;
+    if (!form.supplier.trim() || !form.received_by.trim() || !form.warehouse || !form.quantity || Number(form.quantity) <= 0) { setFormError("Supplier, received by, warehouse, and a positive quantity are required."); return; }
+    if (!Number.isFinite(Number(form.quantity)) || Number(form.quantity) > 999999999999) { setFormError("Quantity is too large."); return; }
+    if (form.buffer_stock_limit !== "" && (Number(form.buffer_stock_limit) < 0 || !Number.isFinite(Number(form.buffer_stock_limit)))) { setFormError("Buffer stock must be zero or greater."); return; }
+    if (modal === "create" && (!form.category_id || !form.consumable_id || !form.consumable_variety)) { setFormError("Select a category, consumable and variety, or create them first."); return; }
+    setBusy(true); setFormError("");
+    try {
+      const payload = { supplier: form.supplier.trim(), supplier_invoice_number: form.supplier_invoice_number.trim(), quantity: form.quantity, warehouse: form.warehouse, received_by: form.received_by.trim(), received_date: form.received_date, buffer_stock_limit: form.buffer_stock_limit === "" ? null : form.buffer_stock_limit, remarks: form.remarks.trim() };
+      if (modal === "create") await api.post(`${BASE}/direct/`, { ...payload, consumable_variety: form.consumable_variety }, { headers });
+      else {
+        // Backend prohibits warehouse and variety changes on an existing GRN.
+        const { warehouse: ignored, ...patch } = payload;
+        void ignored;
+        await api.patch(`${BASE}/${editing.id}/`, patch, { headers });
       }
-
-      try {
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
-          setIsLoading(true);
-        }
-        setError("");
-
-        const response = await api.get(`${API_BASE}/po-items/`, {
-          headers: authHeaders(),
-        });
-
-        const data = Array.isArray(response.data)
-          ? response.data
-          : Array.isArray(response.data?.data)
-            ? response.data.data
-            : Array.isArray(response.data?.results)
-              ? response.data.results
-              : [];
-
-        setPurchaseOrders(data);
-      } catch (err) {
-        console.error("Failed to load PO items:", err);
-        setPurchaseOrders([]);
-        setError(getApiError(err, "Failed to load purchase order items."));
-      } finally {
-        setIsLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [accessToken, authHeaders],
-  );
-
-  // ---------------------------------------------------------------
-  // INITIAL LOAD
-  // ---------------------------------------------------------------
-  useEffect(() => {
-    fetchPOItems(false);
-  }, [fetchPOItems]);
-
-  // ---------------------------------------------------------------
-  // FILTERING (safe for object fields)
-  // ---------------------------------------------------------------
-  const filteredPOs = purchaseOrders.filter((po) => {
-    const term = search.trim().toLowerCase();
-    if (!term) return true;
-
-    const haystack = [
-      po.poNumber,
-      po.itemCode,
-      po.supplier,
-      po.consumableName,
-      po.category,
-      getLineDescription(po),
-    ]
-      .map(toDisplayString)
-      .join(" ")
-      .toLowerCase();
-
-    return haystack.includes(term);
-  });
-
-  // ---------------------------------------------------------------
-  // STATS
-  // ---------------------------------------------------------------
-  const stats = {
-    totalPOs: new Set(purchaseOrders.map((po) => po.poNumber)).size,
-    pending: purchaseOrders.filter((po) => getLineStatus(po) === "Pending")
-      .length,
-    partial: purchaseOrders.filter(
-      (po) => getLineStatus(po) === "Partially Received",
-    ).length,
-    completed: purchaseOrders.filter(
-      (po) => getLineStatus(po) === "Fully Received",
-    ).length,
+      setModal(null); setEditing(null); await fetchAll(true);
+    } catch (err) { setFormError(errorText(err)); }
+    finally { setBusy(false); }
   };
 
-  // ---------------------------------------------------------------
-  // SORTING / GROUPING
-  // ---------------------------------------------------------------
-  const poFirstIndex = new Map();
-  filteredPOs.forEach((po, i) => {
-    if (!poFirstIndex.has(po.poNumber)) poFirstIndex.set(po.poNumber, i);
-  });
-
-  const sortedLines = [...filteredPOs].sort(
-    (a, b) => poFirstIndex.get(a.poNumber) - poFirstIndex.get(b.poNumber),
-  );
-
-  const linesPerPO = filteredPOs.reduce((acc, po) => {
-    acc[po.poNumber] = (acc[po.poNumber] || 0) + 1;
-    return acc;
-  }, {});
-
-  // ---------------------------------------------------------------
-  // SELECTED LINE QUANTITIES
-  // ---------------------------------------------------------------
-  const selectedQty = selectedLine
-    ? getLineQuantities(selectedLine)
-    : { ordered: 0, received: 0, pending: 0 };
-
-  // ===============================================================
-  // RECEIVE MODAL
-  // ===============================================================
-
-  function openReceiveModal(po) {
-    setSelectedLine(po);
-    setReceiveForm(initialReceiveForm);
-    setReceiveErrors({});
-  }
-
-  function closeReceiveModal() {
-    if (isReceiving) return;
-    setSelectedLine(null);
-    setReceiveForm(initialReceiveForm);
-    setReceiveErrors({});
-  }
-
-  // ---------------------------------------------------------------
-  // RECEIVE VALIDATION
-  // ---------------------------------------------------------------
-  function validateReceiveForm() {
-    const errors = {};
-    const qty = Number(receiveForm.quantityReceived);
-
-    if (!receiveForm.quantityReceived) {
-      errors.quantityReceived = "Quantity is required.";
-    } else if (!(qty > 0)) {
-      errors.quantityReceived = "Quantity must be greater than 0.";
-    } else if (qty > selectedQty.pending) {
-      errors.quantityReceived = `Quantity cannot exceed pending quantity (${selectedQty.pending}).`;
-    }
-
-    if (!receiveForm.warehouse) {
-      errors.warehouse = "Warehouse is required.";
-    }
-
-    if (!receiveForm.receivedBy.trim()) {
-      errors.receivedBy = "Received By is required.";
-    }
-
-    return errors;
-  }
-
-  // ---------------------------------------------------------------
-  // RECEIVE SUBMIT
-  // ---------------------------------------------------------------
-  async function handleReceiveSubmit(e) {
-    e.preventDefault();
-    if (!selectedLine || isReceiving) return;
-
-    const errors = validateReceiveForm();
-    setReceiveErrors(errors);
-
-    if (Object.keys(errors).length > 0) return;
-
-    setIsReceiving(true);
-
+  const openAdd = (kind) => { setAddKind(kind); setAddForm({ name: "", unit: "Nos", size: "", description: "" }); setAddError(""); };
+  const saveAdd = async (e) => {
+    e.preventDefault(); if (addBusy) return;
+    if (addKind === "master" && !form.category_id) { setAddError("Choose a category first."); return; }
+    if (addKind === "variety" && !form.consumable_id) { setAddError("Choose a consumable first."); return; }
+    setAddBusy(true); setAddError("");
     try {
-      await api.post(
-        `${API_BASE}/receive/${selectedLine.id}/`,
-        {
-          quantityReceived: Number(receiveForm.quantityReceived),
-          warehouse: receiveForm.warehouse,
-          receivedBy: receiveForm.receivedBy.trim(),
-          remarks: receiveForm.remarks,
-        },
-        { headers: authHeaders() },
-      );
-
-      closeReceiveModal();
-
-      await fetchPOItems(true);
-    } catch (err) {
-      console.error("Receive failed:", err);
-      setReceiveErrors({
-        submit: getApiError(err, "Failed to receive consumable."),
-      });
-    } finally {
-      setIsReceiving(false);
-    }
-  }
-
-  // ===============================================================
-  // DIRECT GRN MODAL
-  // ===============================================================
-
-  function openDirectModal() {
-    setDirectForm(initialDirectForm);
-    setDirectErrors({});
-    setShowDirectModal(true);
-  }
-
-  function closeDirectModal() {
-    if (isCreatingDirect) return;
-    setShowDirectModal(false);
-    setDirectForm(initialDirectForm);
-    setDirectErrors({});
-  }
-
-  function handleDirectChange(field, value) {
-    setDirectForm((prev) => ({ ...prev, [field]: value }));
-  }
-
-  // ---------------------------------------------------------------
-  // DIRECT GRN VALIDATION
-  // ---------------------------------------------------------------
-  function validateDirectForm() {
-    const errors = {};
-
-    if (!directForm.supplier.trim()) {
-      errors.supplier = "Supplier is required.";
-    }
-    if (!directForm.consumableName.trim()) {
-      errors.consumableName = "Consumable Name is required.";
-    }
-    if (!directForm.category.trim()) {
-      errors.category = "Category is required.";
-    }
-    if (!directForm.unit.trim()) {
-      errors.unit = "Unit is required.";
-    }
-    if (!directForm.quantity) {
-      errors.quantity = "Quantity is required.";
-    } else if (!(Number(directForm.quantity) > 0)) {
-      errors.quantity = "Quantity must be greater than 0.";
-    }
-    if (!directForm.warehouse) {
-      errors.warehouse = "Warehouse is required.";
-    }
-    if (!directForm.receivedBy.trim()) {
-      errors.receivedBy = "Received By is required.";
-    }
-
-    return errors;
-  }
-
-  // ---------------------------------------------------------------
-  // DIRECT GRN SUBMIT
-  // ---------------------------------------------------------------
-  async function handleDirectSubmit(e) {
-    e.preventDefault();
-    if (isCreatingDirect) return;
-
-    const errors = validateDirectForm();
-    setDirectErrors(errors);
-
-    if (Object.keys(errors).length > 0) return;
-
-    setIsCreatingDirect(true);
-
-    try {
-      await api.post(
-        `${API_BASE}/direct/`,
-        {
-          supplier: directForm.supplier.trim(),
-          consumableName: directForm.consumableName.trim(),
-          category: directForm.category.trim(),
-          unit: directForm.unit.trim(),
-          quantity: Number(directForm.quantity),
-          warehouse: directForm.warehouse,
-          receivedBy: directForm.receivedBy.trim(),
-          remarks: directForm.remarks,
-        },
-        { headers: authHeaders() },
-      );
-
-      closeDirectModal();
-
-      await fetchPOItems(true);
-    } catch (err) {
-      console.error("Direct GRN failed:", err);
-      setDirectErrors({
-        submit: getApiError(err, "Failed to create direct GRN."),
-      });
-    } finally {
-      setIsCreatingDirect(false);
-    }
-  }
-
-  // ===============================================================
-  // RENDER
-  // ===============================================================
-
-  return (
-    <>
-      <Header />
-      <div className="consumable-grn-page">
-        <Link to="/inventory/consumable" className="erp-back-button">
-          <ArrowLeft size={16} />
-          Back
-        </Link>
-
-        <header className="consumable-grn-header">
-          <div className="consumable-grn-header-content">
-            <div className="consumable-grn-title-section">
-              <h1 className="consumable-grn-title">Consumable GRN</h1>
-              <p className="consumable-grn-subtitle">
-                Receive consumables against Purchase Orders or create Direct
-                GRNs for local purchases.
-              </p>
-            </div>
-          </div>
-        </header>
-
-        {/* ================= KPI ================= */}
-
-        <div className="consumable-grn-summary-grid">
-          <div className="consumable-grn-summary-card consumable-grn-total-card">
-            <div className="consumable-grn-summary-icon">
-              <ClipboardList size={22} />
-            </div>
-            <div className="consumable-grn-summary-content">
-              <span className="consumable-grn-summary-label">
-                Total Purchase Orders
-              </span>
-              <span className="consumable-grn-summary-value">
-                {stats.totalPOs}
-              </span>
-            </div>
-          </div>
-
-          <div className="consumable-grn-summary-card consumable-grn-pending-card">
-            <div className="consumable-grn-summary-icon">
-              <Clock size={22} />
-            </div>
-            <div className="consumable-grn-summary-content">
-              <span className="consumable-grn-summary-label">Pending</span>
-              <span className="consumable-grn-summary-value">
-                {stats.pending}
-              </span>
-            </div>
-          </div>
-
-          <div className="consumable-grn-summary-card consumable-grn-partial-card">
-            <div className="consumable-grn-summary-icon">
-              <Clock size={22} />
-            </div>
-            <div className="consumable-grn-summary-content">
-              <span className="consumable-grn-summary-label">
-                Partially Received
-              </span>
-              <span className="consumable-grn-summary-value">
-                {stats.partial}
-              </span>
-            </div>
-          </div>
-
-          <div className="consumable-grn-summary-card consumable-grn-completed-card">
-            <div className="consumable-grn-summary-icon">
-              <CheckCircle2 size={22} />
-            </div>
-            <div className="consumable-grn-summary-content">
-              <span className="consumable-grn-summary-label">Completed</span>
-              <span className="consumable-grn-summary-value">
-                {stats.completed}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* ================= TOOLBAR ================= */}
-
-        <div className="consumable-grn-toolbar">
-          <div className="consumable-grn-search">
-            <Search size={17} />
-            <input
-              type="text"
-              className="consumable-grn-search-input"
-              placeholder="Search by PO Number, Item Code, Description, Supplier, Consumable or Category..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div className="consumable-grn-toolbar-actions">
-            <button
-              className="consumable-grn-refresh-btn"
-              onClick={() => fetchPOItems(true)}
-              disabled={isLoading || refreshing}
-              title="Refresh PO items"
-            >
-              <RefreshCw
-                size={17}
-                className={refreshing ? "consumable-grn-spin" : ""}
-              />
-              <span>{refreshing ? "Refreshing..." : "Refresh"}</span>
-            </button>
-
-            <button
-              className="consumable-grn-add-btn"
-              onClick={openDirectModal}
-              disabled={isLoading}
-            >
-              <PackagePlus size={17} />
-              <span>New Direct GRN</span>
-            </button>
-          </div>
-        </div>
-
-        {/* ================= ERROR STATE ================= */}
-
-        {error && !isLoading && (
-          <div className="consumable-grn-error-box">
-            <Error onRetry={() => fetchPOItems(false)} />
-          </div>
-        )}
-
-        {/* ================= PURCHASE ORDER TABLE ================= */}
-
-        {!error && (
-          <div className="consumable-grn-table-card">
-            <div className="consumable-grn-table-header">
-              <div>
-                <h3 className="consumable-grn-table-title">
-                  Purchase Orders
-                </h3>
-                <p className="consumable-grn-table-subtitle">
-                  Receive consumables against approved purchase orders.
-                </p>
-              </div>
-            </div>
-
-            <div className="consumable-grn-table-wrapper">
-              <table className="consumable-grn-table">
-                <thead>
-                  <tr>
-                    <th>PO Number</th>
-                    <th>Item Code</th>
-                    <th>PO Description</th>
-                    <th>Supplier</th>
-                    <th>Consumable</th>
-                    <th>Category</th>
-                    <th>Unit</th>
-                    <th>Ordered Qty</th>
-                    <th>Received Qty</th>
-                    <th>Pending Qty</th>
-                    <th>Warehouse</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {/* Loading state */}
-                  {isLoading && (
-                    <tr>
-                      <td
-                        colSpan={13}
-                        className="consumable-grn-empty-row"
-                      >
-                        <div className="consumable-grn-loading-wrapper">
-                          <Loading />
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-
-                  {/* Data rows */}
-                  {!isLoading &&
-                    sortedLines.map((po, index) => {
-                      const { ordered, received, pending } =
-                        getLineQuantities(po);
-                      const status = getLineStatus(po);
-                      const isGroupStart =
-                        index === 0 ||
-                        sortedLines[index - 1].poNumber !== po.poNumber;
-
-                      return (
-                        <tr
-                          key={po.id}
-                          className={
-                            isGroupStart
-                              ? "consumable-grn-row-group-start"
-                              : ""
-                          }
-                        >
-                          <td>
-                            <div className="consumable-grn-po-cell">
-                              <span className="consumable-grn-po-number">
-                                {toDisplayString(po.poNumber) || "—"}
-                              </span>
-                              {isGroupStart &&
-                                linesPerPO[po.poNumber] > 1 && (
-                                  <span className="consumable-grn-po-count">
-                                    {linesPerPO[po.poNumber]} items
-                                  </span>
-                                )}
-                            </div>
-                          </td>
-
-                          <td className="consumable-grn-item-code-cell">
-                            {toDisplayString(po.itemCode) || "—"}
-                          </td>
-
-                          <td className="consumable-grn-description-cell">
-                            {getLineDescription(po)}
-                          </td>
-
-                          <td>{toDisplayString(po.supplier) || "—"}</td>
-
-                          <td>
-                            {toDisplayString(po.consumableName) || "—"}
-                          </td>
-
-                          <td>{toDisplayString(po.category) || "—"}</td>
-
-                          <td>{toDisplayString(po.unit) || "—"}</td>
-
-                          <td>{ordered}</td>
-
-                          <td>{received}</td>
-
-                          <td>{pending}</td>
-
-                          <td>{toDisplayString(po.warehouse) || "—"}</td>
-
-                          <td>
-                            <span
-                              className={`consumable-grn-status consumable-grn-status-${status
-                                .replace(/\s+/g, "-")
-                                .toLowerCase()}`}
-                            >
-                              {status}
-                            </span>
-                          </td>
-
-                          <td>
-                            <button
-                              className="consumable-grn-receive-btn"
-                              disabled={pending <= 0}
-                              onClick={() => openReceiveModal(po)}
-                            >
-                              Receive
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-
-                  {/* Empty state */}
-                  {!isLoading && sortedLines.length === 0 && (
-                    <tr>
-                      <td colSpan={13} className="consumable-grn-empty-row">
-                        No purchase order lines found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ================= RECEIVE MODAL ================= */}
-
-        {selectedLine && (
-          <div
-            className="consumable-grn-modal-overlay"
-            onClick={closeReceiveModal}
-          >
-            <div
-              className="consumable-grn-modal"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="consumable-grn-modal-header">
-                <div>
-                  <h2 className="consumable-grn-modal-title">
-                    Receive Consumable
-                  </h2>
-                  <p className="consumable-grn-modal-subtitle">
-                    Receive stock for this PO description only. Other
-                    descriptions on the same PO are not affected.
-                  </p>
-                </div>
-
-                <button
-                  className="consumable-grn-modal-close"
-                  onClick={closeReceiveModal}
-                  disabled={isReceiving}
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="consumable-grn-modal-body">
-                <div className="consumable-grn-info-grid">
-                  <div className="consumable-grn-info-card">
-                    <span className="consumable-grn-info-label">
-                      PO Number
-                    </span>
-                    <span className="consumable-grn-info-value">
-                      {toDisplayString(selectedLine.poNumber) || "—"}
-                    </span>
-                  </div>
-
-                  <div className="consumable-grn-info-card">
-                    <span className="consumable-grn-info-label">
-                      Item Code
-                    </span>
-                    <span className="consumable-grn-info-value">
-                      {toDisplayString(selectedLine.itemCode) || "—"}
-                    </span>
-                  </div>
-
-                  <div className="consumable-grn-info-card consumable-grn-info-card-wide">
-                    <span className="consumable-grn-info-label">
-                      PO Description
-                    </span>
-                    <span className="consumable-grn-info-value">
-                      {getLineDescription(selectedLine)}
-                    </span>
-                  </div>
-
-                  <div className="consumable-grn-info-card">
-                    <span className="consumable-grn-info-label">
-                      Consumable
-                    </span>
-                    <span className="consumable-grn-info-value">
-                      {toDisplayString(selectedLine.consumableName) || "—"}
-                    </span>
-                  </div>
-
-                  <div className="consumable-grn-info-card">
-                    <span className="consumable-grn-info-label">Category</span>
-                    <span className="consumable-grn-info-value">
-                      {toDisplayString(selectedLine.category) || "—"}
-                    </span>
-                  </div>
-
-                  <div className="consumable-grn-info-card">
-                    <span className="consumable-grn-info-label">Unit</span>
-                    <span className="consumable-grn-info-value">
-                      {toDisplayString(selectedLine.unit) || "—"}
-                    </span>
-                  </div>
-
-                  <div className="consumable-grn-info-card">
-                    <span className="consumable-grn-info-label">
-                      Ordered Quantity
-                    </span>
-                    <span className="consumable-grn-info-value">
-                      {selectedQty.ordered}
-                    </span>
-                  </div>
-
-                  <div className="consumable-grn-info-card">
-                    <span className="consumable-grn-info-label">
-                      Already Received Quantity
-                    </span>
-                    <span className="consumable-grn-info-value">
-                      {selectedQty.received}
-                    </span>
-                  </div>
-
-                  <div className="consumable-grn-info-card consumable-grn-info-card-highlight">
-                    <span className="consumable-grn-info-label">
-                      Pending Quantity
-                    </span>
-                    <span className="consumable-grn-info-value">
-                      {selectedQty.pending}
-                    </span>
-                  </div>
-                </div>
-
-                <form
-                  className="consumable-grn-form"
-                  onSubmit={handleReceiveSubmit}
-                >
-                  {receiveErrors.submit && (
-                    <div className="consumable-grn-form-error">
-                      {receiveErrors.submit}
-                    </div>
-                  )}
-
-                  <div className="consumable-grn-form-group">
-                    <label>Quantity Received</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max={selectedQty.pending}
-                      value={receiveForm.quantityReceived}
-                      onChange={(e) =>
-                        setReceiveForm((prev) => ({
-                          ...prev,
-                          quantityReceived: e.target.value,
-                        }))
-                      }
-                      disabled={isReceiving}
-                    />
-                    {receiveErrors.quantityReceived && (
-                      <span className="consumable-grn-validation-error">
-                        {receiveErrors.quantityReceived}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Warehouse</label>
-                    <select
-                      value={receiveForm.warehouse}
-                      onChange={(e) =>
-                        setReceiveForm((prev) => ({
-                          ...prev,
-                          warehouse: e.target.value,
-                        }))
-                      }
-                      disabled={isReceiving}
-                    >
-                      <option value="">Select warehouse</option>
-                      {WAREHOUSES.map((wh) => (
-                        <option key={wh} value={wh}>
-                          {wh}
-                        </option>
-                      ))}
-                    </select>
-                    {receiveErrors.warehouse && (
-                      <span className="consumable-grn-validation-error">
-                        {receiveErrors.warehouse}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Received By</label>
-                    <input
-                      type="text"
-                      value={receiveForm.receivedBy}
-                      onChange={(e) =>
-                        setReceiveForm((prev) => ({
-                          ...prev,
-                          receivedBy: e.target.value,
-                        }))
-                      }
-                      disabled={isReceiving}
-                    />
-                    {receiveErrors.receivedBy && (
-                      <span className="consumable-grn-validation-error">
-                        {receiveErrors.receivedBy}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Remarks</label>
-                    <textarea
-                      value={receiveForm.remarks}
-                      onChange={(e) =>
-                        setReceiveForm((prev) => ({
-                          ...prev,
-                          remarks: e.target.value,
-                        }))
-                      }
-                      disabled={isReceiving}
-                    />
-                  </div>
-
-                  <div className="consumable-grn-form-actions">
-                    <button
-                      type="button"
-                      className="consumable-grn-cancel-btn"
-                      onClick={closeReceiveModal}
-                      disabled={isReceiving}
-                    >
-                      Cancel
-                    </button>
-
-                    <button
-                      type="submit"
-                      className="consumable-grn-save-btn"
-                      disabled={isReceiving}
-                    >
-                      {isReceiving ? (
-                        <>
-                          <span className="consumable-grn-btn-spinner" />
-                          Saving...
-                        </>
-                      ) : (
-                        "Save"
-                      )}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ================= DIRECT GRN MODAL ================= */}
-
-        {showDirectModal && (
-          <div
-            className="consumable-grn-modal-overlay"
-            onClick={closeDirectModal}
-          >
-            <div
-              className="consumable-grn-modal consumable-grn-modal-large"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="consumable-grn-modal-header">
-                <div>
-                  <h2 className="consumable-grn-modal-title">
-                    New Direct GRN
-                  </h2>
-                  <p className="consumable-grn-modal-subtitle">
-                    Record consumables received directly from a supplier
-                    without a Purchase Order.
-                  </p>
-                </div>
-
-                <button
-                  className="consumable-grn-modal-close"
-                  onClick={closeDirectModal}
-                  disabled={isCreatingDirect}
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="consumable-grn-modal-body">
-                <form
-                  className="consumable-grn-form consumable-grn-form-grid"
-                  onSubmit={handleDirectSubmit}
-                >
-                  {directErrors.submit && (
-                    <div className="consumable-grn-form-error consumable-grn-form-group-full">
-                      {directErrors.submit}
-                    </div>
-                  )}
-
-                  <div className="consumable-grn-form-group">
-                    <label>Supplier</label>
-                    <input
-                      type="text"
-                      value={directForm.supplier}
-                      onChange={(e) =>
-                        handleDirectChange("supplier", e.target.value)
-                      }
-                      disabled={isCreatingDirect}
-                    />
-                    {directErrors.supplier && (
-                      <span className="consumable-grn-validation-error">
-                        {directErrors.supplier}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Consumable Name</label>
-                    <input
-                      type="text"
-                      value={directForm.consumableName}
-                      onChange={(e) =>
-                        handleDirectChange("consumableName", e.target.value)
-                      }
-                      disabled={isCreatingDirect}
-                    />
-                    {directErrors.consumableName && (
-                      <span className="consumable-grn-validation-error">
-                        {directErrors.consumableName}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Category</label>
-                    <input
-                      type="text"
-                      value={directForm.category}
-                      onChange={(e) =>
-                        handleDirectChange("category", e.target.value)
-                      }
-                      disabled={isCreatingDirect}
-                    />
-                    {directErrors.category && (
-                      <span className="consumable-grn-validation-error">
-                        {directErrors.category}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Unit</label>
-                    <input
-                      type="text"
-                      placeholder="Nos, Kg, Litre..."
-                      value={directForm.unit}
-                      onChange={(e) =>
-                        handleDirectChange("unit", e.target.value)
-                      }
-                      disabled={isCreatingDirect}
-                    />
-                    {directErrors.unit && (
-                      <span className="consumable-grn-validation-error">
-                        {directErrors.unit}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Quantity</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={directForm.quantity}
-                      onChange={(e) =>
-                        handleDirectChange("quantity", e.target.value)
-                      }
-                      disabled={isCreatingDirect}
-                    />
-                    {directErrors.quantity && (
-                      <span className="consumable-grn-validation-error">
-                        {directErrors.quantity}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Warehouse</label>
-                    <select
-                      value={directForm.warehouse}
-                      onChange={(e) =>
-                        handleDirectChange("warehouse", e.target.value)
-                      }
-                      disabled={isCreatingDirect}
-                    >
-                      <option value="">Select warehouse</option>
-                      {WAREHOUSES.map((wh) => (
-                        <option key={wh} value={wh}>
-                          {wh}
-                        </option>
-                      ))}
-                    </select>
-                    {directErrors.warehouse && (
-                      <span className="consumable-grn-validation-error">
-                        {directErrors.warehouse}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group">
-                    <label>Received By</label>
-                    <input
-                      type="text"
-                      value={directForm.receivedBy}
-                      onChange={(e) =>
-                        handleDirectChange("receivedBy", e.target.value)
-                      }
-                      disabled={isCreatingDirect}
-                    />
-                    {directErrors.receivedBy && (
-                      <span className="consumable-grn-validation-error">
-                        {directErrors.receivedBy}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="consumable-grn-form-group consumable-grn-form-group-full">
-                    <label>Remarks</label>
-                    <textarea
-                      value={directForm.remarks}
-                      onChange={(e) =>
-                        handleDirectChange("remarks", e.target.value)
-                      }
-                      disabled={isCreatingDirect}
-                    />
-                  </div>
-
-                  <div className="consumable-grn-form-actions consumable-grn-form-actions-full">
-                    <button
-                      type="button"
-                      className="consumable-grn-cancel-btn"
-                      onClick={closeDirectModal}
-                      disabled={isCreatingDirect}
-                    >
-                      Cancel
-                    </button>
-
-                    <button
-                      type="submit"
-                      className="consumable-grn-save-btn"
-                      disabled={isCreatingDirect}
-                    >
-                      {isCreatingDirect ? (
-                        <>
-                          <span className="consumable-grn-btn-spinner" />
-                          Saving...
-                        </>
-                      ) : (
-                        "Save"
-                      )}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </>
-  );
+      const payload = addKind === "category" ? { name: addForm.name.trim() } : addKind === "master" ? { name: addForm.name.trim(), unit: addForm.unit.trim(), category: Number(form.category_id) } : { consumable: Number(form.consumable_id), size: addForm.size.trim(), description: addForm.description.trim() };
+      const endpoint = addKind === "category" ? "categories" : addKind === "master" ? "masters" : "varieties";
+      const response = await api.post(`${MASTER}/${endpoint}/`, payload, { headers });
+      const created = response.data?.data || response.data;
+      const id = created?.id;
+      if (!id) throw new Error("Created successfully but no ID was returned. Refresh and select the new item.");
+      if (addKind === "category") { setCategories(prev => [...prev, created]); change("category_id", String(id)); }
+      if (addKind === "master") { setMasters(prev => [...prev, created]); change("consumable_id", String(id)); }
+      if (addKind === "variety") { setVarieties(prev => [...prev, created]); change("consumable_variety", String(id)); }
+      setAddKind(null);
+    } catch (err) { setAddError(errorText(err)); }
+    finally { setAddBusy(false); }
+  };
+
+  return <><Header /><main className="consumable-grn-page">
+    <Link to="/inventory/consumable" className="erp-back-button"><ArrowLeft size={16} /> Back</Link>
+    <header className="consumable-grn-header"><h1 className="consumable-grn-title">Consumable GRN</h1><p className="consumable-grn-subtitle">Record direct receipts, manage categories and varieties, and correct GRNs safely.</p></header>
+    <section className="consumable-grn-summary-grid">
+      {[["Total GRNs", stats.grns, ClipboardList, "total"], ["Received Quantity", formatQty(stats.quantity), PackagePlus, "pending"], ["Varieties Received", stats.varieties, Layers, "partial"], ["Warehouses", stats.warehouses, Warehouse, "completed"]].map(([label, value, Icon, color]) => <div key={label} className={`consumable-grn-summary-card consumable-grn-${color}-card`}><div className="consumable-grn-summary-icon"><Icon size={22} /></div><div className="consumable-grn-summary-content"><span className="consumable-grn-summary-label">{label}</span><span className="consumable-grn-summary-value">{value}</span></div></div>)}
+    </section>
+    <div className="consumable-grn-toolbar"><label className="consumable-grn-search"><Search size={18}/><input className="consumable-grn-search-input" placeholder="Search GRN, supplier, consumable, variety, warehouse..." value={search} onChange={e => setSearch(e.target.value)} /></label><div className="consumable-grn-toolbar-actions"><button className="consumable-grn-refresh-btn" disabled={refreshing || loading} onClick={() => fetchAll(true)}><RefreshCw size={17} className={refreshing ? "consumable-grn-spin" : ""}/> Refresh</button><button className="consumable-grn-add-btn" onClick={openCreate}><PackagePlus size={17}/> New GRN</button></div></div>
+    {error && <div className="consumable-grn-error-box">{error} <button onClick={() => fetchAll(true)}>Retry</button></div>}
+    <section className="consumable-grn-table-card"><div className="consumable-grn-table-header"><div><h2 className="consumable-grn-table-title">GRN Records</h2><p className="consumable-grn-table-subtitle">Individual receipts remain separate even when stock is combined.</p></div></div><div className="consumable-grn-table-wrapper"><table className="consumable-grn-table"><thead><tr>{["GRN No.", "Received Date", "Category", "Consumable", "Variety", "Size", "Description", "Supplier", "Invoice", "Warehouse", "Received Qty", "Unit", "Received By", "Action"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+      {loading ? <tr><td colSpan={14} className="consumable-grn-empty-row"><Loading /></td></tr> : filtered.length === 0 ? <tr><td colSpan={14} className="consumable-grn-empty-row">No GRNs found.</td></tr> : filtered.map(g => <tr key={g.id}><td><strong>{g.grn_number}</strong></td><td>{g.received_date || "—"}</td><td>{text(g.category)}</td><td>{text(g.consumable_name)}</td><td>{text(g.consumable_variety?.variety_code || g.variety_code) || "—"}</td><td>{text(g.consumable_variety?.size || g.variety_size) || "—"}</td><td>{text(g.consumable_variety?.description || g.variety_description) || "—"}</td><td>{text(g.supplier)}</td><td>{text(g.supplier_invoice_number) || "—"}</td><td>{g.warehouse}</td><td>{formatQty(g.received_quantity)}</td><td>{g.unit}</td><td>{g.received_by}</td><td><button className="consumable-grn-receive-btn" onClick={() => openEdit(g)}><Pencil size={15}/> Edit</button></td></tr>)}
+    </tbody></table></div></section>
+    {modal && <div className="consumable-grn-modal-overlay" onMouseDown={e => { if (e.target === e.currentTarget) close(); }}><div className="consumable-grn-modal consumable-grn-modal-large" role="dialog" aria-modal="true" aria-label={modal === "create" ? "New GRN" : "Edit GRN"}><div className="consumable-grn-modal-header"><div><h2 className="consumable-grn-modal-title">{modal === "create" ? "New Direct GRN" : `Edit ${editing?.grn_number}`}</h2><p className="consumable-grn-modal-subtitle">{modal === "create" ? "Select or create a category, consumable, and variety." : "Variety and warehouse cannot be changed after receipt. Quantity changes are validated by the server."}</p></div><button className="consumable-grn-modal-close" onClick={close} disabled={busy}><X size={20}/></button></div><div className="consumable-grn-modal-body"><form className="consumable-grn-form" onSubmit={submit}>{formError && <div className="consumable-grn-form-error">{formError}</div>}
+      {modal === "create" ? <><div className="consumable-grn-form-grid"><div className="consumable-grn-form-group"><label>Category *</label><div className="consumable-grn-inline"><select value={form.category_id} onChange={e => change("category_id", e.target.value)} required><option value="">Select category</option>{categories.filter(c => c.is_active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select><button type="button" className="consumable-grn-inline-add" title="Add category" onClick={() => openAdd("category")}><Plus size={17}/></button></div></div><div className="consumable-grn-form-group"><label>Consumable *</label><div className="consumable-grn-inline"><select value={form.consumable_id} onChange={e => change("consumable_id", e.target.value)} disabled={!form.category_id} required><option value="">Select consumable</option>{categoryMasters.filter(m => m.is_active !== false).map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}</select><button type="button" className="consumable-grn-inline-add" title="Add consumable" disabled={!form.category_id} onClick={() => openAdd("master")}><Plus size={17}/></button></div></div><div className="consumable-grn-form-group"><label>Variety *</label><div className="consumable-grn-inline"><select value={form.consumable_variety} onChange={e => change("consumable_variety", e.target.value)} disabled={!form.consumable_id} required><option value="">Select variety</option>{masterVarieties.filter(v => v.is_active !== false).map(v => <option key={v.id} value={v.id}>{v.variety_code} · {v.size} · {v.description}</option>)}</select><button type="button" className="consumable-grn-inline-add" title="Add variety" disabled={!form.consumable_id} onClick={() => openAdd("variety")}><Plus size={17}/></button></div></div><div className="consumable-grn-form-group"><label>Unit</label><input value={chosenMaster?.unit || ""} disabled /></div></div>{chosenVariety && <div className="consumable-grn-selection">Variety <b>{chosenVariety.variety_code}</b> · Size: <b>{chosenVariety.size}</b> · {chosenVariety.description}</div>}</> : <div className="consumable-grn-selection"><b>{editing?.category}</b> / <b>{editing?.consumable_name}</b> · {editing?.warehouse}</div>}
+      <div className="consumable-grn-form-grid">
+      {[["supplier", "Supplier *", "text"], ["supplier_invoice_number", "Supplier Invoice No.", "text"], ["quantity", "Received Quantity *", "number"], ["received_date", "Received Date", "date"], ["received_by", "Received By *", "text"], ["buffer_stock_limit", "Buffer Stock Limit", "number"]].map(([key, label, type]) => <div className="consumable-grn-form-group" key={key}><label>{label}</label><input type={type} min={type === "number" ? (key === "quantity" ? "0.001" : "0") : undefined} step={type === "number" ? "0.001" : undefined} value={form[key]} onChange={e => change(key, e.target.value)} required={["supplier", "quantity", "received_by"].includes(key)} /></div>)}
+      {modal === "create" && <div className="consumable-grn-form-group"><label>Warehouse *</label><select required value={form.warehouse} onChange={e => change("warehouse", e.target.value)}><option value="">Select warehouse</option>{WAREHOUSES.map(w => <option key={w}>{w}</option>)}</select></div>}
+      <div className="consumable-grn-form-group consumable-grn-form-group-full"><label>Remarks</label><textarea value={form.remarks} onChange={e => change("remarks", e.target.value)} /></div></div>
+      <div className="consumable-grn-form-actions"><button type="button" className="consumable-grn-cancel-btn" disabled={busy} onClick={close}>Cancel</button><button className="consumable-grn-save-btn" disabled={busy}>{busy ? "Saving..." : modal === "create" ? "Create GRN" : "Save Changes"}</button></div>
+    </form></div></div></div>}
+    {addKind && <div className="consumable-grn-modal-overlay consumable-grn-nested-overlay"><div className="consumable-grn-modal consumable-grn-mini-modal" role="dialog" aria-modal="true"><div className="consumable-grn-modal-header"><h2 className="consumable-grn-modal-title">Add {addKind === "master" ? "Consumable" : addKind === "variety" ? "Variety" : "Category"}</h2><button className="consumable-grn-modal-close" onClick={() => !addBusy && setAddKind(null)}><X size={19}/></button></div><div className="consumable-grn-modal-body"><form className="consumable-grn-form" onSubmit={saveAdd}>{addError && <div className="consumable-grn-form-error">{addError}</div>}{addKind !== "variety" ? <><div className="consumable-grn-form-group"><label>Name *</label><input required value={addForm.name} onChange={e => setAddForm(p => ({ ...p, name: e.target.value }))} /></div>{addKind === "master" && <div className="consumable-grn-form-group"><label>Unit *</label><input required value={addForm.unit} onChange={e => setAddForm(p => ({ ...p, unit: e.target.value }))} placeholder="Nos, Kg, Litre" /></div>}</> : <><div className="consumable-grn-form-group"><label>Size *</label><input required value={addForm.size} onChange={e => setAddForm(p => ({ ...p, size: e.target.value }))} placeholder="M10 × 50" /></div><div className="consumable-grn-form-group"><label>Description *</label><textarea required value={addForm.description} onChange={e => setAddForm(p => ({ ...p, description: e.target.value }))} placeholder="Hex Head" /></div><p className="consumable-grn-helper">The backend assigns the next variety code automatically (A, B, C...).</p></>}
+      <div className="consumable-grn-form-actions"><button type="button" className="consumable-grn-cancel-btn" disabled={addBusy} onClick={() => setAddKind(null)}>Cancel</button><button className="consumable-grn-save-btn" disabled={addBusy}>{addBusy ? "Saving..." : "Add"}</button></div></form></div></div></div>}
+  </main></>;
 }
