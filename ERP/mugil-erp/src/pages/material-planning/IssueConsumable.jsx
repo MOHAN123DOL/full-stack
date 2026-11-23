@@ -52,24 +52,29 @@ const errText = (e) => {
       .find((x) => typeof x === "string");
   return value || e.message || "Request failed";
 };
-const varietyId = (s) =>
-  pick(
+const varietyId = (s) => {
+  const raw = pick(
     s,
+    "varietyId",
     "variety_id",
     "consumable_variety_id",
+    "consumableVarietyId",
     "consumable_variety",
-    "varietyId",
-    "variety_id_value",
-    "variety",
-  )?.id ??
-  pick(
-    s,
-    "variety_id",
-    "consumable_variety_id",
-    "consumable_variety",
-    "varietyId",
-    "variety",
   );
+  const id = raw && typeof raw === "object" ? raw.id : raw;
+  return id === "" || id == null ? null : id;
+};
+// For legacy stock without a variety, the backend accepts /issue/<grn_id>/.
+// Prefer an explicit GRN identifier; only treat `id` as a GRN id when
+// the stock response also identifies a GRN (not a synthetic group row).
+const grnId = (s) => {
+  const raw = pick(s, "grnId", "grn_id", "grnPk", "grn_pk");
+  if (raw != null) return raw;
+  const ids = pick(s, "grnIds", "grn_ids");
+  if (Array.isArray(ids) && ids.length === 1) return ids[0];
+  if (pick(s, "grnNumber", "grn_number") != null) return s.id ?? null;
+  return null;
+};
 const category = (s) => display(pick(s, "category", "category_name"));
 const master = (s) =>
   display(
@@ -151,23 +156,21 @@ export default function IssueConsumable() {
     load();
   }, [load]);
 
-  // Stock API is authoritative for balances. Merge duplicate variety/warehouse rows only.
-  const combined = useMemo(() => {
-    const map = new Map();
-    for (const s of stocks) {
-      const id = varietyId(s);
-      const key =
-        id != null && typeof id !== "object"
-          ? `${id}|${warehouse(s).trim().toLowerCase()}`
-          : `${category(s)}|${master(s)}|${variety(s)}|${warehouse(s)}`.toLowerCase();
-      if (!map.has(key))
-        map.set(key, { ...s, _key: key, _available: 0, _count: 0 });
-      const row = map.get(key);
-      row._available += available(s);
-      row._count++;
-    }
-    return [...map.values()];
-  }, [stocks]);
+  // The stock API is authoritative for balances. Its grouped rows must
+  // not be added together again: doing so can double-count stock.
+  // Legacy GRNs without a variety remain separate issueable records.
+  const combined = useMemo(
+    () =>
+      stocks.map((s, index) => ({
+        ...s,
+        _key:
+          varietyId(s) != null
+            ? `variety:${varietyId(s)}|${warehouse(s)}|${index}`
+            : `grn:${grnId(s) ?? `unknown-${index}`}`,
+        _available: available(s),
+      })),
+    [stocks],
+  );
   const filtered = combined.filter((s) =>
     [
       category(s),
@@ -260,16 +263,21 @@ export default function IssueConsumable() {
       if (modal.type === "create") {
         const s = modal.item;
         const id = varietyId(s);
-        if (!id || typeof id === "object")
-          throw new Error(
-            "Stock response must include variety_id / consumable_variety_id for combined-stock issuing.",
+        if (id != null && id !== "") {
+          await api.post(
+            ISSUE_URL,
+            { ...payload, varietyId: id, warehouse: warehouse(s) },
+            { headers },
           );
-        // New direct issue API; no GRN ID in URL.
-        await api.post(
-          ISSUE_URL,
-          { ...payload, consumable_variety: id, warehouse: warehouse(s) },
-          { headers },
-        );
+        } else {
+          const sourceGrnId = grnId(s);
+          if (sourceGrnId == null || sourceGrnId === "") {
+            throw new Error(
+              "This stock has no variety or GRN ID. The issue-stock API must return grnId for legacy stock.",
+            );
+          }
+          await api.post(`${ISSUE_URL}${sourceGrnId}/`, payload, { headers });
+        }
       } else {
         await api.patch(`${HISTORY_URL}${modal.item.id}/`, payload, {
           headers,
