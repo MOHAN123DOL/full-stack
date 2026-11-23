@@ -2627,18 +2627,16 @@ class QuotationCreateAPIView(APIView):
             customer = (
                 Customer.objects
                 .filter(
-                    company_name__iexact=customer_name,
-                    source=Customer.Source.QUOTATION,
+                    company_name__iexact=customer_name.strip(),
                 )
                 .first()
             )
 
             if customer is None:
-
                 return Response(
                     {
                         "success": False,
-                        "message": "Quotation customer not found.",
+                        "message": "Customer not found.",
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
